@@ -34,6 +34,8 @@ import { BOSS_BANNED_BACKGROUNDS } from './data/terrain.js';
 // 见那边的长注释 —— 在 main.js 手抄字段名正是 curse 漏存的根因。
 import { serializeStatMods, restoreStatMods } from './core/stats.js';
 import { neko, EVENT } from './neko-integration.js';
+// 第一百二十四轮：插件环境 → 官方猫娘通道（插件 action → push_message）
+import { pluginBridge } from './plugin-bridge.js';
 // 第四十九轮：隐藏挑战 Boss 芙兰朵露（素材与弹幕规格来自 touhou-flandre 拆包）
 import { FlandreFight, flandreUnlockOk, ARENA } from './systems/flandre.js';
 
@@ -174,6 +176,13 @@ export class Game {
     } catch {
       this.nekoReady = false;
     }
+    // 第一百二十四轮：SDK 没连上（插件面板/纯网页）→ 探测官方猫娘通道。
+    // 插件面板里 ui-info 探活成功即启用；本地/部署环境探活 404，桥保持禁用。
+    if (!this.nekoReady) {
+      pluginBridge.init()
+        .then((on) => { if (on) this.ui.setNekoStatus(neko.status()); })
+        .catch(() => { /* 探测失败：桥保持禁用 */ });
+    }
   }
 
   /**
@@ -236,8 +245,21 @@ export class Game {
 
   /** 统一的吐槽入口：任何异常都不影响游戏 */
   _nekoComment(event, ctx = {}) {
-    if (!this.nekoReady) return;
-    neko.comment(event, ctx).catch(() => { /* 忽略 */ });
+    if (this.nekoReady) {
+      neko.comment(event, ctx).catch(() => { /* 忽略 */ });
+      return;
+    }
+    // 第一百二十四轮：插件环境（SDK 没连上）→ 走官方猫娘通道：
+    // 同源 POST 插件 action → Python push_message(ai_behavior="respond")
+    // → 官方猫娘在聊天界面带形象+语音播报战况。非插件环境桥是禁用的，零开销。
+    this._pluginComment(event, ctx);
+  }
+
+  /** 插件环境限频播报（详细间隔由插件 Python 侧再兜一层） */
+  _pluginComment(event, ctx = {}) {
+    try {
+      pluginBridge.report(event, pluginBridge.formatEvent(event, ctx), 25);
+    } catch { /* 永不影响游戏 */ }
   }
 
   /**

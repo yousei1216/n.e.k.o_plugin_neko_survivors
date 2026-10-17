@@ -1,4 +1,6 @@
 {
   "plugin.name": "NEKO Sisters: Survivors",
-  "plugin.description": "A bullet-heaven survival roguelite bundled inside the plugin: dodge with WASD, weapons fire automatically, collect, upgrade and synthesize, and survive 20 waves. Open the panel and play. Nightmare difficulty hides a secret boss."
+  "plugin.description": "A bullet-heaven survival roguelite bundled inside the plugin: dodge with WASD, weapons fire automatically, collect, upgrade and synthesize, and survive 20 waves. Open the panel and play. Nightmare difficulty hides a secret boss. The catgirl auto-reports your run in the chat.",
+  "entries.game_event.name": "Game event report",
+  "entries.game_event.description": "Receives in-game events (waves/bosses/results) and lets the official catgirl react in chat. Called automatically by the game page, with rate limiting built in."
 }
