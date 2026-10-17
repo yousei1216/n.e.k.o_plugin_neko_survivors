@@ -300,7 +300,13 @@ const SPELLS = {
             // 第九十七轮：激光扫中也按芙兰战口径给 1s 无敌帧
             //（普通关卡的 0.8/0.6 分档不适用于她的战斗）
             if (dist < L.width + (p.radius ?? 10)) {
-              p.takeDamage(10, p.x, p.y, { invuln: FLANDRE_HIT_INVULN, noTaken: true });
+              // 第一百三十轮：激光扫中从固定 10 点真伤改为 16% 最大血量真伤。
+              // 用户："挑战模式的悠怡只有 24 血，被扫一次扣 10 相当于将近
+              // 40% 真伤了"——按血量百分比后 24 血 ≈ 4 点（弹幕 22% 与激光
+              // 16% 拉开梯度），高血量角色也不会被激光扫一下白给太多。
+              // 口径与 flandreHit 一致：max(1, round(maxHp × frac))。
+              const dmg = Math.max(1, Math.round(p.stats.get('maxHp') * 0.16));
+              p.takeDamage(dmg, p.x, p.y, { invuln: FLANDRE_HIT_INVULN, noTaken: true });
             }
           }
         }

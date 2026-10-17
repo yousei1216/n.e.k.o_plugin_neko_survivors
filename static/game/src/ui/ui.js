@@ -1024,8 +1024,26 @@ export class UI {
   /**
    * 第 20 波通关后询问是否继续（用户第四轮要求）。
    * 不直接结算，让玩家自己选"见好就收"还是"继续挑战"。
+   * 第一百二十九轮：战绩块补齐成与结算页同款六项（用户："通关 20 波
+   * 只显示等级和击杀，我记得之前显示很多的来着"——这个询问页一直只有
+   * 两项，看着像结算页缩水了）；Boss 提示文案更新为第四十八轮的现行
+   * 出场表（旧文案"每 5 波一个 Boss"是第四轮的，早就过时了）。
    */
-  showEndlessPrompt({ wave, player, onContinue, onStop }) {
+  showEndlessPrompt({ wave, player, stats = null, onContinue, onStop }) {
+    const s = stats || null;
+    const statRows = s
+      ? [
+          ['到达波次', `${wave} / ${wave}`],
+          ['击杀数', s.kills],
+          ['造成伤害', Math.round(s.damageDealt)],
+          ['承受伤害', Math.round(s.damageTaken)],
+          ['角色等级', player.level],
+          ['存活时间', `${Math.floor(s.timeAlive)} 秒`],
+        ]
+      : [
+          ['等级', `Lv.${player.level}`],
+          ['击杀', player.kills],
+        ];
     const root = this._mount(`
       <div class="screen narrow">
         <h1 style="font-size:30px">通关！</h1>
@@ -1033,11 +1051,12 @@ export class UI {
           你带着猫娘们撑过了全部 ${wave} 波。要进入<b>无限模式</b>继续吗？
         </div>
         <div class="result-stats">
-          <div class="result-stat"><div class="k">等级</div><div class="v">Lv.${player.level}</div></div>
-          <div class="result-stat"><div class="k">击杀</div><div class="v">${player.kills}</div></div>
+          ${statRows.map(([k, v]) => `<div class="result-stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('')}
         </div>
         <div class="card-desc" style="margin:12px 0">
-          第 21 波起敌人属性与数量翻倍，之后每 5 波一个 Boss。
+          第 21 波起敌人属性与数量翻倍；Boss 会以 1 → 2 → 3 → 4 只的规模
+          轮番登场，间隔越来越短，后期每波都是四连决战——见好就收也是
+          一种勇气。
         </div>
         <div class="btn-row">
           <button class="btn primary" data-act="go">继续挑战（无限模式）</button>

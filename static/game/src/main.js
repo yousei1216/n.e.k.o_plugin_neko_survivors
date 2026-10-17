@@ -1397,6 +1397,14 @@ export class Game {
     this.ui.showEndlessPrompt({
       wave: waveReached,
       player: p,
+      // 第一百二十九轮：战绩块与结算页同款六项（用户："通关 20 波只显示
+      // 等级和击杀，我记得之前显示很多的来着"）
+      stats: {
+        kills: p.kills,
+        damageDealt: p.damageDealt,
+        damageTaken: p.damageTaken,
+        timeAlive: p.timeAlive,
+      },
       onContinue: () => {
         // 打开无限模式：从第 21 波继续
         this.endlessEnabled = true;
