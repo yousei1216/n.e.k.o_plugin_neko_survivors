@@ -25,7 +25,7 @@ from __future__ import annotations
 import time
 
 try:  # 官方打包/运行环境：真实 SDK
-    from plugin.sdk.plugin import Err, NekoPluginBase, Ok, SdkError, neko_plugin, plugin_entry, tr
+    from plugin.sdk.plugin import Err, NekoPluginBase, Ok, SdkError, neko_plugin, plugin_entry, tr, ui
 except ModuleNotFoundError:  # 本地跑测试（无 NEKO SDK）时的等价兜底
     def neko_plugin(cls):  # type: ignore[misc]
         return cls
@@ -34,6 +34,21 @@ except ModuleNotFoundError:  # 本地跑测试（无 NEKO SDK）时的等价兜�
         def deco(fn):
             return fn
         return deco
+
+    class _UiStub:  # type: ignore[no-redef]
+        @staticmethod
+        def action(**_kwargs):
+            def deco(fn):
+                return fn
+            return deco
+
+        @staticmethod
+        def context(**_kwargs):
+            def deco(fn):
+                return fn
+            return deco
+
+    ui = _UiStub()  # type: ignore[assignment]
 
     def tr(key, default=None, **_kwargs):  # type: ignore[misc]
         return default
@@ -80,6 +95,9 @@ class SurvivorsPlugin(NekoPluginBase):
         self._last_event_at: dict[str, float] = {}
         self._last_any_at = 0.0
 
+    # @ui.action 把这个入口挂进面板 action 白名单 —— 没有它，
+    # hosted-ui/action/game_event 会 403 "not exposed by surface"。
+    @ui.action(id="game_event", label=tr("entries.game_event.name", default="游戏战况播报"), icon="gamepad")
     @plugin_entry(
         id="game_event",
         name=tr("entries.game_event.name", default="游戏战况播报"),

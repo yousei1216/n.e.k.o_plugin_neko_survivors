@@ -68,6 +68,8 @@ def test_manifest_and_bridge_pins():
     init = (root / "__init__.py").read_text(encoding="utf-8")
     assert 'id="game_event"' in init
     assert 'ai_behavior="respond"' in init
+    assert '@ui.action(id="game_event"' in init       # action 白名单（没它面板 403）
+    assert 'permissions = ["action:call"]' in toml    # surface 允许调 action
     bridge = (root / "static" / "game" / "src" / "plugin-bridge.js").read_text(encoding="utf-8")
     assert "hosted-ui/action/game_event" in bridge   # 同源 action 通道
     assert "fetch('/static" not in bridge            # 不再跨域读静态模型资源
