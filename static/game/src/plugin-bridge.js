@@ -66,25 +66,29 @@ export const pluginBridge = {
   },
 
   /**
-   * 第一百二十五轮：照念台词 —— 走宿主官方 TTS（/api/game/<type>/speak
-   * 的 B 层输出通道，和内置小游戏台词同一条管线）。宠物业/天气台词、
-   * 各种 _nekoSay 固定台词都从这里出声。
+   * 照念台词 —— 走宿主官方 TTS（/api/game/<type>/speak 的 B 层输出通道，
+   * 和内置小游戏台词同一条管线）。宠物业/天气台词、各种 _nekoSay 固定
+   * 台词都从这里出声。
+   * 第一百二十八轮：**去掉 CD** —— 官方 TTS 不走 LLM、完全免费，限频只会
+   * 把密集台词（隐藏 Boss 战的连发提示）整句吞掉；排队/打断交给官方管线。
    */
-  say(text, minGapSec = 3) {
-    this._post('speak', { text: String(text || '').slice(0, 200) }, minGapSec, 'speak');
+  say(text) {
+    this._post('speak', { text: String(text || '').slice(0, 300) }, 0, 'speak');
   },
 
-  /** 统一限频 POST action（fire-and-forget） */
+  /** 统一限频 POST action（fire-and-forget；minGapSec<=0 表示不限） */
   _post(action, args, minGapSec, gapKey) {
     if (!this.enabled) return;
     const now = Date.now() / 1000;
     const key = gapKey || action;
-    const last = this._last.get(key) || 0;
-    if (now - last < minGapSec) {
-      console.log(`[neko-bridge] ${action} 被客户端限频吞掉（距上次 ${Math.round(now - last)}s < ${minGapSec}s）`);
-      return;
+    if (minGapSec > 0) {
+      const last = this._last.get(key) || 0;
+      if (now - last < minGapSec) {
+        console.log(`[neko-bridge] ${action} 被客户端限频吞掉（距上次 ${Math.round(now - last)}s < ${minGapSec}s）`);
+        return;
+      }
+      this._last.set(key, now);
     }
-    this._last.set(key, now);
     const url = ACTION_URL(action);
     console.log(`[neko-bridge] → POST ${url}:`, args);
     fetch(url, {

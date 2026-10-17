@@ -121,8 +121,9 @@ _MIN_GAPS: dict[str, float] = {
     "death": 10.0,
     "win": 10.0,
 }
-_GLOBAL_GAP = 12.0    # 战况播报的全局最小间隔
-SPEAK_GAP = 2.5       # 照念台词的最小间隔（技能/天气台词本身低频）
+_GLOBAL_GAP = 12.0    # 战况播报（respond，走 LLM）的全局最小间隔
+# 照念台词（speak）**不设 CD**：官方 TTS 管线不走 LLM、完全免费，排队与
+# 打断由宿主管线自己处理（用户：限频会整句吞掉隐藏 Boss 战的连发提示）。
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._\-/]")
 
@@ -244,17 +245,11 @@ class SurvivorsPlugin(NekoPluginBase):
         },
     )
     async def speak(self, text: str = "", **_):
-        """照念台词：转发宿主 /api/game/<type>/speak（官方 TTS 管线）。"""
+        """照念台词：转发宿主 /api/game/<type>/speak（官方 TTS 管线，无 CD）。"""
         log = getattr(self, "logger", None)
         safe = str(text or "").strip()[:300]
         if not safe:
             return Err(SdkError("empty text"))
-        now = time.monotonic()
-        if now - self._last_speak_at < SPEAK_GAP:
-            if log:
-                log.info("[neko_survivors] speak 被节流（%.1fs 间隔）", now - self._last_speak_at)
-            return Ok({"status": "throttled"})
-        self._last_speak_at = now
 
         lanlan = await self._current_lanlan()
         if not lanlan:

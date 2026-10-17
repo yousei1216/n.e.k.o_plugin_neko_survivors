@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -96,12 +97,24 @@ def test_speak_forwards_to_host_tts():
     assert "YUI" in payload                                 # lanlan_name 自动带
 
 
-def test_speak_throttled():
+def test_speak_no_throttle_anymore():
+    """第一百二十八轮：speak 无 CD —— 连发三句全部转发（官方 TTS 免费）。"""
     p, _log = _make()
-    p._http_request = lambda *a, **k: (200, b'{"ok":true}')
-    asyncio.run(p.speak(text="第一句"))
-    r = asyncio.run(p.speak(text="第二句"))
-    assert (getattr(r, "value", None) or {}).get("status") == "throttled"
+    sent: list = []
+
+    def fake_req(method, path, body=None, timeout=15.0):
+        if path == "/api/characters":
+            return 200, '{"当前猫娘":"YUI"}'.encode("utf-8")
+        if path.endswith("/speak"):
+            sent.append(json.loads(body.decode("utf-8"))["line"])
+            return 200, b'{"ok":true,"method":"project_tts"}'
+        return 404, b""
+
+    p._http_request = fake_req
+    for line in ("第一句", "第二句", "第三句"):
+        r = asyncio.run(p.speak(text=line))
+        assert getattr(r, "value", {}).get("status") == "spoken"
+    assert sent == ["第一句", "第二句", "第三句"]
 
 
 def test_sync_avatar_pins_and_model_refs():

@@ -316,6 +316,17 @@ export class NekoIntegration {
     } catch { /* 气泡失败无所谓 */ }
   }
 
+  /**
+   * 第一百二十八轮：公开的气泡入口 —— 给桥模式用。
+   * 插件面板里语音由官方 TTS 出声，但游戏内小小猫娘头顶的
+   * 台词气泡也要照画（用户："猫娘说话，但是小小猫娘没有气泡"），
+   * 视觉上和本地版保持一致。
+   */
+  showBubble(text) {
+    if (!text) return;
+    this._showBubble(String(text));
+  }
+
   /** 等待 DOM 就绪（已经就绪则立即返回） */
   _waitDomReady() {
     if (typeof document === 'undefined') return Promise.resolve();

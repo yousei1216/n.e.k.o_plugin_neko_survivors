@@ -287,7 +287,8 @@ export class Game {
     }
     try {
       if (pluginBridge.enabled) {
-        pluginBridge.say(text);
+        neko.showBubble(text);   // 游戏内气泡照画（第一百二十八轮：桥模式不再"只有声音没有气泡"）
+        pluginBridge.say(text);  // 语音走官方 TTS（无 CD，台词不再被吞）
         return true;
       }
     } catch { /* 永不影响游戏 */ }
