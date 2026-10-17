@@ -16,9 +16,26 @@
 // 整个桥静默禁用，零开销。
 // ============================================================
 
-const BASE = '/plugin/neko_survivors';
-const ACTION_URL = `${BASE}/hosted-ui/action/game_event`;
-const PROBE_URL = `${BASE}/ui-info`;
+/**
+ * 第一百二十七轮：基址不再写死 —— 运行时从页面路径推导。
+ * 游戏就跑在插件面板的 iframe 里，pathname 一定是 /plugin/<id>/ui/...；
+ * 从这里截出 /plugin/<id>，再拼出 action 探活 URL，并用 new URL(...,origin)
+ * 绝对化 —— 杜绝任何"相对路径被页面基址吃掉前缀"的可能。
+ * （用户抓包：请求打到了 hosted-ui/action/game_event —— 少了插件前缀；
+ *   无论根因是缓存还是解析，这一版都会把完整 URL 打进控制台。）
+ */
+function deriveBase() {
+  try {
+    const m = location.pathname.match(/^(\/plugin\/[^/]+)\/ui\//);
+    if (m) return m[1];
+  } catch { /* 忽略，走兜底 */ }
+  return '/plugin/neko_survivors';
+}
+
+const BASE = deriveBase();
+const ABS = (path) => new URL(path, location.origin).href;
+const ACTION_URL = (action) => ABS(`${BASE}/hosted-ui/action/${action}`);
+const PROBE_URL = ABS(`${BASE}/ui-info`);
 
 export const pluginBridge = {
   enabled: false,
@@ -28,12 +45,13 @@ export const pluginBridge = {
   /** 探测是否跑在插件面板里（同源探活，失败即禁用） */
   async init() {
     try {
+      console.log('[neko-bridge] 探活 URL：', PROBE_URL, '（页面路径：', location.pathname, '）');
       const r = await fetch(PROBE_URL, { method: 'GET' });
       this.enabled = r.ok;
     } catch {
       this.enabled = false;
     }
-    console.log(`[neko-bridge] 探活 ${PROBE_URL} → ${this.enabled ? '命中，桥启用' : '未命中，桥禁用（本地/宿主环境走原通道）'}`);
+    console.log(`[neko-bridge] 探活结果 → ${this.enabled ? '命中，桥启用' : '未命中，桥禁用（本地/宿主环境走原通道）'}`);
     return this.enabled;
   },
 
@@ -67,8 +85,9 @@ export const pluginBridge = {
       return;
     }
     this._last.set(key, now);
-    console.log(`[neko-bridge] → POST ${action}:`, args);
-    fetch(`${BASE}/hosted-ui/action/${action}`, {
+    const url = ACTION_URL(action);
+    console.log(`[neko-bridge] → POST ${url}:`, args);
+    fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ args, kind: 'panel' }),
