@@ -10,7 +10,6 @@ from pathlib import Path
 def _load_plugin_class():
     root = Path(__file__).resolve().parents[1]
     # 目录名带前缀不能直接 import，按文件路径加载
-    import importlib.util
     spec = importlib.util.spec_from_file_location("neko_survivors_pkg", root / "__init__.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
