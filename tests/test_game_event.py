@@ -1,19 +1,31 @@
-"""game_event 官方猫娘播报通道的行为测试（本地无 SDK，走兜底壳）。"""
+"""game_event / speak 官方猫娘通道的行为测试（本地无 SDK，走兜底壳）。"""
 
 from __future__ import annotations
 
 import asyncio
 import importlib.util
+import sys
 from pathlib import Path
+
+import pytest
+
+
+def _load_module():
+    root = Path(__file__).resolve().parents[1]
+    # 目录名带前缀不能直接 import，按文件路径加载并注册进 sys.modules
+    spec = importlib.util.spec_from_file_location("neko_survivors_pkg", root / "__init__.py")
+    m = importlib.util.module_from_spec(spec)
+    sys.modules["neko_survivors_pkg"] = m
+    spec.loader.exec_module(m)
+    return m
+
+
+_MOD = _load_module()
+_safe_rel = _MOD._safe_rel
 
 
 def _load_plugin_class():
-    root = Path(__file__).resolve().parents[1]
-    # 目录名带前缀不能直接 import，按文件路径加载
-    spec = importlib.util.spec_from_file_location("neko_survivors_pkg", root / "__init__.py")
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m.SurvivorsPlugin
+    return _MOD.SurvivorsPlugin
 
 
 def _make():
@@ -22,6 +34,9 @@ def _make():
     p = object.__new__(cls)
     p._last_event_at = {}
     p._last_any_at = 0.0
+    p._last_speak_at = 0.0
+    p._lanlan_cache = (0.0, "")
+    p._sync_task = None
 
     def fake_push(**kwargs):
         log.append(kwargs)
@@ -57,6 +72,57 @@ def test_empty_text_rejected():
     r = asyncio.run(p.game_event(event="win", text="   "))
     assert not hasattr(r, "value") or getattr(r, "value", None) is None  # Err 分支
     assert len(log) == 0
+
+
+def test_speak_forwards_to_host_tts():
+    p, _log = _make()
+    calls: list = []
+
+    def fake_req(method, path, body=None, timeout=15.0):
+        calls.append((method, path, body))
+        if path == "/api/characters":
+            return 200, '{"当前猫娘":"YUI"}'.encode("utf-8")
+        if path.endswith("/speak"):
+            return 200, b'{"ok":true,"method":"project_tts"}'
+        return 404, b""
+
+    p._http_request = fake_req
+    r = asyncio.run(p.speak(text="干得漂亮，喵。"))
+    assert getattr(r, "value", {}).get("status") == "spoken"
+    method, path, body = calls[-1]
+    assert method == "POST" and path.endswith("/api/game/neko_survivors/speak")
+    payload = body.decode("utf-8")
+    assert '"line"' in payload and "干得漂亮" in payload   # 照念台词原样转发
+    assert "YUI" in payload                                 # lanlan_name 自动带
+
+
+def test_speak_throttled():
+    p, _log = _make()
+    p._http_request = lambda *a, **k: (200, b'{"ok":true}')
+    asyncio.run(p.speak(text="第一句"))
+    r = asyncio.run(p.speak(text="第二句"))
+    assert (getattr(r, "value", None) or {}).get("status") == "throttled"
+
+
+def test_sync_avatar_pins_and_model_refs():
+    root = Path(__file__).resolve().parents[1]
+    init = (root / "__init__.py").read_text(encoding="utf-8")
+    assert '@lifecycle(id="startup")' in init            # 启动自动同步
+    assert '"/api/game/{GAME_TYPE}/speak"' in init       # 官方 TTS 转发
+    assert 'current.json' in init                        # 前端模型清单
+    assert "_safe_rel" in init                           # 路径穿越防护
+    p, _log = _make()
+    refs = p._model_refs({"FileReferences": {
+        "Moc": "a.moc3", "Textures": ["t1.png", "t2.png"], "Physics": "p.json",
+        "Expressions": [{"File": "e.exp3.json"}],
+        "Motions": {"Idle": [{"File": "m.motion3.json", "Sound": "s.wav"}]},
+    }})
+    assert refs == ["a.moc3", "p.json", "t1.png", "t2.png",
+                    "e.exp3.json", "m.motion3.json", "s.wav"]
+    with pytest.raises(ValueError):
+        _safe_rel("../evil.png")
+    with pytest.raises(ValueError):
+        _safe_rel("a/../../b.png")
 
 
 def test_manifest_and_bridge_pins():

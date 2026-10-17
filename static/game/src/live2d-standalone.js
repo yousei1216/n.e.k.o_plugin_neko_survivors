@@ -38,6 +38,30 @@ const ENGINE_SCRIPTS = [
 /** avatar-host 本身（本地 neko-sdk/ 通过 server.mjs 别名映射到这个路径） */
 const AVATAR_HOST_SRC = '/static/game/sdk/neko-minigame-avatar-host.js';
 
+/**
+ * 第一百二十五轮：插件面板模式基址。
+ *
+ * 插件 iframe 的源（48916）上没有 /static/libs 这些 NEKO 资源，
+ * 但插件的 Python 壳会在启动时把当前猫娘的模型与引擎同步进
+ * static/vendor/，随面板同源伺服。这里从 pathname 提取
+ * `/plugin/<id>/ui/` 前缀，引擎与模型一律改从插件 vendor 加载。
+ *
+ * @returns {string|null} 插件基址（如 '/plugin/neko_survivors/ui/'），非插件环境 null
+ */
+export function pluginUiBase() {
+  const m = location.pathname.match(/^(\/plugin\/[^/]+\/ui\/)/);
+  return m ? m[1] : null;
+}
+
+function engineSources() {
+  const base = pluginUiBase();
+  if (!base) return { host: AVATAR_HOST_SRC, scripts: ENGINE_SCRIPTS };
+  return {
+    host: `${base}vendor/neko-minigame-avatar-host.js`,
+    scripts: ENGINE_SCRIPTS.map((src) => `${base}vendor/engine/${src.split('/').pop()}`),
+  };
+}
+
 let _enginePromise = null;
 
 /** 插一个 <script>，加载失败要 reject（否则后面报错看不懂） */
@@ -67,9 +91,10 @@ function loadScript(src) {
 export function ensureEngine() {
   if (_enginePromise) return _enginePromise;
   _enginePromise = (async () => {
+    const { host, scripts } = engineSources();
     // avatar-host 优先：它提供 mount 契约和 fitLive2DModel
-    await loadScript(AVATAR_HOST_SRC);
-    for (const src of ENGINE_SCRIPTS) await loadScript(src);
+    await loadScript(host);
+    for (const src of scripts) await loadScript(src);
     return (
       typeof window.Live2DManager === 'function'
       && typeof window.NekoMiniGameAvatarHost !== 'undefined'

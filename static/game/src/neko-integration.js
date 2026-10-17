@@ -770,6 +770,24 @@ export class NekoIntegration {
    * 返回 { path, name, source, how } —— how 说明是怎么定下来的，方便调试。
    */
   async resolveAvatarModel() {
+    // 0) 插件面板模式（第一百二十五轮）：宿主 API 跨源不可达，
+    //    但插件 Python 壳启动时已把当前猫娘模型同步进 vendor/，
+    //    current.json 指向同源的 model3.json —— 直接用它。
+    //    还没同步好（宿主没开/首次启动中）→ 立刻走原兜底（隐藏），不空等。
+    const pluginBase = location.pathname.match(/^(\/plugin\/[^/]+\/ui\/)/);
+    if (pluginBase) {
+      const base = pluginBase[1];
+      try {
+        const r = await fetch(`${base}vendor/model/current.json`);
+        if (r.ok) {
+          const j = await r.json();
+          if (j?.file) {
+            return { path: j.file, name: j.name || 'neko', source: 'plugin-vendor', how: 'plugin-bridge' };
+          }
+        }
+      } catch { /* 落到原兜底 */ }
+    }
+
     // 1) 当前猫娘是谁 + 她的 live2d 字段
     let catName = '';
     let modelName = '';

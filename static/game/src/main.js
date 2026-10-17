@@ -266,10 +266,20 @@ export class Game {
    * 第五十一轮：让猫娘计划的猫娘开口说**固定台词**（气泡 + 语音）。
    * 返回是否送达 —— 没连上宿主（网页直连模式）时 false，
    * 调用方自行回落到粉色 toast。
+   * 第一百二十五轮：插件面板模式走官方 TTS（speak 通道照念台词），
+   * 送达成功同样返回 true —— 调用方不再出粉色 toast，她本人来说。
    */
   _nekoSay(text, opts = {}) {
-    if (!this.nekoReady) return false;
-    try { return neko.sayFixed(text, opts); } catch { return false; }
+    if (this.nekoReady) {
+      try { return neko.sayFixed(text, opts); } catch { return false; }
+    }
+    try {
+      if (pluginBridge.enabled) {
+        pluginBridge.say(text);
+        return true;
+      }
+    } catch { /* 永不影响游戏 */ }
+    return false;
   }
 
   /** 组装给猫娘的当前局势描述 */

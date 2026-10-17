@@ -16,8 +16,9 @@
 // 整个桥静默禁用，零开销。
 // ============================================================
 
-const ACTION_URL = '/plugin/neko_survivors/hosted-ui/action/game_event';
-const PROBE_URL = '/plugin/neko_survivors/ui-info';
+const BASE = '/plugin/neko_survivors';
+const ACTION_URL = `${BASE}/hosted-ui/action/game_event`;
+const PROBE_URL = `${BASE}/ui-info`;
 
 export const pluginBridge = {
   enabled: false,
@@ -42,15 +43,30 @@ export const pluginBridge = {
    * @param {number} [minGapSec] 同类事件最小间隔（客户端侧限频）
    */
   report(event, text, minGapSec = 30) {
+    this._post('game_event', { event, text }, minGapSec, event);
+  },
+
+  /**
+   * 第一百二十五轮：照念台词 —— 走宿主官方 TTS（/api/game/<type>/speak
+   * 的 B 层输出通道，和内置小游戏台词同一条管线）。宠物业/天气台词、
+   * 各种 _nekoSay 固定台词都从这里出声。
+   */
+  say(text, minGapSec = 3) {
+    this._post('speak', { text: String(text || '').slice(0, 200) }, minGapSec, 'speak');
+  },
+
+  /** 统一限频 POST action（fire-and-forget） */
+  _post(action, args, minGapSec, gapKey) {
     if (!this.enabled) return;
     const now = Date.now() / 1000;
-    const last = this._last.get(event) || 0;
+    const key = gapKey || action;
+    const last = this._last.get(key) || 0;
     if (now - last < minGapSec) return;
-    this._last.set(event, now);
-    fetch(ACTION_URL, {
+    this._last.set(key, now);
+    fetch(`${BASE}/hosted-ui/action/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ args: { event, text }, kind: 'panel' }),
+      body: JSON.stringify({ args, kind: 'panel' }),
     }).catch(() => { /* 插件没起/离线：静默 */ });
   },
 
