@@ -985,36 +985,32 @@ export class NekoIntegration {
       this._avatarError = 'standalone_resolve_failed';
     }
 
-    // 2) Live2D 不行 → 上静态保底图。
-    //    这一步是**纯本地资源**（assets/avatar/avatar_yui.png），
-    //    不依赖 NEKO，所以一定能显示出来。
-    this._showFallbackAvatar(slot);
+    // 2) Live2D 不行 → **不再显示静态保底立绘**（第一百二十三轮）。
+    //    用户原话："右下角出现了一个超级巨大的静态白猫占位图（因为插件
+    //    沙箱里加载不到 Live2D 模型，触发了兜底）。这个大白猫太挡视线
+    //    了。……在检测到是插件环境（或者无法加载 Live2D 时），直接隐藏
+    //    掉那个用于兜底的静态立绘 DOM 节点。"
+    //    把形象槽位整个 display:none（NEKO 稍后启动时 _refreshStandalone
+    //    会把 display 恢复再重新尝试挂载），游戏视野完整保留。
+    this._hideStandaloneAvatar(slot);
     this._emitStatus();
-    return !!this._fallbackEl;
+    return false;
   }
 
   /**
-   * 显示 Yui 保底立绘。
-   *
-   * 用 <img> 而不是 canvas：这张图是静态的，用 img 最省事，
-   * 也天然支持 object-fit 缩放和 CSS 的投影效果。
+   * 第一百二十三轮：Live2D 不可用时把形象槽位藏起来。
+   * 清掉可能残留的保底 <img>，然后 display:none —— 外层容器直接不占位。
    */
-  _showFallbackAvatar(slot) {
-    if (!slot || this._fallbackEl) return;
-    try {
-      const img = document.createElement('img');
-      img.className = 'neko-avatar-fallback';
-      img.alt = 'Yui';
-      img.src = './assets/avatar/avatar_yui.png';
-      img.addEventListener('error', () => {
-        // 图也没有就干脆别显示，不要留个破图标
-        try { img.remove(); } catch { /* */ }
-        this._fallbackEl = null;
-      });
-      slot.appendChild(img);
-      this._fallbackEl = img;
-      this._avatarHow = 'fallback-image';
-    } catch { /* 忽略 */ }
+  _hideStandaloneAvatar(slot) {
+    if (this._fallbackEl) {
+      try { this._fallbackEl.remove(); } catch { /* */ }
+      this._fallbackEl = null;
+    }
+    if (slot) {
+      try { slot.style.display = 'none'; } catch { /* */ }
+    }
+    this._avatarHow = 'hidden';
+    this._avatarError = this._avatarError || 'live2d_unavailable_hidden';
   }
 
   /** 独立模式下玩家换猫娘时，重新解析并切换（Live2D 走 setModel，保底图则重挂） */
@@ -1032,10 +1028,13 @@ export class NekoIntegration {
         return true;
       } catch { return false; }
     }
-    // 当前是保底图，但现在已经能解析出 Live2D 了（NEKO 刚启动）
+    // 当前是"已隐藏"状态，但现在已经能解析出 Live2D 了（NEKO 刚启动）
     const slot = document.getElementById('neko-avatar-slot');
     if (!slot) return false;
     try {
+      // 第一百二十三轮：先把第一百二十三轮藏掉的槽位恢复显示，
+      // 否则容器尺寸为 0，引擎算不出 viewport，挂载必然失败。
+      if (this._avatarHow === 'hidden') slot.style.display = '';
       const { mountStandaloneLive2D } = await import('./live2d-standalone.js');
       const ctrl = await mountStandaloneLive2D(slot, resolved.path);
       if (!ctrl) return false;

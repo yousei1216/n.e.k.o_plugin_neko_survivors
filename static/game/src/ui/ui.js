@@ -293,9 +293,13 @@ export class UI {
     if (status.standalone) {
       const who = status.avatarModel || 'Yui';
       const isImg = status.avatarHow === 'fallback-image';
-      el.textContent = isImg ? `${who}（本地保底图）` : `${who}（形象）`;
-      el.title = '网页直连模式：只显示猫娘形象，没有对话/语音能力。'
-        + (status.avatarPath ? `\n模型：${status.avatarPath}` : '');
+      const isHidden = status.avatarHow === 'hidden';
+      el.textContent = isImg ? `${who}（本地保底图）`
+        : isHidden ? '猫娘形象未连接' : `${who}（形象）`;
+      el.title = isHidden
+        ? '当前环境加载不到 Live2D，形象区已隐藏（不挡视野）。NEKO 启动后会自动恢复。'
+        : '网页直连模式：只显示猫娘形象，没有对话/语音能力。'
+          + (status.avatarPath ? `\n模型：${status.avatarPath}` : '');
       return;
     }
     const name = status.characterName || '猫娘';
