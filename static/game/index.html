@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>猫娘姐妹 / NEKO Sisters</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='18' r='10' fill='%23ff7bac'/%3E%3Cpath d='M8 12 L10 3 L16 9 Z M24 12 L22 3 L16 9 Z' fill='%23ff7bac'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <!-- ===== 游戏内 HUD ===== -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-wave">
+        <span class="hud-label">WAVE</span>
+        <span id="hud-wave-num">1</span>
+        <span class="hud-sub">/ 20</span>
+        <span id="hud-difficulty" class="hud-difficulty"></span>
+      </div>
+      <div class="hud-timer">
+        <div id="hud-timer-label" style="display:none"></div>
+        <div id="hud-timer-text">30</div>
+        <div class="hud-timer-bar"><div id="hud-timer-fill"></div></div>
+      </div>
+      <div class="hud-materials">
+        <span class="mat-icon"></span>
+        <span id="hud-materials">0</span>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div class="hud-hp">
+        <div class="hud-hp-bar"><div id="hud-hp-fill"></div><div id="hud-shield-fill"></div></div>
+        <div id="hud-hp-text">10 / 10</div>
+      </div>
+      <div id="hud-weapons" class="hud-weapons"></div>
+      <div id="hud-stats" class="hud-stats"></div>
+    </div>
+
+    <div id="hud-xp" class="hud-xp">
+      <div class="hud-xp-bar"><div id="hud-xp-fill"></div></div>
+      <div id="hud-level">Lv.1</div>
+    </div>
+
+    <div id="hud-toast" class="hud-toast"></div>
+  </div>
+
+  <!-- ===== NEKO 猫娘区域 =====
+       宿主提供 avatar-renderer 时，当前猫娘（宿主决定名字）的 Live2D 会挂进 #neko-avatar-slot。
+       独立运行时这一整块保持隐藏，不影响游戏。 -->
+  <div id="neko-panel" class="neko-panel">
+    <div id="neko-status" class="neko-status hidden"></div>
+    <div id="neko-avatar-slot" class="neko-avatar-slot"></div>
+    <div id="neko-bubble-slot" class="neko-bubble-slot"></div>
+  </div>
+
+  <!-- ===== 覆盖层：标题 / 选人 / 商店 / 升级 / 结算 ===== -->
+  <div id="overlay"></div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

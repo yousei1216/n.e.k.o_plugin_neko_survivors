@@ -1,0 +1,980 @@
+/* ============================================================
+   猫娘姐妹 / NEKO Sisters — 样式
+   占位图形阶段：纯几何色块 + 简洁深色 UI
+   ============================================================ */
+
+:root {
+  --bg: #12141c;
+  --bg-2: #1a1d29;
+  --panel: #212534;
+  --panel-2: #2a2f42;
+  --line: #383e54;
+  --text: #e8ecf6;
+  --text-dim: #9aa3bb;
+  --pink: #ff7bac;
+  --pink-dim: #d95f8c;
+  --cyan: #5fd3e8;
+  --gold: #ffc857;
+  --green: #6ee7a8;
+  --red: #ff5f6d;
+  --purple: #b794f6;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app { position: fixed; inset: 0; }
+
+canvas#game {
+  display: block;
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  background: var(--bg);
+}
+
+.hidden { display: none !important; }
+
+/* ===================== HUD ===================== */
+
+#hud {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.hud-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 12px 16px;
+  gap: 12px;
+}
+
+.hud-wave {
+  display: flex; align-items: baseline; gap: 6px;
+  background: rgba(33,37,52,.82);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  backdrop-filter: blur(6px);
+}
+.hud-wave #hud-wave-num { font-size: 24px; font-weight: 800; color: var(--pink); }
+.hud-label { font-size: 11px; letter-spacing: .14em; color: var(--text-dim); }
+.hud-sub { font-size: 13px; color: var(--text-dim); }
+
+/* 第九十九轮：绝对居中 —— 原来是 space-between 的中间项，左右两盒不等宽
+   会把计时器顶得偏离屏幕中线，右缘压到 Boss 血条。现在钉死在屏幕正中
+   （= 血条长度中点，用户："计时器正好在血条的长度中间"），
+   左右两盒照旧占两端。 */
+.hud-timer {
+  position: absolute; top: 12px; left: 50%;
+  transform: translateX(-50%);
+  width: 260px; text-align: center;
+}
+#hud-timer-text {
+  font-size: 30px; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 10px rgba(0,0,0,.6);
+  line-height: 1;
+}
+.hud-timer-bar {
+  margin-top: 6px; height: 6px;
+  background: rgba(0,0,0,.5);
+  border: 1px solid var(--line);
+  border-radius: 99px; overflow: hidden;
+}
+#hud-timer-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  transform-origin: 0 50%;
+}
+/* 第九十七轮：芙兰战分段倒计时（顶中，与波次计时同位）——
+   小标签（？？？ / 符卡 n/4 / EP n/3）+ 数字染成她的粉 */
+#hud-timer-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .18em;
+  color: var(--pink); margin-bottom: 2px;
+  text-shadow: 0 2px 8px rgba(0,0,0,.6);
+}
+.hud-timer.flandre #hud-timer-text { color: var(--pink); }
+
+.hud-materials {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(33,37,52,.82);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+  backdrop-filter: blur(6px);
+}
+.hud-materials #hud-materials { font-size: 20px; font-weight: 800; color: var(--gold); }
+/* 第五十八轮：芙兰战时材料框下移 —— 右上角让给画布层的符卡名（y≈18）、
+   消弹提示（y≈46）、EP 倒计时（y≈66），材料框挪到这三行下面 */
+body.flandre-hud .hud-materials { margin-top: 88px; }
+.mat-icon {
+  width: 14px; height: 14px; display: inline-block;
+  background: var(--gold);
+  transform: rotate(45deg);
+  border-radius: 3px;
+}
+
+.hud-bottom {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 12px 16px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.hud-hp { display: flex; align-items: center; gap: 10px; max-width: 520px; }
+.hud-hp-bar {
+  position: relative;
+  flex: 1; height: 16px;
+  background: rgba(0,0,0,.55);
+  border: 1px solid var(--line);
+  border-radius: 99px; overflow: hidden;
+}
+#hud-hp-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #ff5f6d, #ff9a5f);
+  transition: width .12s linear;
+}
+/* 第一百零九轮：护盾条 —— 盖在生命条上面（不显示数值）。
+   100% 护盾长度 = 100% 生命条长度（护盾/生命上限）。
+   蓝 色，半透明让底下的血色透出来；有盾才显示（width 0 即隐形）。 */
+#hud-shield-fill {
+  position: absolute; inset: 0;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(90,170,255,.82), rgba(150,215,255,.82));
+  box-shadow: inset 0 0 6px rgba(190,230,255,.55);
+  border-radius: 99px;
+  transition: width .12s linear;
+  pointer-events: none;
+}
+#hud-hp-text {
+  font-size: 13px; font-weight: 700; color: var(--text-dim);
+  font-variant-numeric: tabular-nums; min-width: 78px;
+}
+
+.hud-weapons { display: flex; gap: 6px; flex-wrap: wrap; }
+.hud-weapon {
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(33,37,52,.86);
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  font-size: 10px; font-weight: 700;
+  color: var(--text-dim);
+}
+.hud-weapon .w-tag {
+  position: absolute; right: 2px; bottom: 1px;
+  font-size: 8px; color: var(--gold); font-weight: 800;
+}
+.hud-weapon .w-glyph { font-size: 18px; line-height: 1; }
+.hud-weapon.tier-1 { border-color: #6b7280; }
+.hud-weapon.tier-2 { border-color: #5fd3e8; }
+.hud-weapon.tier-3 { border-color: #b794f6; }
+.hud-weapon.tier-4 { border-color: #ffc857; box-shadow: 0 0 10px rgba(255,200,87,.35); }
+
+.hud-stats {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-size: 11px; color: var(--text-dim);
+}
+.hud-stat b { color: var(--text); font-weight: 700; }
+
+.hud-xp {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 5px; background: rgba(0,0,0,.6);
+}
+.hud-xp-bar { height: 100%; }
+#hud-xp-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+}
+#hud-level {
+  position: absolute; right: 14px; bottom: 9px;
+  font-size: 11px; font-weight: 700; color: var(--text-dim);
+}
+
+.hud-toast {
+  position: absolute; top: 84px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 4px;
+  align-items: center;
+  font-size: 13px; font-weight: 600;
+  /* 第四十八轮：提示框要浮在商店（#overlay z-index 20）上层，
+     否则买东西时的"已出售/购买"提示全被商店页面盖住看不见。 */
+  z-index: 40;
+  pointer-events: none;
+}
+.hud-toast .toast {
+  /* 第八十二轮：背景透明度 50%（用户："所有框的背景透明度调到50%"） */
+  background: rgba(33,37,52,.5);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 5px 16px;
+  animation: toastIn .22s ease;
+}
+.hud-toast .toast.bad { border-color: var(--red); color: #ffb3b8; }
+.hud-toast .toast.good { border-color: var(--green); color: #b6f5d4; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ===================== 覆盖层 ===================== */
+
+#overlay {
+  position: absolute; inset: 0;
+  z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  overflow-y: auto;
+  padding: 24px;
+}
+#overlay:empty { display: none; }
+
+.screen {
+  width: min(980px, 100%);
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 32px 26px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.55);
+  animation: screenIn .2s ease;
+}
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(10px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+.screen.narrow { width: min(560px, 100%); }
+
+.screen h1 {
+  margin: 0 0 6px;
+  font-size: 40px; font-weight: 900;
+  letter-spacing: .02em;
+  background: linear-gradient(90deg, var(--pink), var(--purple), var(--cyan));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.screen h2 { margin: 0 0 4px; font-size: 24px; font-weight: 800; }
+.screen .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 18px; line-height: 1.6; }
+
+.btn {
+  appearance: none; border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 700;
+  padding: 10px 20px; border-radius: var(--radius);
+  cursor: pointer;
+  transition: transform .08s ease, background .12s ease, border-color .12s ease;
+}
+.btn:hover:not(:disabled) { background: #333952; border-color: #4a5270; }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.primary {
+  background: linear-gradient(135deg, var(--pink), var(--pink-dim));
+  border-color: transparent; color: #2a0d18;
+}
+.btn.primary:hover:not(:disabled) { background: linear-gradient(135deg, #ff90bb, #e56b98); }
+.btn.small { padding: 7px 14px; font-size: 13px; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+
+/* -------- 角色选择 -------- */
+.char-grid, .item-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.card {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: transform .1s ease, border-color .12s ease, background .12s ease;
+  position: relative;
+}
+.card:hover { border-color: var(--pink-dim); background: #313750; transform: translateY(-2px); }
+.card.selected { border-color: var(--pink); box-shadow: 0 0 0 2px rgba(255,123,172,.25) inset; }
+.card .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.card .avatar {
+  width: 42px; height: 42px; border-radius: 10px; flex: 0 0 42px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  border: 1px solid var(--line);
+}
+.card .card-name { font-size: 15px; font-weight: 800; }
+.card .card-role { font-size: 11px; color: var(--text-dim); }
+.card .card-desc { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+.card .card-stats { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.card .stat-line { display: flex; justify-content: space-between; font-size: 11.5px; }
+.card .stat-line .v.up { color: var(--green); font-weight: 700; }
+.card .stat-line .v.down { color: var(--red); font-weight: 700; }
+
+/* -------- 商店 / 升级 -------- */
+.shop-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.shop-money {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 22px; font-weight: 800; color: var(--gold);
+}
+.price-tag {
+  position: absolute; top: 10px; right: 10px;
+  font-size: 12px; font-weight: 800; color: var(--gold);
+  background: rgba(0,0,0,.35); border-radius: 99px; padding: 2px 9px;
+}
+.card.cant-afford { opacity: .45; cursor: not-allowed; }
+.card.cant-afford:hover { transform: none; border-color: var(--line); background: var(--panel-2); }
+.tier-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-size: 10px; font-weight: 800; letter-spacing: .06em;
+  border-radius: 99px; padding: 2px 9px;
+  background: rgba(0,0,0,.4);
+}
+.tier-1 .tier-badge, .tier-badge.t1 { color: #b6bdcc; }
+.tier-2 .tier-badge, .tier-badge.t2 { color: var(--cyan); }
+.tier-3 .tier-badge, .tier-badge.t3 { color: var(--purple); }
+.tier-4 .tier-badge, .tier-badge.t4 { color: var(--gold); }
+.card .kind-tag {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 1px 7px; border-radius: 99px;
+  border: 1px solid var(--line); color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.shop-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 18px; flex-wrap: wrap;
+}
+.hint { font-size: 12px; color: var(--text-dim); }
+
+/* -------- 武器栏（商店内） -------- */
+.weapon-tray { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
+.weapon-slot {
+  width: 58px; height: 58px; border-radius: 10px;
+  border: 1px dashed var(--line);
+  display: flex; align-items: center; justify-content: center;
+  position: relative; font-size: 22px;
+  background: rgba(0,0,0,.18);
+}
+.weapon-slot.filled { border-style: solid; background: var(--panel-2); }
+.weapon-slot .slot-name {
+  position: absolute; bottom: -17px; left: 0; right: 0;
+  text-align: center; font-size: 9.5px; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.weapon-tray { margin-bottom: 26px; }
+.weapon-slot .w-tag {
+  position: absolute; right: 3px; bottom: 3px;
+  font-size: 9px; font-weight: 800; color: var(--gold);
+}
+.weapon-slot.combinable { border-color: var(--green); box-shadow: 0 0 10px rgba(110,231,168,.4); }
+
+/* -------- 武器品质发光描边（第五轮）--------
+   用户反馈："显示商店里自己的 6 个武器的稀有度，可以用发光边框
+   白蓝紫金来定……不然有时候搞不懂自己的武器到底啥品质。"
+   颜色由 --tier-color 注入（来自 TIER_COLORS），四档：
+   1 普通=灰白 / 2 精良=蓝 / 3 史诗=紫 / 4 传说=金 */
+.weapon-slot.tier-1 { border-color: var(--tier-color); box-shadow: 0 0 7px -1px var(--tier-color); }
+.weapon-slot.tier-2 { border-color: var(--tier-color); box-shadow: 0 0 11px -1px var(--tier-color); }
+.weapon-slot.tier-3 { border-color: var(--tier-color); box-shadow: 0 0 15px 0 var(--tier-color); }
+.weapon-slot.tier-4 {
+  border-color: var(--tier-color); border-width: 2px;
+  box-shadow: 0 0 20px 1px var(--tier-color);
+}
+/* 品质名显示在格子底部（悬停看出售价时会盖住，所以压低层级） */
+.weapon-slot .slot-tier {
+  position: absolute; top: 2px; left: 0; right: 0;
+  text-align: center; font-size: 8.5px; font-weight: 800;
+  letter-spacing: .2px; opacity: .9;
+}
+.weapon-slot.filled:hover .slot-tier { opacity: 0; }
+
+/* -------- 武器出售 -------- */
+.weapon-slot.filled { cursor: pointer; transition: transform .12s, border-color .12s; }
+.weapon-slot.filled:hover { transform: translateY(-2px); border-color: var(--pink); }
+.weapon-slot .slot-sell {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  font-size: 9px; font-weight: 700; text-align: center;
+  padding: 2px 0; color: #fff;
+  background: rgba(255,95,109,.85);
+  opacity: 0; transition: opacity .12s;
+  border-radius: 0 0 9px 9px;
+}
+.weapon-slot.filled:hover .slot-sell { opacity: 1; }
+.weapon-slot.selected {
+  border-color: var(--red);
+  box-shadow: 0 0 14px rgba(255,95,109,.55);
+}
+.sell-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: -14px 0 22px; padding: 10px 14px;
+  border: 1px solid var(--red); border-radius: 10px;
+  background: rgba(255,95,109,.10);
+  font-size: 13px;
+}
+.sell-bar .btn.danger {
+  border-color: var(--red); color: #ffd7da;
+  background: rgba(255,95,109,.22);
+}
+.sell-bar .btn.danger:hover { background: rgba(255,95,109,.38); }
+
+/* -------- 结算 -------- */
+.result-stats {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px; margin: 16px 0;
+}
+.result-stat {
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px;
+}
+.result-stat .k { font-size: 11px; color: var(--text-dim); }
+.result-stat .v { font-size: 20px; font-weight: 800; margin-top: 2px; }
+
+/* -------- 键位提示 -------- */
+.keys { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.key {
+  font-size: 11px; color: var(--text-dim);
+  background: rgba(0,0,0,.3); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 9px;
+}
+.key b { color: var(--text); }
+
+/* -------- 滚动条 -------- */
+#overlay::-webkit-scrollbar { width: 10px; }
+#overlay::-webkit-scrollbar-thumb { background: #333952; border-radius: 99px; }
+#overlay::-webkit-scrollbar-track { background: transparent; }
+
+/* =========================================================
+   NEKO 猫娘区域
+   只有 NEKO 宿主提供了 avatar-renderer / speech-output 时才有内容。
+   独立运行时整块是空的，用 :empty 自动隐藏，绝不挡住游戏画面。
+   ========================================================= */
+/* 猫娘面板（右下角）。
+   用户第四轮反馈："右下角的猫娘 Live2d 左移一点点，目前有点挡住小地图。"
+   小地图是 canvas 画的，占位是「右 14 + 宽 116」→ 左边缘在距右边 130px 处。
+   面板原本 right:14，220px 宽的 Live2D 会把小地图整个盖住，
+   所以这里把 right 推到 140，留 10px 空隙，刚好不挡。 */
+.neko-panel {
+  position: fixed; right: 140px; bottom: 14px; z-index: 20;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  pointer-events: none;            /* 默认不抢鼠标事件 */
+}
+
+/* 猫娘的 Live2D 容器（名字由宿主决定） */
+.neko-avatar-slot {
+  width: 220px; height: 320px;
+  pointer-events: auto;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, .45));
+}
+/* 里面什么都没挂时整块隐藏（独立运行时不会留个空框） */
+.neko-avatar-slot:empty { display: none; }
+
+/* 独立模式下的 canvas 要撑满槽位，否则 PIXI 按 canvas 自身尺寸算 viewport */
+.neko-avatar-slot > canvas {
+  width: 100%; height: 100%; display: block;
+}
+
+/* 第九轮：读不到猫娘信息时的本地保底立绘（Yui）。
+   纯静态图，不依赖 NEKO，所以一定能显示。
+   用 contain 保证不变形；底对齐贴合 Live2D 的 align: bottom-center。 */
+.neko-avatar-fallback {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* 台词气泡 */
+.neko-bubble-slot {
+  max-width: 260px;
+  pointer-events: none;
+}
+.neko-bubble-slot:empty { display: none; }
+
+/* 气泡跟到宠物头上（用户要求：把猫娘的对话框挪到宠物头上）。
+   用 fixed + 每帧写 left/top，再用 transform 把气泡底边抬到头顶上方。 */
+.neko-bubble-slot.anchored {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -100%);
+  z-index: 30;
+  max-width: 220px;
+  transition: opacity .2s ease;
+}
+.neko-bubble-slot > * {
+  /* 第八十二轮：背景透明度 50%（用户："所有框的背景透明度调到50%，
+     方便玩家看清框后面的东西，2个框叠在一起会挡住芙兰的弹幕"） */
+  background: rgba(20, 24, 33, .5);
+  border: 1px solid var(--pink);
+  border-radius: 12px;
+  padding: 9px 13px;
+  font-size: 13px; line-height: 1.5;
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+  animation: neko-bubble-in .22s ease-out;
+}
+@keyframes neko-bubble-in {
+  from { opacity: 0; transform: translateY(6px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 第五十六轮：游戏侧自绘的猫娘台词框 —— SDK 的 presentation.bubble 是
+   纯白大框不受控（用户多次反馈），游戏层现在直接塞 .neko-line。
+   样式与小小猫娘头顶的画布气泡、粉色 toast 统一：
+   暗底 + 粉框 + 13px + 280px 上限，绝不挡弹幕。 */
+.neko-line {
+  /* 第八十二轮：同上 —— 台词框背景 50% 透明，弹幕可辨 */
+  background: rgba(20, 24, 33, .5);
+  border: 1px solid var(--pink);
+  border-radius: 12px;
+  padding: 9px 13px;
+  font-size: 13px; line-height: 1.5;
+  color: var(--text);
+  max-width: 280px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .4);
+  animation: neko-bubble-in .22s ease-out;
+}
+/* 保险丝：别的什么东西就算往槽里塞元素，也不许超过这个宽度 */
+#neko-bubble-slot > * { max-width: 280px !important; }
+
+/* 连接状态徽标 */
+.neko-status {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: rgba(95, 211, 232, .14);
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  pointer-events: auto;
+}
+.neko-status.warn {
+  background: rgba(255, 107, 107, .14);
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+.neko-status.hidden { display: none; }
+
+/* 小屏时缩小，避免遮挡（同时把左移量收一点，别把画面挤没了） */
+@media (max-width: 860px) {
+  .neko-avatar-slot { width: 150px; height: 220px; }
+  .neko-bubble-slot { max-width: 200px; }
+  .neko-panel { right: 112px; }
+}
+
+/* 升级卡片的稀有度角标（用户要求：升级分 4 档稀有度，效果 ×1/×2/×3/×4） */
+.card-rarity {
+  display: inline-block;
+  margin: 6px 0 2px;
+  padding: 2px 9px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+.card--rare { border-width: 2px; }
+
+/* ============================================================
+   难度选择
+   ============================================================ */
+.diff-block {
+  margin: 16px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .02);
+}
+.diff-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: .1em;
+  margin-bottom: 10px;
+}
+.diff-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.diff-btn {
+  flex: 1 1 0;
+  min-width: 76px;
+  padding: 9px 6px;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all .16s;
+}
+.diff-btn:hover { background: rgba(255, 255, 255, .07); color: var(--text); }
+.diff-btn.active { background: rgba(255, 255, 255, .09); }
+.diff-desc {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  min-height: 2.4em;
+}
+
+/* ============================================================
+   商店：左侧商品 + 右侧常驻数值面板
+   ============================================================ */
+/* 第十二轮（用户反馈）：
+   "把商店宽度变宽能容下 4 个商店道具，我们现在第一行 3 个道具第二行
+    1 个道具太怪了，直接变宽一行 4 个。"
+
+   根因：商品容器复用了 .char-grid，而它是
+   `repeat(auto-fill, minmax(190px, 1fr))` —— 4 张卡要 4×190+3×12 = 796px，
+   但左侧栏只有 1180-268-20 ≈ 892px 可用，再减去内边距就只剩 3 列的宽度，
+   于是第 4 张卡掉到第二行。
+
+   ★ 第十四轮修正（用户反馈）：
+   "商店 UI 问题，你改到 1 行 4 个之后其实挤了很多，要不把商店的宽度拉高
+    一些（目前左右两边还空着不少）要不改成一行 2 个，2x2 的格式。"
+
+   上一轮写的是 `max-width: 1440px` —— 那是个**空操作**，根本没生效。
+   因为 .screen 用的是 `width: min(980px, 100%)`，而 max-width **只能收窄、
+   不能放宽**：980 < 1440，所以这一行从来没有起过作用，商店一直被锁在 980px。
+   于是左侧商品栏只有 980-268-20-64(内边距) ≈ 628px，4 列每列仅 ~148px ——
+   正是用户说的"挤了很多"，而"左右两边还空着不少"就是那 980px 之外的空间。
+
+   这次改成直接放宽 `width`（不是 max-width），并同步抬高 .shop-body 的
+   最小列宽，让 4 张卡各自拿到 ≥ 205px 的舒适宽度：
+     1440(容器) - 64(内边距) = 1376 可用
+     1376 - 268(数值面板) - 20(间距) = 1088 给商品栏
+     (1088 - 3×12(卡间距)) / 4 = 263px/卡 —— 比 148px 宽了 78%。
+   窄屏仍然优雅退回 2 列（下面的 @media 负责）。 */
+.shop-screen { width: min(1440px, 100%); }
+.shop-body {
+  display: grid;
+  /* 第二十轮：加最左边的角色栏（120px）—— 头像 + 悬浮看能力/技能 */
+  grid-template-columns: 120px minmax(0, 1fr) 268px;
+  gap: 20px;
+  align-items: start;
+  margin-top: 14px;
+}
+.shop-main { min-width: 0; }
+
+/* 第二十轮：商店左侧角色栏。用户要求头像 + 鼠标悬浮显示能力/技能，
+   防止玩家忘记自己角色加成的具体数值。悬停走 _bindTips 的 data-tip。 */
+.shop-char {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  cursor: help;
+}
+.shop-char:hover { border-color: var(--pink); }
+.shop-char .shop-char-avatar {
+  width: 84px;
+  height: 84px;
+  font-size: 38px;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 12px;
+}
+.shop-char-name { font-size: 13px; font-weight: 600; }
+.shop-char .hint { font-size: 10px; text-align: center; }
+
+/* 商店商品固定 4 列（一行放满 4 个道具）。
+   用 repeat(4, ...) 而不是 auto-fill：auto-fill 会随宽度变成 3 列或 5 列，
+   而"一行 4 个"是用户明确要的版式。 */
+.shop-screen .char-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* 窄屏（笔记本 1366 之类）放不下 4 列时退回 2 列，
+   而不是让卡片被压到看不清内容。 */
+@media (max-width: 1280px) {
+  .shop-screen .char-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.sec-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 6px 0 8px;
+  letter-spacing: .06em;
+}
+
+/* ---- 常驻数值面板 ---- */
+.stat-panel {
+  position: sticky;
+  top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(12, 14, 24, .82);
+  padding: 14px;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+.sp-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 9px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.sp-name { font-size: 15px; font-weight: 700; color: var(--pink); }
+.sp-lv { font-size: 12px; color: var(--cyan); font-weight: 700; }
+
+.sp-hp { margin-bottom: 12px; }
+.sp-hp-bar {
+  height: 7px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+.sp-hp-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--red), #ff9f68);
+  transition: width .2s;
+}
+.sp-hp-text {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.sp-sec { margin-bottom: 12px; }
+.sp-title {
+  font-size: 11px;
+  letter-spacing: .12em;
+  color: var(--cyan);
+  margin-bottom: 5px;
+  opacity: .85;
+}
+.sp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 2.5px 0;
+  line-height: 1.4;
+}
+.sp-k { color: var(--text-dim); }
+/* 数值靠右对齐；加了 ? 徽标后 sp-v 不再是最后一个元素，
+   所以用 margin-left:auto 把「数值 + ?」整体推到右边 */
+.sp-v { font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; }
+.sp-total { border-top: 1px dashed var(--line); margin-top: 5px; padding-top: 5px; }
+.sp-total .sp-v { color: var(--gold); }
+
+/* ---- 属性详情悬浮提示（第五轮）----
+   用户反馈："增加详细数值查看，比如商店页面鼠标放在自己的信息上
+   可以查看部分模糊的信息详情，比如护甲多少数值有多少减伤。"
+   实现放在 UI._bindTips：气泡是挂在 <body> 上的浮动层，
+   跟随鼠标定位。不用 CSS ::after 是因为数值面板有 overflow-y: auto，
+   绝对定位的气泡会被裁掉。 */
+.sp-row.has-tip { cursor: help; }
+.sp-row.has-tip:hover { color: var(--pink); }
+.sp-info {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; margin-left: 5px; flex: none;
+  border-radius: 50%; font-size: 9px; font-weight: 800;
+  border: 1px solid var(--line); color: var(--text-dim);
+  opacity: .5;
+}
+.sp-row.has-tip:hover .sp-info { opacity: 1; border-color: var(--pink); color: var(--pink); }
+
+/* 武器格子：可悬浮看详细数据 */
+.weapon-slot.filled[data-tip] { cursor: pointer; }
+
+/* 浮动提示本体（JS 定位，挂 body 上） */
+.tip-float {
+  position: fixed;
+  left: 0; top: 0;
+  max-width: 290px;
+  padding: 9px 12px;
+  background: rgba(14, 17, 24, .98);
+  border: 1px solid var(--pink);
+  border-radius: 9px;
+  font-size: 11.5px; font-weight: 400; line-height: 1.6;
+  color: var(--text);
+  text-align: left;
+  white-space: pre-line;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0; visibility: hidden;
+  transition: opacity .1s ease;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .6);
+}
+.tip-float.show { opacity: 1; visibility: visible; }
+
+/* ---- 商品卡上的锁定标记 ---- */
+.card { position: relative; }
+.card.locked { border-color: var(--gold) !important; box-shadow: 0 0 0 1px rgba(255, 200, 87, .35) inset; }
+.lock-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10.5px;
+  padding: 3px 7px;
+  border-radius: 99px;
+  background: rgba(255, 200, 87, .16);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  font-weight: 700;
+}
+
+/* ---- 第十五轮 ③：小小猫娘的猫爪印记 ----
+   盖在"她免费帮你拿到的"那件道具的图标上。
+   位置选左下角而不是右上角：右上角已经被 tier-badge / lock-badge 占了，
+   三者叠在一起会糊成一团。左下角是卡片上唯一常年空着的位置。 */
+.paw-mark {
+  position: absolute;
+  left: 8px;
+  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  /* 粉色底 + 白爪，和"小小猫娘"的配色一致（她的主题色是 #ff7bac） */
+  background: radial-gradient(circle at 35% 30%, #ffa6cd, #ff5fa2 70%);
+  box-shadow: 0 2px 6px rgba(255, 95, 162, .45), 0 0 0 2px rgba(255, 255, 255, .7) inset;
+  color: #fff;
+  pointer-events: none;   /* 不挡住下面的按钮点击 */
+  /* 轻轻歪一点，看起来像"啪"地盖上去的印章，而不是排版的方块 */
+  transform: rotate(-14deg);
+  z-index: 3;
+}
+.paw-mark svg { display: block; fill: currentColor; }
+
+/* 已售出 / 被偷走的卡片整张变淡，但**猫爪印记除外**。
+   ---------------------------------------------------------------
+   第十八轮 ⑧（用户反馈："小小猫娘偷东西没在道具上标爪印，
+   是素材有问题还是啥问题？"）
+
+   素材和 DOM 都没问题 —— 问题在**透明度**：
+   被偷走的道具 `sold = true`，而原来卡片是内联 `opacity:.3`
+   （再叠 `.card.cant-afford` 的 .45），父级透明度会**无差别**
+   作用到所有子元素，所以那个粉色爪子也一起淡到几乎看不见了。
+
+   CSS 的 opacity 有个硬限制：父级设了透明度，子元素**无法**还原回来。
+   所以改法是"不给卡片本身设透明度，改成只淡它除爪子外的子元素"：
+     .card.sold > :not(.paw-mark) { opacity: .3 }
+   这样爪子保持全彩，其它内容照旧变灰。
+
+   爪印是"这件是小小猫娘给你拿的"唯一凭证，跟着淡掉就等于没有。 */
+.card.sold { opacity: 1; }
+.card.sold > :not(.paw-mark) { opacity: .3; }
+/* 爪子本身再提亮一点：它现在压在一张已经变灰的卡上，
+   不加一点外发光会和背景糊在一起。 */
+.card.sold .paw-mark {
+  box-shadow: 0 2px 8px rgba(255, 95, 162, .7), 0 0 0 2px rgba(255, 255, 255, .85) inset;
+  filter: saturate(1.15) brightness(1.05);
+}
+
+/* ---- 第十六轮：角色选择卡上的「能力 + 技能」 ----
+   用户要求："改好了写在角色介绍里，如果不够展示加个小滚动条"。
+
+   为什么滚动条加在**这一块**而不是整张卡：
+     整卡滚动的话，"滚动"和"点击选中"会抢同一个手势 ——
+     玩家想滑动看文案，结果把角色选中了（或者反过来）。
+     只滚技能框，卡片本身的高度由内容撑开，点击区域始终稳定。
+
+   max-height 取 132px ≈ 4 行文案（技能描述通常 2 行）+ 两个小标题。
+   超出就出现细滚动条；不足 132px 时是自然高度，不会留一片空白。 */
+.char-skill-box {
+  margin-top: 10px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .035);
+  border: 1px solid rgba(255, 255, 255, .09);
+  max-height: 132px;
+  overflow-y: auto;
+  /* 细滚动条：默认的 17px 宽在这么小的框里太抢眼 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .28) transparent;
+}
+.char-skill-box::-webkit-scrollbar { width: 6px; }
+.char-skill-box::-webkit-scrollbar-track { background: transparent; }
+.char-skill-box::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .28);
+  border-radius: 3px;
+}
+.char-skill-box::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .45); }
+
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 第二个 skill-row（技能那一行）上方留出和上一段文案的间距 */
+  margin-top: 7px;
+}
+.skill-row:first-child { margin-top: 0; }
+
+.skill-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: .5px;
+  flex: none;
+}
+/* 能力 = 常驻被动，用中性青；技能 = 有名字的机制，用金 */
+.skill-tag.ability { background: rgba(95, 211, 232, .18); color: #7fe0f0; }
+.skill-tag.skill   { background: rgba(255, 200, 87, .18); color: var(--gold); }
+
+.skill-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #e8ecf6;
+}
+.skill-text {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: #a7b0c4;
+  margin-top: 3px;
+}
+
+/* 窄屏：面板移到下方 */
+@media (max-width: 980px) {
+  .shop-body { grid-template-columns: minmax(0, 1fr); }
+  .stat-panel { position: static; max-height: none; }
+  /* 第二十轮：窄屏时角色栏横过来当一条，不再占一整块竖栏 */
+  .shop-char { flex-direction: row; justify-content: flex-start; }
+  .shop-char .shop-char-avatar { width: 56px; height: 56px; font-size: 26px; }
+}
+
+/* HUD 上的难度徽标 */
+.hud-difficulty {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 99px;
+  vertical-align: middle;
+  letter-spacing: .04em;
+}
+/* ============================================================
+   贴图（美术资源）
+   任何加上 data-sprite 的容器在渲染后会被 _applySprites 扫描；
+   有对应贴图就插入 <img class="sprite-img"> 盖住原来的字形。
+   没有贴图时这里所有规则都不生效，界面与从前完全一致。
+   ============================================================ */
+.sprite-img {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+/* 字形被隐藏后，容器仍保持原来的尺寸与背景色，布局不会跳动 */
+.has-sprite .w-glyph,
+.has-sprite .glyph,
+.has-sprite .slot-glyph { visibility: hidden; }
+/* HUD 武器格里的贴图稍微收紧一点，40px 的格子留白太多会显小 */
+.hud-weapon.has-sprite .sprite-img { inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); }

@@ -1,0 +1,518 @@
+// ============================================================
+// 天气系统（第一百零八轮）
+//
+// 用户原话："进游戏之后正常回合每3秒一次判定20%进天气，然后天气持续
+// 15-30秒，天气结束后对应时长内不会再次进入天气。boss回合和芙兰战天
+// 气系统无效。"
+//
+// 架构铁律（第一百零八轮起长期有效）：
+//   1. 天气的所有随机判定走 **独立 weatherRng 流**（main 的 rng.fork
+//      派生）—— 主随机流一个字不动，几百个确定性测试的钉全部保平安。
+//      视觉粒子（雨滴等）走 Math.random，与两条流都无关。
+//   2. 天气只由 main._updatePlaying / _updateFlandre 驱动 update()，
+//      测试直接 step world.update 的话天气完全不运转。
+//   3. 增减益一律走"乘区/旗标"（miss/playerOut/moveMul/...），
+//      不改任何单位的 stats 字段 —— 天气结束零残留。
+// ============================================================
+
+import { RNG } from '../core/rng.js';
+import { WEATHER_DEFS, WEATHER_MAP } from '../data/weather.js';
+
+const ROLL_INTERVAL = 3;     // 每 3 秒一次判定
+const ROLL_CHANCE = 0.2;     // 20% 进天气
+const DUR_MIN = 15;          // 持续 15-30 秒
+const DUR_MAX = 30;
+const ANNOUNCE_T = 10;       // 公告横幅挂 10 秒左右
+const WEATHER_RNG_SALT = 0x57ea7ca1;
+
+export class WeatherSystem {
+  constructor(rng) {
+    this.rng = rng.fork(WEATHER_RNG_SALT);   // 独立流（铁律 1）
+    this.phase = 'idle';       // idle → active → cooldown → idle
+    this.id = null;
+    this.t = 0;                // 当前天气已持续
+    this.dur = 0;
+    this.cd = 0;               // 冷却剩余（= 刚结束的天气时长）
+    this.rollAcc = 0;          // 判定计时
+    this.announceT = 0;        // 横幅剩余
+    this.visT = 0;             // 视觉已持续（ramp 用）
+    this.justStarted = false;  // 第一百一十四轮：开播旗标（main 消费 → 猫娘口播）
+
+    // ---- 每帧刷新的效果旗标（hook 们只读这些）----
+    this.miss = 0;             // 浓雾：双方额外 miss %
+    this.playerOut = 1;        // 雾雨：玩家输出最终乘算
+    this.enemyOut = 1;         // 雾雨：敌人输出最终乘算
+    this.moveMul = 1;          // 晴岚：双方移速乘算
+    this.enemyFireMul = 1;     // 血月：敌人攻速（fireRate 乘算）
+    this.cooldownDiv = 1;      // 血月：玩家攻速（武器冷却除数）
+    this.invulnMin = 0;        // 台风：玩家无敌帧下限（秒）
+    this.noKnockback = false;  // 台风：所有人免疫击退
+    this.vacuum = false;       // 快晴：吸收所有掉落物
+    this.fogRamp = 0;          // 浓雾：视野雾 0→1（3 秒）
+
+    // ---- 天气自己的实体 ----
+    this.meteors = [];         // {x,y,r,warnT,side}
+    this.metAcc = 0;
+    this.burnZones = [];       // 第一百一十二轮：砸地后的持续燃烧区（纯视觉）
+    this.flash = 0;            // 砸地白闪剩余（秒，屏幕层画）
+    this.typhoons = [];        // {x,y,r,vx,vy,spin}
+    this.fogClouds = [];       // 川雾：{x,y,r,vx,vy,turnT}
+    this.burns = [];           // 流星余烬：{e,t,acc}
+    this.dotAcc = 0;           // 烈日/无风 每秒跳
+    this.drops = null;         // 雾雨雨滴（屏幕坐标，视觉）
+  }
+
+  get def() { return WEATHER_MAP[this.id]; }
+  get active() { return this.phase === 'active'; }
+
+  /** Boss 波 / 芙兰战 —— 天气绝对不出现（用户铁律） */
+  static blocked(world) {
+    const cfg = world.waveConfig;
+    return !!(world.flandreFight
+      || cfg?.isBoss || cfg?.boss || (cfg?.bosses?.length ?? 0) > 0);
+  }
+
+  update(dt, world, player) {
+    // 横幅倒计时任何状态都走（挂在boss开始后也要自然淡出）
+    if (this.announceT > 0) this.announceT = Math.max(0, this.announceT - dt);
+    // 第一百一十二轮：砸地白闪衰减（纯视觉）
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt);
+
+    // ---- 铁律：Boss 波 / 芙兰战绝不出现天气 ----
+    if (WeatherSystem.blocked(world)) {
+      if (this.active) this.forceEnd();
+      this._applyFlags();
+      return;
+    }
+
+    if (this.phase === 'active') {
+      this.t += dt;
+      this.visT += dt;
+      this._tickWeather(dt, world, player);
+      if (this.t >= this.dur) this._end();
+    } else if (this.phase === 'cooldown') {
+      this.cd -= dt;
+      if (this.cd <= 0) { this.phase = 'idle'; this.rollAcc = 0; }
+    } else {
+      this.rollAcc += dt;
+      if (this.rollAcc >= ROLL_INTERVAL) {
+        this.rollAcc -= ROLL_INTERVAL;
+        if (this.rng.next() < ROLL_CHANCE) this._start(world, player);
+      }
+    }
+
+    this._applyFlags();
+  }
+
+  _start(world, player) {
+    // 均匀挑一种（不与上一种重复）
+    const pool = WEATHER_DEFS.filter((d) => d.id !== this.id);
+    const def = pool[this.rng.int(0, pool.length - 1)];
+    this.id = def.id;
+    this.phase = 'active';
+    this.t = 0;
+    this.visT = 0;
+    this.dur = this.rng.range(DUR_MIN, DUR_MAX);
+    this.announceT = ANNOUNCE_T;
+    this.justStarted = true;   // 第一百一十四轮：main 消费 → 猫娘口播 say
+    this.meteors.length = 0;
+    this.metAcc = 0;
+    this.burnZones.length = 0;
+    this.flash = 0;
+    this.typhoons.length = 0;
+    this.fogClouds.length = 0;
+    this.burns.length = 0;
+    this.dotAcc = 0;
+    if (def.id === 'typhoon') {
+      this._spawnTyphoon(world, player);
+      this._spawnTyphoon(world, player);
+    }
+    if (def.id === 'riverFog') {
+      for (let i = 0; i < 4; i++) this._spawnFogCloud(world, player);
+    }
+    if (def.id === 'rain') this._initDrops();
+  }
+
+  _end() {
+    this.cd = this.dur;          // 天气结束后对应时长内不再进入
+    this.phase = 'cooldown';
+    this._clearEntities();
+    this.id = null;
+  }
+
+  /** Boss 波开始等场合：立刻散（冷却照算，出门不回头） */
+  forceEnd() {
+    if (!this.active) return;
+    const dur = this.dur;
+    this._end();
+    this.cd = dur;
+  }
+
+  _clearEntities() {
+    this.meteors.length = 0;
+    this.burnZones.length = 0;
+    this.flash = 0;
+    this.typhoons.length = 0;
+    this.fogClouds.length = 0;
+    this.burns.length = 0;
+    this.drops = null;
+  }
+
+  /** 把当前天气翻译成 hook 旗标（inactive 全部归零/归一） */
+  _applyFlags() {
+    const d = this.def;
+    this.miss = 0; this.playerOut = 1; this.enemyOut = 1; this.moveMul = 1;
+    this.enemyFireMul = 1; this.cooldownDiv = 1; this.invulnMin = 0;
+    this.noKnockback = false; this.vacuum = false;
+    if (!this.active || !d) { this.fogRamp = 0; return; }
+    const ramp = Math.min(1, this.visT / (d.rampS || 1));
+    if (d.miss) this.miss = d.miss;
+    if (d.outMul) { this.playerOut = d.outMul; this.enemyOut = d.outMul; }
+    if (d.moveMul) this.moveMul = d.moveMul;
+    if (d.atkBase) {
+      const bonus = d.atkBase + d.atkStep * Math.floor(this.t / d.atkStepS);
+      this.enemyFireMul = 1 + bonus;
+      this.cooldownDiv = 1 / (1 + bonus);
+    }
+    if (d.invulnMin) this.invulnMin = d.invulnMin;
+    if (d.noKnockback) this.noKnockback = true;
+    if (d.vacuum) this.vacuum = true;
+    this.fogRamp = d.id === 'fog' ? ramp : 0;
+  }
+
+  // ---------------------------------------------------------
+  // 各天气的逐帧机制
+  // ---------------------------------------------------------
+  _tickWeather(dt, world, player) {
+    const d = this.def;
+    if (!d) return;
+
+    // 烈日 / 无风：全场每秒跳 1 次
+    if (d.dotPct || d.regenPct) {
+      this.dotAcc += dt;
+      if (this.dotAcc >= 1) {
+        this.dotAcc -= 1;
+        this._tickGlobalHp(world, player, d);
+      }
+    }
+
+    // 流星雨
+    if (d.id === 'meteor') this._tickMeteors(dt, world, player);
+
+    // 台风：漂移 + 推挤
+    if (d.id === 'typhoon') this._tickTyphoons(dt, world, player);
+
+    // 川雾：漂移 + 推挤
+    if (d.id === 'riverFog') this._tickFogClouds(dt, world, player);
+
+    // 流星余烬烧灼（流星雨专属持续掉血）
+    if (d.id === 'meteor') this._tickBurns(dt);
+  }
+
+  _tickGlobalHp(world, player, d) {
+    // 烈日：扣 2% 最大生命，血量不足则扣到 1，**不会消灭目标**；
+    // 无风：回 5% 最大生命。直接改 hp（不走 takeDamage，不吃护甲/闪避）。
+    if (d.dotPct) {
+      for (const e of world.enemies.items) {
+        if (e.dead) continue;
+        e.hp = Math.max(1, e.hp - e.maxHp * d.dotPct);
+      }
+      player.hp = Math.max(1, player.hp - player.maxHp * d.dotPct);
+    }
+    if (d.regenPct) {
+      for (const e of world.enemies.items) {
+        if (e.dead) continue;
+        e.hp = Math.min(e.maxHp, e.hp + e.maxHp * d.regenPct);
+      }
+      player.hp = Math.min(player.maxHp, player.hp + player.maxHp * d.regenPct);
+    }
+  }
+
+  _tickMeteors(dt, world, player) {
+    // 每 1.5 秒在玩家周围 300-600px 圆环上刷 1-2 个警告圈
+    this.metAcc += dt;
+    if (this.metAcc >= 1.5 && this.meteors.length < 24) {
+      this.metAcc -= 1.5;
+      const n = this.rng.int(1, 2);
+      for (let i = 0; i < n; i++) {
+        if (this.meteors.length >= 24) break;
+        const a = this.rng.next() * Math.PI * 2;
+        const r = this.rng.range(300, 600);
+        this.meteors.push({
+          x: player.x + Math.cos(a) * r,
+          y: player.y + Math.sin(a) * r,
+          r: 60, warnT: 1,
+          // 第一百一十二轮：火球从屏幕外斜着砸下来的方向（纯视觉，
+          // Math.random）—— ±1 左右交替，落点不变
+          side: Math.random() < 0.5 ? -1 : 1,
+        });
+      }
+    }
+    // 警告 1 秒后砸下：60px 内所有单位吃 20% 最大生命真实伤害 + 烧 3 秒
+    for (let i = this.meteors.length - 1; i >= 0; i--) {
+      const m = this.meteors[i];
+      m.warnT -= dt;
+      if (m.warnT > 0) continue;
+      this._impact(world, player, m);
+      this.meteors.splice(i, 1);
+    }
+    // 第一百一十二轮：燃烧区计时（纯视觉，与烧灼伤害同步 3 秒）
+    for (let i = this.burnZones.length - 1; i >= 0; i--) {
+      const z = this.burnZones[i];
+      z.t -= dt;
+      if (z.t <= 0) this.burnZones.splice(i, 1);
+    }
+  }
+
+  _impact(world, player, m) {
+    // ---- 第一百一十二轮砸地打击感（用户："不要只播一个碎裂"）----
+    // 震屏 + 白闪 + 双冲击波 + 碎石火星，全走现成基建（camera.shake /
+    // fx.shockwave / fx.shards），零新引擎代码。
+    world.camera?.shake?.(9, 0.3);
+    this.flash = 0.16;
+    world.fx?.shockwave?.(m.x, m.y, 70, '#ffd9a0', 0.38);
+    world.fx?.shockwave?.(m.x, m.y, 55, '#ff7a3a', 0.52);
+    world.fx?.shards?.(m.x, m.y, 26, '#ffb066', 8);
+    world.fx?.shards?.(m.x, m.y, 20, '#e8542a', 5);
+    // 阶段 4：地面保留 3 秒燃烧区（对应 3 秒掉血，"这里还在烧，别进来"）
+    this.burnZones.push({ x: m.x, y: m.y, r: 60, t: 3, max: 3 });
+    const hit = (unit) => {
+      const dmg = unit.maxHp * 0.2;
+      let dealt = 0;
+      if (unit === player) {
+        dealt = player.takeDamage(dmg, m.x, m.y, { pierceArmor: true, noMiss: true });
+      } else {
+        const res = unit.takeDamage(dmg, { pierceArmor: true });
+        dealt = res?.dealt ?? 0;
+      }
+      // 无敌帧/miss 吃掉的砸击不上余烬
+      if (dealt > 0) this.burns.push({ e: unit, t: 3, acc: 0, isPlayer: unit === player });
+    };
+    // 网格查询（世界空间格，60px 内的敌人）
+    const near = world.grid ? world.grid.query(m.x, m.y, 60, []) : [];
+    for (const e of near) {
+      if (e.dead) continue;
+      const dx = e.x - m.x, dy = e.y - m.y;
+      if (dx * dx + dy * dy <= 60 * 60) hit(e);
+    }
+    const pdx = player.x - m.x, pdy = player.y - m.y;
+    if (pdx * pdx + pdy * pdy <= 60 * 60) hit(player);
+  }
+
+  _tickBurns(dt) {
+    // 每秒 2% 最大生命，持续 3 秒（走 takeDamage，能打死，但吃不到护甲）
+    for (let i = this.burns.length - 1; i >= 0; i--) {
+      const b = this.burns[i];
+      b.t -= dt;
+      b.acc += dt;
+      if (b.e.dead) { this.burns.splice(i, 1); continue; }
+      while (b.acc >= 1) {
+        b.acc -= 1;
+        const dmg = b.e.maxHp * 0.02;
+        if (b.isPlayer) b.e.takeDamage(dmg, b.e.x, b.e.y, { pierceArmor: true, noMiss: true });
+        else b.e.takeDamage(dmg, { pierceArmor: true });
+      }
+      if (b.t <= 0) this.burns.splice(i, 1);
+    }
+  }
+
+  _spawnTyphoon(world, player) {
+    const a = this.rng.next() * Math.PI * 2;
+    const r = this.rng.range(150, 450);
+    const dir = this.rng.next() * Math.PI * 2;
+    const spd = this.rng.range(50, 90);
+    this.typhoons.push({
+      x: player.x + Math.cos(a) * r, y: player.y + Math.sin(a) * r,
+      r: this.rng.range(90, 140),
+      vx: Math.cos(dir) * spd, vy: Math.sin(dir) * spd,
+      spin: this.rng.next() < 0.5 ? 1 : -1,
+      turnT: this.rng.range(1.5, 3),
+      parts: [],   // 第一百一十轮：吸入粒子（纯视觉，Math.random）
+    });
+  }
+
+  _tickTyphoons(dt, world, player) {
+    const half = world.halfSize;
+    for (const t of this.typhoons) {
+      t.turnT -= dt;
+      if (t.turnT <= 0) {
+        t.turnT = this.rng.range(1.5, 3);
+        const a = this.rng.next() * Math.PI * 2;
+        const spd = Math.hypot(t.vx, t.vy);
+        t.vx = Math.cos(a) * spd; t.vy = Math.sin(a) * spd;
+      }
+      t.x += t.vx * dt; t.y += t.vy * dt;
+      t.x = Math.max(-half, Math.min(half, t.x));
+      t.y = Math.max(-half, Math.min(half, t.y));
+
+      // ---- 第一百一十轮：吸入粒子（纯视觉装饰，Math.random）----
+      // 从外圈螺旋吸进中心。用户："随着时间，从外圈以螺旋轨迹被吸入
+      // 台风中心，然后消失。"
+      if (t.parts.length < 16 && Math.random() < dt * 7) {
+        t.parts.push({
+          a: Math.random() * Math.PI * 2,
+          d: t.r * (1.05 + Math.random() * 0.7),
+          w: (2.6 + Math.random() * 2.6) * t.spin,   // 角速度
+          life: 0,
+          max: 0.9 + Math.random() * 0.8,
+          s: 1 + Math.random() * 1.8,                 // 碎屑大小
+        });
+      }
+      for (let i = t.parts.length - 1; i >= 0; i--) {
+        const p = t.parts[i];
+        p.life += dt;
+        p.a += p.w * dt * (1.6 + (1 - p.d / (t.r * 1.8)) * 2.2); // 越近转越快
+        p.d -= dt * (t.r / p.max) * 1.15;
+        if (p.d <= 4 || p.life > p.max) t.parts.splice(i, 1);
+      }
+
+      // 挤开所有单位（沿台风漂移方向推，不算击退所以台风天免击退也照推）
+      const push = (u) => {
+        const dx = u.x - t.x, dy = u.y - t.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > t.r * t.r) return;
+        const d = Math.sqrt(d2) || 1;
+        const falloff = 1 - d / t.r;            // 越靠中心推得越狠
+        const mag = 260 * (0.35 + 0.65 * falloff);
+        u.x += ((dx / d) * 0.6 + (t.vx / 100)) * mag * dt;
+        u.y += ((dy / d) * 0.6 + (t.vy / 100)) * mag * dt;
+        // 第一百一十轮：切向拉扯 —— 用户："根据距离中心的位置，给一个
+        // 微弱的'向中心旋转'的切向力（不需要真做物理，视觉坐标偏移
+        // 一下即可）。" 径向外推不变，叠加绕心旋转 + 轻微向心。
+        const tx = (-dy / d) * t.spin, ty = (dx / d) * t.spin;
+        const sw = mag * 0.5 * (0.3 + 0.7 * falloff);
+        u.x += tx * sw * dt - (dx / d) * mag * 0.22 * falloff * dt;
+        u.y += ty * sw * dt - (dy / d) * mag * 0.22 * falloff * dt;
+      };
+      push(player);
+      for (const e of world.enemies.items) {
+        if (!e.dead) push(e);
+      }
+    }
+  }
+
+  _spawnFogCloud(world, player) {
+    const a = this.rng.next() * Math.PI * 2;
+    const r = this.rng.range(0, 500);
+    const dir = this.rng.next() * Math.PI * 2;
+    const spd = this.rng.range(35, 70);
+    // ---- 第一百一十一轮：云团聚合结构 ----
+    // 用户："不要画完美的正圆。请在一个长条形/不规则的区域内，生成
+    // 6-8 个大小不一、边缘极度模糊的椭圆雾气块。让它们以不同的速度
+    // 缓慢移动、互相交叠。" 逻辑推挤半径不变（155-240，第一百零九轮
+    // 的加强保留），视觉上由 7 个错落的椭圆雾块拼成一个不规则云团。
+    const blobs = [];
+    for (let i = 0; i < 7; i++) {
+      const ba = (i / 7) * Math.PI * 2 + this.rng.next() * 0.9;
+      const bd = this.rng.range(0, 0.62);
+      blobs.push({
+        ox: Math.cos(ba) * bd, oy: Math.sin(ba) * bd * 0.72,   // 略压扁 → 长条感
+        rx: this.rng.range(0.34, 0.72),                        // 相对云团半径
+        ry: this.rng.range(0.22, 0.5),
+        spd: this.rng.range(0.5, 1.6),                          // 各块漂移速度不同
+        phase: this.rng.next() * Math.PI * 2,
+      });
+    }
+    this.fogClouds.push({
+      x: player.x + Math.cos(a) * r, y: player.y + Math.sin(a) * r,
+      r: this.rng.range(110 * Math.SQRT2, 170 * Math.SQRT2),
+      vx: Math.cos(dir) * spd, vy: Math.sin(dir) * spd,
+      turnT: this.rng.range(2, 4),
+      seed: this.rng.next() * 100,
+      blobs,
+      parts: [],      // 水汽升腾粒子（纯视觉，Math.random）
+      streaks: [],    // 雾内流线（顺着推人方向，纯视觉）
+    });
+  }
+
+  _tickFogClouds(dt, world, player) {
+    const half = world.halfSize;
+    for (const c of this.fogClouds) {
+      c.turnT -= dt;
+      if (c.turnT <= 0) {
+        c.turnT = this.rng.range(2, 4);
+        const a = this.rng.next() * Math.PI * 2;
+        const spd = Math.hypot(c.vx, c.vy);
+        c.vx = Math.cos(a) * spd; c.vy = Math.sin(a) * spd;
+      }
+      c.x += c.vx * dt; c.y += c.vy * dt;
+      // 出界就绕回玩家附近（雾跟着战团走）
+      if (Math.abs(c.x - player.x) > half || Math.abs(c.y - player.y) > half
+        || Math.abs(c.x) > half || Math.abs(c.y) > half) {
+        const a = this.rng.next() * Math.PI * 2;
+        const r = this.rng.range(200, 500);
+        c.x = player.x + Math.cos(a) * r;
+        c.y = player.y + Math.sin(a) * r;
+        c.parts.length = 0;      // 传送后旧粒子/流线别飘在原地
+        c.streaks.length = 0;
+      }
+      // 雾里的单位被推来推去 —— 第一百零九轮：推力 ×2（0.55 → 1.1 倍
+      // 雾团漂移速度），用户："推力增加一倍……走进去没感觉"。
+      const push = (u) => {
+        const dx = u.x - c.x, dy = u.y - c.y;
+        if (dx * dx + dy * dy > c.r * c.r) return;
+        u.x += c.vx * 1.1 * dt;
+        u.y += c.vy * 1.1 * dt;
+      };
+      push(player);
+      for (const e of world.enemies.items) {
+        if (!e.dead) push(e);
+      }
+
+      // ---- 第一百一十一轮：水汽升腾粒子 + 雾内流线（纯视觉装饰，
+      // Math.random；走 RNG 纪律：不碰主流与 weatherRng）----
+      // 粒子：雾区内生成，缓缓向上飘动并淡出，模拟水汽升腾。
+      if (c.parts.length < 10 && Math.random() < dt * 4) {
+        const pa = Math.random() * Math.PI * 2;
+        const pd = Math.random() * c.r * 0.8;
+        c.parts.push({
+          x: c.x + Math.cos(pa) * pd, y: c.y + Math.sin(pa) * pd,
+          vy: -(16 + Math.random() * 26),
+          wx: Math.random() * Math.PI * 2,
+          life: 0, max: 2 + Math.random() * 1.6,
+          s: 1 + Math.random() * 1.6,
+        });
+      }
+      for (let i = c.parts.length - 1; i >= 0; i--) {
+        const p = c.parts[i];
+        p.life += dt;
+        p.y += p.vy * dt;
+        p.x += Math.sin(p.life * 1.8 + p.wx) * 9 * dt;   // 轻微左右摇
+        if (p.life > p.max) c.parts.splice(i, 1);
+      }
+      // 流线：顺着雾团漂移（= 推人）方向快速掠过，让玩家看见力场。
+      const vn = Math.hypot(c.vx, c.vy) || 1;
+      if (c.streaks.length < 8 && Math.random() < dt * 6) {
+        const pa = Math.random() * Math.PI * 2;
+        const pd = Math.random() * c.r * 0.85;
+        c.streaks.push({
+          x: c.x + Math.cos(pa) * pd, y: c.y + Math.sin(pa) * pd,
+          dx: (c.vx / vn), dy: (c.vy / vn),
+          spd: 120 + Math.random() * 110,
+          len: 36 + Math.random() * 56,
+          life: 0, max: 0.45 + Math.random() * 0.3,
+        });
+      }
+      for (let i = c.streaks.length - 1; i >= 0; i--) {
+        const s = c.streaks[i];
+        s.life += dt;
+        s.x += s.dx * s.spd * dt;
+        s.y += s.dy * s.spd * dt;
+        if (s.life > s.max) c.streaks.splice(i, 1);
+      }
+    }
+  }
+
+  // ---- 雾雨雨滴（纯视觉，Math.random；屏幕坐标）----
+  _initDrops() {
+    this.drops = [];
+    for (let i = 0; i < 170; i++) {
+      this.drops.push({
+        x: Math.random() * 1, y: Math.random() * 1,
+        len: 9 + Math.random() * 12,
+        spd: 620 + Math.random() * 420,
+        drift: 60 + Math.random() * 60,
+      });
+    }
+  }
+}

@@ -1,0 +1,1256 @@
+// ============================================================
+// World：战斗核心
+// 持有所有实体列表、空间网格、刷怪、伤害结算、掉落。
+// 是各系统之间的唯一协调者。
+// ============================================================
+
+import { EntityList, SpatialGrid } from '../entities/entity.js';
+import { Enemy } from '../entities/enemy.js';
+import { Bullet, EnemyBullet } from '../entities/bullet.js';
+import { Pickup, PICKUP_TYPE } from '../entities/pickup.js';
+import { TurretManager } from '../entities/turret.js';
+import { FXSystem } from './fx.js';
+import { getEnemy, getNormalEnemies, getEliteEnemies, getTreasureEnemies } from '../data/enemies.js';
+import { Chest, rollChestReward, chestColors } from '../entities/chest.js';
+import { ITEMS } from '../data/items.js';
+import { getWaveConfig, getWaveDuration, waveScaling, spawnRateMul, bossAddProgress, WAVE_COUNT,
+  SPECIAL_WAVE_FROM, SPECIAL_WAVE_COOLDOWN, SPECIAL_WAVE_CHANCE, SPECIAL_WAVE_POOLS,
+  ENEMY_ALIVE_CAP } from '../data/waves.js';
+import { getDifficulty, DEFAULT_DIFFICULTY, WAVE11_HP_BUFF, WAVE11_HP_BUFF_FROM, WAVE11_HP_BUFF_ALL } from '../data/difficulty.js';
+import { angleTo, clamp, dist, TAU } from '../core/math.js';
+import { effectiveLuck } from '../core/stats.js';
+import { expandTerrain, blockedAt, resolveTerrain, findFreeSpot } from '../data/terrain.js';
+
+export const WORLD_SIZE = 2400;
+
+/**
+ * 地图上同时存在的医疗包掉落上限（第十九轮）。
+ *
+ * 用户原话："把地图上的可存在医疗包上限改到30。如果玩家发育比较好不掉血，
+ * 地图上最后会全是医疗包。满地图都是太花眼了。改到30个上限，这样缺血的
+ * 时候有的吃也不至于太花哨。"
+ *
+ * 语义：场上（未拾取、未过期）的医疗包达到 30 个后，新的医疗包掉落
+ * 不再生成；玩家吃掉一个立刻腾出一个名额。经验/金币掉落不受影响。
+ */
+export const HEAL_PICKUP_MAX = 30;
+
+/**
+ * 宝箱/宝箱怪能开出的道具池。
+ *
+ * 排除掉那些"必须有武器才成立"的道具（纯炮台加成在没炮台时是废奖励），
+ * 也排除已经有叠加上限的诅咒类，避免玩家被迫吃负面效果。
+ */
+function getRewardItemPool() {
+  return ITEMS.filter((it) => {
+    // 第八十五轮：芙兰专属（莱万汀）不进宝箱/宝箱怪奖励池 ——
+    // 用户："应该只有打败芙兰才能获得。"
+    if (it.flandreOnly) return false;
+    // 纯炮台加成的道具，只在玩家已有炮台时才有意义 → 不放进通用奖励池
+    const keys = Object.keys(it.pct || {}).concat(Object.keys(it.mods || {}));
+    const turretOnly = keys.length > 0 && keys.every((k) => k.startsWith('turret'));
+    if (turretOnly) return false;
+    // 有诅咒的道具不白送（白送负面效果体验很差）
+    if (it.curse && Object.keys(it.curse).length > 0) return false;
+    return true;
+  });
+}
+
+export class World {
+  constructor(rng, camera) {
+    this.rng = rng;
+    this.camera = camera;
+    this.halfSize = WORLD_SIZE / 2;
+
+    this.enemies = new EntityList();
+    this.bullets = new EntityList();
+    this.enemyBullets = new EntityList();
+    this.pickups = new EntityList();
+    this.fx = new FXSystem();
+    this.grid = new SpatialGrid(72);
+    // 炮台（挂机流派）：不放进 EntityList，因为要按"最早放置"顺序替换
+    this.turrets = new TurretManager();
+    // 跟随宠物（小小猫娘）：由 main.js 创建并挂上来，跨波保留
+    this.pet = null;
+
+    // 不可通行地形（第十二轮）。由 main.js 在换背景时调用 setTerrain 填进来。
+    // 空对象 = 没有障碍物（大部分地图都是这样）。
+    this.terrain = { rects: [], circles: [] };
+    this.terrainBackgroundId = null;
+
+    // 刷怪
+    this.spawnQueue = [];
+    this.spawnTimer = 0;
+    this.spawnInterval = 0.5;
+    this.spawnAccumulator = 0;
+    this.budgetUsed = 0;
+    this.budgetTotal = 0;
+    this.elitesToSpawn = 0;
+    this.bossSpawned = false;
+    this.currentWave = 0;
+
+    /**
+     * Boss 替换表（第十一轮）：`{ boss_cat_king: 'boss_acid_cat' }`。
+     *
+     * 第 10 / 20 波的 Boss 有远程/近战两个版本，出哪个由 main.js
+     * 在开局时抽签决定（并记进存档，保证重试本波不会换 Boss）。
+     * World 只在这里查表替换，**不自己抽签** —— 见 _spawnBoss 的说明。
+     * 空对象 = 不替换，行为和第 10 轮之前完全一致。
+     */
+    this.bossChoices = {};
+
+    // 难度（倍率组，见 data/difficulty.js）
+    this.difficultyId = DEFAULT_DIFFICULTY;
+    this.difficulty = getDifficulty(DEFAULT_DIFFICULTY);
+
+    // 统计
+    this.totalKills = 0;
+    this.totalSpawned = 0;
+    this.lastCleanupBonus = 0;
+
+    // ---- 宝箱与宝箱怪（第二轮新增）----
+    // 宝箱直接放进 enemies 列表：这样武器/子弹/炮台/宠物的索敌全都不用改，
+    // 靠 isChest 标记在 AI 和碰撞处跳过它。
+    this.chestsSpawned = 0;
+    this.chestsMax = 3;             // 同时存在的宝箱上限
+    this.chestTimer = 0;
+    this.chestInterval = 0;         // 每波重算
+    this.mimicTimer = 0;
+    this.mimicInterval = 0;
+    // 本回合宝箱怪总数（1~5，Boss 波为 0）与已刷数量
+    this.mimicsTotal = 0;
+    this.mimicsSpawned = 0;
+    // 本波获得的"待结算道具"（回合结算时给玩家选择：留下或卖掉）
+    this.pendingItemRewards = [];
+    // 本波击杀宝箱怪 / 开箱的计数（给 UI 和吐槽用）
+    this.treasureKills = 0;
+    this.chestsOpened = 0;
+
+    // 回调
+    this.onEnemyKilled = null;
+    this.onPickup = null;
+    this.onPlayerHit = null;
+    this.onBossKilled = null;
+    this.onBossPhase = null;   // (boss, newPhase)
+    this.onBossGated = null;   // (boss, gatePhase) 撞到 33%/66% 卡点时回调
+    this.onPetHeal = null;     // (pet, amount)
+    this.onChestOpened = null; // (chest, reward)
+    this.onTreasureKilled = null; // (enemy, itemDef)
+    // 武器开火（第十轮）：(weaponDef, heavy) —— 由 main.js 接到音频系统。
+    // 走回调而不是在 weapon.js 里直接 import 音频单例，
+    // 是为了让武器逻辑保持纯逻辑、能在测试里无音频地跑。
+    this.onWeaponFire = null;
+
+    this._tmp = [];
+    this.player = null;
+  }
+
+  /** 设置难度（开局前调用；会立刻作用于后续所有刷怪与伤害） */
+  setDifficulty(id) {
+    this.difficultyId = id;
+    this.difficulty = getDifficulty(id);
+    return this.difficulty;
+  }
+
+  // =========================================================
+  // 波次控制
+  // =========================================================
+  startWave(waveIndex) {
+    this.currentWave = waveIndex;
+    const cfg = getWaveConfig(waveIndex);
+    const base = waveScaling(waveIndex);
+    const d = this.difficulty;
+
+    // 把难度乘数折进波次缩放里，下游（Enemy / 掉落）不用知道难度存在
+    //
+    // 第十轮：第 11 波起敌人血量再 +20%（用户："第11回合开始所有敌人
+    // hp 上限+20%，因为第十波打完之后还是会很富"）。
+    // 默认只在噩梦生效 —— 用户这条是对噩梦的调参，理由里的"很富"
+    // 也是他一局噩梦打下来的体感。要放开到全难度改 difficulty.js 的
+    // WAVE11_HP_BUFF_ALL 一个布尔值即可。
+    const hpWave11 = (WAVE11_HP_BUFF_ALL || d.id === 'nightmare')
+      && waveIndex >= WAVE11_HP_BUFF_FROM ? WAVE11_HP_BUFF : 1;
+
+    const scaling = {
+      hp: base.hp * d.enemyHp * hpWave11,
+      // Boss 专属血量基数（第十四轮）：Boss 走一条比小怪缓得多的曲线
+      // （见 waves.js 的 BOSS_HP_GROWTH_PER_WAVE）。难度倍率 / 第 11 波 buff
+      // 与普通怪完全一致，所以"同一份比例"仍然作用在四档难度上。
+      bossHp: (base.bossHp ?? base.hp) * d.enemyHp * hpWave11,
+      damage: base.damage * d.enemyDamage,
+      speed: base.speed * d.enemySpeed,
+      // 近战敌人单独一档移速（只有噩梦配了；没配就退回普通档）
+      speedMelee: base.speed * (d.enemySpeedMelee ?? d.enemySpeed),
+      // 第三十轮：弹幕射程成长 —— 故意**不乘任何难度倍率**（射程是空间
+      // 属性，用户："所有难度通用。毕竟低难度弹幕也不疼"）。
+      bulletRange: base.bulletRange ?? 1,
+      // 第十九轮末：速度绝对上限（speedCap）已随 ENEMY_SPEED_CAP 一起移除 ——
+      // 敌人移速随波次成长如实叠加、不再封顶（见 data/difficulty.js 第十九轮末
+      // 的墓碑说明；Enemy 构造函数也不再读 scaling.speedCap）。
+      xp: base.xp * d.xpMul,
+      materials: base.materials * d.materialMul,
+      // 无限模式的 Boss 专属成长（3 倍）：必须显式带过去，
+      // 否则 Enemy 里读到的永远是 undefined → 退回 1，Boss 不会变强
+      bossGrowth: base.bossGrowth ?? 1,
+    };
+
+    this.waveConfig = cfg;
+    // ---- 第二十一轮：特殊波次 ----
+    // 掷骰决定本波是否"全是某一类敌人"（11 波起、非 Boss 波、冷却外）。
+    // 结果缓存在 World 上：重试本波复现同一个特殊波，不会重掷。
+    this.specialWave = this._rollSpecialWave(waveIndex, cfg);
+    this.waveScaling = scaling;
+    this.waveDuration = getWaveDuration(waveIndex);
+    // 难度影响刷怪预算（数量）
+    // 第七轮：再乘一个随波次增长的刷怪率倍率（第 20 波 ×2.00，无限模式封顶维持）。
+    // 这是**所有难度**共享的，不区分难度。
+    this.spawnRateMul = spawnRateMul(waveIndex);
+    this.budgetTotal = Math.max(3, Math.round(cfg.budget * d.enemyCount * this.spawnRateMul));
+    this.budgetUsed = 0;
+    this.elitesToSpawn = Math.max(0, Math.round((cfg.elites ?? 0) * (d.enemyCount > 1 ? 1 + (d.enemyCount - 1) * 0.5 : 1)));
+    // 体检修复（第九十二轮）：精英生成阈值要按"已刷序号"算，
+    // 不然 elitesToSpawn ≥ 5 时阈值 ≥ 1.0（waveProgress 封顶 1），
+    // 严格大于永远为假 → 后半局与整个无尽模式的精英静默消失。
+    this.elitesTotal = this.elitesToSpawn;
+    this.bossSpawned = false;
+    this.spawnTimer = 0.4;
+    // 预算按时间均匀释放（预算变多时缩短间隔，保证波内刷得完）
+    this.spawnInterval = this.waveDuration / Math.max(6, this.budgetTotal * 1.15);
+
+    // Boss 战追加刷小怪（第十二轮）：只在 Boss 波启用爬升曲线。
+    //
+    // 用户说的是"20波boss战和后续的无限boss战"，而这两类在数据上
+    // 都由 cfg.isBoss 标记（第 10 / 20 波硬编码，无限 Boss 波也是
+    // isBoss: true）—— 所以用 isBoss 一个判据就能精确覆盖用户点名的
+    // 两个场景，不会误伤普通波。
+    this.bossWaveAdds = !!cfg.isBoss;
+
+    // ---- 宝箱与宝箱怪 ----
+    // 宝箱：每波 1~3 个，随机时间点出现（不是一开局就摆好）
+    this.chestInterval = this.waveDuration / (2 + this.rng.next() * 1.5);
+    this.chestTimer = 4 + this.rng.next() * 6;
+    // 宝箱怪：用户第四轮要求"一回合最多刷 5 个，最少刷 1 个"。
+    // 所以在开局就抽定本回合总数，再按总数平均分摊时间点刷出来。
+    // Boss 波不刷（Boss 战已经够乱）。
+    const isBossWave = !!cfg.isBoss;
+    this.mimicsTotal = isBossWave ? 0 : (1 + Math.floor(this.rng.next() * 5));
+    this.mimicsSpawned = 0;
+    this.mimicTimer = 3 + this.rng.next() * 5;
+    this.mimicInterval = this.mimicsTotal > 0 ? this.waveDuration / this.mimicsTotal : Infinity;
+    this.pendingItemRewards = [];
+    this.treasureKills = 0;
+    this.chestsOpened = 0;
+
+    // ---- 时长归一化 ----
+    // 第三轮把波次时长从固定 30s 拉到最高 60s（Boss 关 90s）。
+    // 时间变长 → 一波能杀完的敌人变多 → 每波材料收入直接翻倍，
+    // 把第二轮的"中后期不要那么富"又推翻了。
+    //
+    // durationDamp 把"每波收入"拉回和 30 秒时代一致。
+    // 用指数 1.4 而不是线性 1.0，因为长波不只是"多刷一会"：
+    // 预算能被完整打完（短波常常打不完），收入对时长是**超线性**的。
+    // 下限 0.35 兜底，避免极端时长把 Boss 的固定大掉落削得太狠。
+    const ratio30 = 30 / Math.max(1, this.waveDuration);
+    this.durationDamp = Math.max(0.3, Math.min(1, Math.pow(ratio30, 1.4)));
+  }
+
+  // =========================================================
+  // 宝箱
+  // =========================================================
+  /** 找一个离玩家不太近也不太远的点放宝箱（要走过去打，但不用满地图找） */
+  _chestPosition(player) {
+    const a = this.rng.next() * TAU;
+    const d = this.rng.range(260, 620);
+    const half = this.halfSize - 60;
+    return {
+      x: clamp(player.x + Math.cos(a) * d, -half, half),
+      y: clamp(player.y + Math.sin(a) * d, -half, half),
+    };
+  }
+
+  /** 放一个宝箱 */
+  spawnChest(player, opts = {}) {
+    const luck = player?.stats?.values?.luck ?? 0;
+    // 第十六轮：把角色的幸运总效果倍率也传下去。
+    // rollChestReward 收的是"面板值 + 倍率"（不是 luckEff），
+    // 因为它同时被好几个测试直接以裸数字调用，加可选参数最省事。
+    const luckMul = player?.stats?.luckEffectMul ?? 1;
+    const rare = !!opts.rare;
+    const reward = rollChestReward(this.rng, luck, rare, luckMul);
+    const col = chestColors(reward);
+    let pos = opts.x !== undefined ? { x: opts.x, y: opts.y } : this._chestPosition(player);
+    // 体检修复（第九十二轮）：宝箱落点也过地形检查 —— 宝箱固定不动、
+    // 自身不做地形解算，落进障碍物里近战就永远够不着。
+    // 指定坐标（宝箱怪奖励等调用方）尊重调用方，随机落点才检查；
+    // 随机落点找不到空位就本次不刷（下一轮 chestTimer 会再试）。
+    if (opts.x === undefined) {
+      const spot = findFreeSpot(this.terrain, () => this._chestPosition(player), 20, 16);
+      if (spot) pos = spot; else return null;
+    }
+    const chest = new Chest(pos.x, pos.y, {
+      hp: rare ? 90 : 45,
+      tier: rare ? 2 : 1,
+      rare,
+      reward,
+      color: col.color,
+      accent: col.accent,
+    });
+    this.enemies.add(chest);
+    this.chestsSpawned++;
+    this.fx?.ring(pos.x, pos.y, 40, col.color, 0.6);
+    return chest;
+  }
+
+  /** 放一只宝箱怪（会逃跑的那种） */
+  spawnTreasureMimic(player, opts = {}) {
+    const pool = getTreasureEnemies();
+    if (pool.length === 0) return null;
+    // 稀有的那只概率低一些
+    let def = pool[0];
+    if (pool.length > 1) {
+      // 第十六轮：改用 player.stats.luckEff 而不是 effectiveLuck(面板值)。
+      // luckEff 会额外乘上角色的 luckEffectMul —— 悠怡萌妹的
+      // "幸运总效果 +20%"就是靠它生效的（面板 × 0.8 × 1.2 = ×0.96）。
+      // 如果这里继续读面板值，那个被动就只是属性面板上的一个数字，
+      // 对任何实际概率都没有影响。
+      const rareChance = 0.22 + Math.min(0.3, (player?.stats?.luckEff ?? 0) / 400);
+      def = this.rng.next() < rareChance ? pool[1] : pool[0];
+    }
+    const pos = opts.x !== undefined ? { x: opts.x, y: opts.y } : this._spawnPosition(player, 420, 700);
+    const e = this.spawnEnemyById(def.id, pos.x, pos.y);
+    if (e) {
+      this.fx?.nova(pos.x, pos.y, 90, def.color);
+    }
+    return e;
+  }
+
+  /**
+   * 第九十三轮：当前场上**存活敌人**数（不含宝箱怪与已死亡待清扫的）。
+   * 给 ENEMY_ALIVE_CAP 的刷怪上限用 —— 宝箱怪是彩袋不是威胁，不占额度。
+   */
+  aliveEnemyCount() {
+    let n = 0;
+    for (const e of this.enemies.items) {
+      if (!e.dead && !e.isChest) n++;
+    }
+    return n;
+  }
+
+  /** 每帧推进宝箱/宝箱怪的刷新计时 */
+  _updateTreasureSpawning(dt, player) {    const alive = this.enemies.items.filter((e) => !e.dead && e.isChest).length;
+
+    // 宝箱
+    if (this.chestTimer !== Infinity) {
+      this.chestTimer -= dt;
+      if (this.chestTimer <= 0) {
+        if (alive < this.chestsMax) this.spawnChest(player);
+        this.chestTimer = this.chestInterval * (0.7 + this.rng.next() * 0.6);
+      }
+    }
+
+    // 宝箱怪：本回合刷够 mimicsTotal 只就停
+    if (this.mimicTimer !== Infinity && this.mimicsSpawned < this.mimicsTotal) {
+      this.mimicTimer -= dt;
+      if (this.mimicTimer <= 0) {
+        this.spawnTreasureMimic(player);
+        this.mimicsSpawned++;
+        this.mimicTimer = this.mimicInterval * (0.7 + this.rng.next() * 0.6);
+      }
+    }
+  }
+
+  /**
+   * 开箱 / 击杀宝箱怪 → 结算奖励。
+   *
+   * 用户要求：
+   *  - 宝箱怪："随机获得一个道具在回合结算的时候给予玩家，玩家可以选择拥有他或者卖掉换钱"
+   *  - 宝箱："有概率给道具有概率是医疗包"
+   * 所以道具**不立即生效**，而是进 pendingItemRewards，等回合结算时让玩家选。
+   * 医疗包则立刻回血（那是即时救命的东西，不适合拖到结算）。
+   */
+  _resolveTreasure(player, entity) {
+    if (entity.isChest) {
+      this.chestsOpened++;
+      const rw = entity.reward;
+      if (rw.kind === 'heal') {
+        const max = player.stats.get('maxHp');
+        const amount = Math.max(8, Math.round(max * (rw.pct ?? 0.35)));
+        player.heal(amount);
+        this.fx?.damageText(entity.x, entity.y - 24, `+${amount}`, false, '#6ee7a8');
+        this.fx?.sparkle(entity.x, entity.y, '#6ee7a8', 8);
+        this.onChestOpened?.(entity, { kind: 'heal', amount });
+      } else {
+        const reward = this._rollRewardItem(player, rw.rare);
+        if (reward) {
+          this.pendingItemRewards.push(reward);
+          this.fx?.damageText(entity.x, entity.y - 24, reward.name, false, '#ffc857');
+          this.fx?.sparkle(entity.x, entity.y, '#ffc857', 10);
+          this.onChestOpened?.(entity, { kind: 'item', item: reward });
+        }
+      }
+    } else if (entity.def?.treasure) {
+      this.treasureKills++;
+      const reward = this._rollRewardItem(player, entity.def.treasureRare);
+      if (reward) {
+        this.pendingItemRewards.push(reward);
+        this.fx?.damageText(entity.x, entity.y - 30, reward.name, false, '#ffc857');
+        this.fx?.sparkle(entity.x, entity.y, '#ffc857', 12);
+        this.onTreasureKilled?.(entity, reward);
+      }
+    }
+  }
+
+  /**
+   * 抽一件道具作为奖励。品质与幸运挂钩。
+   * @returns {{id:string,name:string,price:number,rare:boolean}|null}
+   */
+  _rollRewardItem(player, forceRare = false) {
+    // 第十六轮：走 stats.luckEff（含角色幸运倍率），理由见 spawnTreasureMimic。
+    const luckBonus = Math.min(1, Math.max(0, (player?.stats?.luckEff ?? 0) / 220));
+    // 动态 import 会打乱打包/启动顺序，这里直接用顶部已导入的道具表
+    const pool = this._itemPool ?? (this._itemPool = getRewardItemPool());
+    if (!pool || pool.length === 0) return null;
+
+    // 按价格分层加权：幸运越高越容易出贵的
+    const weights = pool.map((it) => {
+      const t = it.price >= 26 ? 3 : it.price >= 18 ? 2 : 1;
+      let w = t === 1 ? 10 : t === 2 ? 6 : 3;
+      if (t >= 2) w *= 1 + luckBonus * 1.8;
+      if (forceRare) w *= t >= 2 ? 3 : 0.6;
+      return w;
+    });
+    let total = 0;
+    for (const w of weights) total += w;
+    let r = this.rng.next() * total;
+    let idx = pool.length - 1;
+    for (let i = 0; i < pool.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { idx = i; break; }
+    }
+    const def = pool[idx];
+    return {
+      id: def.id,
+      name: def.name,
+      price: def.price,
+      rare: forceRare || def.price >= 26,
+      // 卖出价：大约半价（和武器出售的手感一致）
+      sellValue: Math.max(4, Math.round(def.price * 0.55)),
+    };
+  }
+
+  get waveProgress() {
+    return clamp(this.budgetUsed / Math.max(1, this.budgetTotal), 0, 1);
+  }
+
+  get isSpawnFinished() {
+    return this.budgetUsed >= this.budgetTotal && this.spawnQueue.length === 0;
+  }
+
+  // =========================================================
+  // 刷怪
+  // =========================================================
+
+  /**
+   * 第二十一轮：掷特殊波（冲锋 / 弹幕 / 肉盾三类各 20%）。
+   *
+   * 规则（用户原话见 waves.js 的 SPECIAL_WAVE_POOLS 注释）：
+   *  - 第 11 波起才可能触发；
+   *  - Boss 波（10/20 波与无限 Boss 波）不参与；
+   *  - 触发一次后，接下来 SPECIAL_WAVE_COOLDOWN(2) 个回合内不再触发 ——
+   *    用"上一个特殊波的索引"来判断（waveIndex - last <= 2 就挡住），
+   *    而不是递减计数器：那样重试普通波会把冷却偷偷烧掉；
+   *  - 抽签结果按波次缓存：重试本波复现同一个特殊波（重试不该换怪）。
+   *
+   * @returns {'charge'|'bullet'|'tank'|null}
+   */
+  _rollSpecialWave(waveIndex, cfg) {
+    if (waveIndex + 1 < SPECIAL_WAVE_FROM) return null;
+    if (cfg.isBoss) return null;
+    const last = this._lastSpecialWave;
+    if (last != null && waveIndex - last <= SPECIAL_WAVE_COOLDOWN) return null;
+
+    // 重试复现：这一波已经掷过就直接用缓存结果
+    this._specialCache ??= new Map();
+    if (this._specialCache.has(waveIndex)) {
+      const cached = this._specialCache.get(waveIndex);
+      if (cached) this._lastSpecialWave = waveIndex;
+      return cached;
+    }
+
+    // 三类各 20%：依次比较，命中即定类型；>60% 就是普通波
+    const r = this.rng.next();
+    let type = null;
+    if (r < SPECIAL_WAVE_CHANCE) type = 'charge';
+    else if (r < SPECIAL_WAVE_CHANCE * 2) type = 'bullet';
+    else if (r < SPECIAL_WAVE_CHANCE * 3) type = 'tank';
+
+    this._specialCache.set(waveIndex, type);
+    if (type) this._lastSpecialWave = waveIndex;
+    return type;
+  }
+
+  _pickSpawnEntry() {
+    // 第二十一轮：特殊波次 —— 本波被标记成 charge/bullet/tank 时，
+    // 改从对应的全场类别池等权抽（不再读该波自己的 spawns），
+    // 保证"这关全是XX类"不取决于原波次配置里恰好有没有那一类。
+    if (this.specialWave) {
+      const pool = SPECIAL_WAVE_POOLS[this.specialWave];
+      if (pool && pool.ids.length > 0) {
+        let r = this.rng.next() * pool.ids.length;
+        for (const id of pool.ids) {
+          r -= 1;
+          if (r <= 0) return { id };
+        }
+        return { id: pool.ids[pool.ids.length - 1] };
+      }
+    }
+    const cfg = this.waveConfig;
+    const pool = cfg.spawns;
+    let total = 0;
+    for (const s of pool) total += s.weight;
+    let r = this.rng.next() * total;
+    for (const s of pool) {
+      r -= s.weight;
+      if (r <= 0) return s;
+    }
+    return pool[pool.length - 1];
+  }
+
+  /**
+   * 换背景时同步地形（第十二轮）。
+   *
+   * 为什么地形要跟着背景走：障碍物在**画面上**就是背景图里的深色方块/花坛，
+   * 所以"哪里挡路"完全由当前是哪张图决定。换图不换地形 = 撞空气墙，
+   * 换地形不换图 = 能穿墙，两种都是玩家一眼就能看出来的 bug。
+   *
+   * @param {string|null} bgId 背景 id
+   */
+  setTerrain(bgId) {
+    this.terrainBackgroundId = bgId ?? null;
+    this.terrain = bgId ? expandTerrain(bgId, WORLD_SIZE) : { rects: [], circles: [] };
+  }
+
+  /** 当前位置是否被地形挡住 */
+  isBlocked(x, y, radius = 0) {
+    return blockedAt(this.terrain, x, y, radius);
+  }
+
+  /**
+   * 找一个不在障碍物里的出生点（第十二轮）。
+   *
+   * 为什么必须做：出生点是"玩家周围 480~760 的随机角度"，完全可能正好
+   * 落在深色方块或花坛里。那样敌人一出生就卡死在墙里 ——
+   * 玩家看到的是"墙里有个怪在抽搐"，或者更糟：墙里源源不断地冒弹幕。
+   *
+   * 找不到空位时**宁可这次不刷**（返回 null），也不硬放进墙里：
+   * 少刷一只怪只是节奏上少一点，卡一只怪在墙里却是永久的视觉 bug。
+   */
+  _spawnPosition(player, minDist = 480, maxDist = 760) {
+    const pick = () => {
+      const a = this.rng.next() * TAU;
+      const d = this.rng.range(minDist, maxDist);
+      const half = this.halfSize - 40;
+      return {
+        x: clamp(player.x + Math.cos(a) * d, -half, half),
+        y: clamp(player.y + Math.sin(a) * d, -half, half),
+      };
+    };
+    // 敌人体积按常见半径留一点余量，免得贴着墙边刷出来还是卡住
+    return findFreeSpot(this.terrain, pick, 26, 24);
+  }
+
+  spawnEnemyById(id, x, y) {
+    const def = getEnemy(id);
+    if (!def) return null;
+    const e = new Enemy(def, x, y, this.waveScaling ?? { hp: 1, damage: 1, speed: 1, xp: 1, materials: 1 }, this.rng);
+    // 第一百零八轮：敌人持有 world 引用 —— 天气（川雾/台风推挤、
+    // 移速乘区）在 _move 等无 world 参数的方法里也要读得到
+    e.world = this;
+    // 召唤出来的敌人不带出生动画延迟太长
+    e.spawnAnimation = 0.2;
+    this.enemies.add(e);
+    this.totalSpawned++;
+    return e;
+  }
+
+  _spawnOne(player) {
+    const entry = this._pickSpawnEntry();
+    const pos = this._spawnPosition(player);
+    // 找不到空地就不刷（见 _spawnPosition 的说明）
+    if (!pos) return null;
+    return this.spawnEnemyById(entry.id, pos.x, pos.y);
+  }
+
+  _spawnElite(player) {
+    const def = this.rng.pick(getEliteEnemies());
+    if (!def) return;
+    const pos = this._spawnPosition(player, 520, 720);
+    if (!pos) return;
+    this.spawnEnemyById(def.id, pos.x, pos.y);
+  }
+
+  /**
+   * 生成本波的 Boss。
+   *
+   * 普通波用 `waveConfig.boss`（单个 id）；
+   * 无限模式的 Boss 波用 `waveConfig.bosses`（数组，30 波起 2 个、35/40 波 3 个）。
+   * 多个 Boss 时按横向扇形错开站位，避免叠在同一个点上。
+   *
+   * 第十一轮：`waveConfig.boss` 还要过一道 `bossChoices` 的替换 ——
+   * 第 10 / 20 波的 Boss 有"远程 / 近战"两个版本，具体出哪个由 main.js
+   * 在**开局时抽签并记进存档**。这里只负责查表，不自己抽
+   * （World 每次 startWave 都会被调用，在这里抽签会导致"重试本波
+   * 就换一个 Boss"，那 50% 概率就变成"重试到满意为止"了）。
+   */
+  _spawnBoss(player) {
+    const cfg = this.waveConfig;
+    // 体检修复（第九十二轮）：bossChoices 替换只作用于 cfg.boss
+    // （10/20 波的"远程/近战"抽签位）。cfg.bosses 来自 endlessBossLineup
+    // 的轮换表，是"40 波全员一次登场"的编排结果 —— 套用替换表会把
+    // 抽中近战变体的那两个基础 id 无尽阵容也偷换掉， lineup 承诺作废。
+    const resolve = (id) => this.bossChoices?.[id] ?? id;
+    const ids = cfg.bosses && cfg.bosses.length
+      ? [...cfg.bosses]
+      : (cfg.boss ? [resolve(cfg.boss)] : []);
+    if (ids.length === 0) return;
+
+    // Boss 固定从上方入场
+    const baseX = clamp(player.x, -this.halfSize + 200, this.halfSize - 200);
+    const baseY = clamp(player.y - 420, -this.halfSize + 100, this.halfSize - 100);
+
+    let spawnedAny = false;
+    for (let i = 0; i < ids.length; i++) {
+      // 多个 Boss 时横向铺开（-1/0/+1 之类的偏移）
+      const spread = ids.length === 1 ? 0 : (i - (ids.length - 1) / 2) * 260;
+      const x = clamp(baseX + spread, -this.halfSize + 120, this.halfSize - 120);
+      const boss = this.spawnEnemyById(ids[i], x, baseY);
+      if (boss) {
+        spawnedAny = true;
+        this.fx.nova(x, baseY, 120, boss.color);
+      }
+    }
+    if (spawnedAny) {
+      this.bossSpawned = true;
+      this.camera.shake(14, 0.6);
+    }
+  }
+
+  updateSpawning(dt, player, waveElapsed) {
+    if (this.isSpawnFinished) return;
+
+    this.spawnTimer -= dt;
+    if (this.spawnTimer > 0) return;
+
+    // 按剩余时间决定这一 tick 刷多少
+    const remainingTime = Math.max(0.5, this.waveDuration - waveElapsed);
+    const remainingBudget = Math.max(0, this.budgetTotal - this.budgetUsed);
+    const perTick = Math.max(1, Math.ceil(remainingBudget / (remainingTime / this.spawnInterval)));
+
+    // Boss 战追加刷小怪（第十二轮，用户要求）：
+    // "从开头的生怪频率为波次的50%随时间增加到150%（既90秒用完的时候）"。
+    //
+    // 这里按**预算释放进度**发怪，而不是去缩放间隔或 perTick。
+    // 前两版都失败过，原因值得记下来：
+    //
+    //   v1：乘 perTick → 完全无效。perTick 早就是 1（72 只摊到 82 个 tick），
+    //       而 Math.max(1, round(1 × 0.5)) = 1。**整数量化**把曲线吃掉了。
+    //   v2：除 spawnInterval（让 rate 作用于"多久刷一次"）→ 前半段确实慢了，
+    //       但**尾巴被截断**：预算按原间隔在 82 秒左右就刷完了，
+    //       82~90 秒没有怪，峰值只到 1.41 倍就停了，"90 秒达成 150%"没发生。
+    //       根因是预算是**有限总量** —— 任何"平均倍率为 1"的曲线都改变不了
+    //       "总共只刷 72 只"，而原间隔本身略微超发（spawnInterval 里那个
+    //       1.15 系数），所以本来就会提前刷完。
+    //
+    // v3（现在）：直接算"到这一刻**应该**已经刷掉总预算的百分之几"——
+    //   也就是 bossAddProgress()，它是 rate 曲线的归一化积分 P(u)=0.5u+0.5u²。
+    //   好处是三件事同时成立：
+    //     · P(0)=0、P(1)=1 → 总刷怪量**恰好**等于预算，不提前也不拖尾；
+    //     · 刷怪精确铺满整波 → 150% 真的落在 90 秒那一刻；
+    //     · 前半慢后半快由 P 的形状直接保证（P 下凸，P'=0.5+u 递增）。
+    //   perTick 只作为"单 tick 上限"参与，避免某一帧突然爆一堆。
+    // 用 Math.round 而不是 Math.floor：floor 会在波次结束时**差一只**
+    //   （实测 71/72）—— 因为最后一帧的 waveElapsed 是 89.97 而不是 90，
+    //   P(0.9997) × 72 = 71.95，floor 就是 71，剩下那只永远发不出去。
+    //   round 把它补上，且 round 同样单调不减，不会破坏曲线形状。
+    //
+    // 但**不能只靠 round** —— 那是在赌最后一帧正好落在能进位的位置上。
+    // 所以再加一道硬保险：时间已经走完（waveElapsed >= waveDuration）时，
+    // 直接把剩余预算全部放出去。否则万一差一只，isSpawnFinished 永远为假，
+    // updateSpawning 会一直空转（虽然波次本身是按时间结束的，
+    // 但"刷怪没结束"会让下一次 startWave 前的状态不干净）。
+    const timeUp = waveElapsed >= this.waveDuration;
+    const addTarget = this.bossWaveAdds
+      ? (timeUp
+        ? this.budgetTotal
+        : Math.round(this.budgetTotal * bossAddProgress(waveElapsed, this.waveDuration)))
+      : this.budgetUsed + perTick;
+    const wanted = this.bossWaveAdds
+      ? Math.max(0, Math.min(addTarget - this.budgetUsed, remainingBudget))
+      : perTick;
+
+    // Boss 波：Boss 优先出场
+    if ((this.waveConfig.boss || this.waveConfig.bosses) && !this.bossSpawned) {
+      this._spawnBoss(player);
+    }
+
+    let spawned = 0;
+    const maxPerTick = 6;
+    // 第九十三轮：场上存活敌人硬上限（ENEMY_ALIVE_CAP，不含宝箱怪/死亡待扫）。
+    // 被上限挡住的预算**不消耗**（budgetUsed 不加），场上一空继续排队刷 ——
+    // "万一玩家发育不好也有活路"：屏幕不糊满、帧率不崩，波次只是清得慢。
+    const headroom = Math.max(0, ENEMY_ALIVE_CAP - this.aliveEnemyCount());
+    while (spawned < Math.min(wanted, maxPerTick)
+      && this.budgetUsed < this.budgetTotal
+      && spawned < headroom) {
+      this._spawnOne(player);
+      this.budgetUsed++;
+      spawned++;
+    }
+
+    // 精英按预算比例穿插出现。
+    // 体检修复（第九十二轮）：阈值改按"已刷序号"——第 1 只在 40% 进度后、
+    // 之后每只推迟 15%，封顶 95%。旧公式 0.25 + 总数×0.15 在总数 ≥5 时
+    // 阈值 ≥1.0，精英一只都刷不出来（普通 17-19 波 / 噩梦 13 波起 /
+    // 全部无尽普通波全部命中）。
+    if (this.elitesToSpawn > 0) {
+      const idx = this.elitesTotal - this.elitesToSpawn;   // 已刷出几只
+      const threshold = Math.min(0.95, 0.25 + (idx + 1) * 0.15);
+      if (this.waveProgress > threshold) {
+        this._spawnElite(player);
+        this.elitesToSpawn--;
+      }
+    }
+
+    // 下一次刷怪的间隔。
+    //
+    // Boss 波用固定的小间隔去**追赶**上面那条进度目标 —— 这样"什么时候刷"
+    // 由进度曲线决定，而不是由间隔决定（间隔只影响追赶的粒度）。
+    // 间隔取得比原来更细（spawnInterval 的 1/3），是为了让实际释放曲线
+    // 更贴合 P(u) 的平滑形状，而不是一堆台阶。
+    // 夹一个 0.05 的下限，免得某一帧刷爆。
+    this.spawnTimer = Math.max(0.05,
+      this.bossWaveAdds ? this.spawnInterval / 3 : this.spawnInterval);
+  }
+
+  // =========================================================
+  // 伤害结算
+  // =========================================================
+  /**
+   * @param {Player} player
+   * @param {WeaponInstance} weapon
+   * @param {Enemy} target
+   * @param {number} baseDamage
+   * @param {object} opts
+   */
+  dealDamage(player, weapon, target, baseDamage, opts = {}) {
+    if (!target || target.dead) return 0;
+    const stats = player.stats.values;
+    const rt = player.charRt;
+
+    // 暴击
+    let critChance = stats.critChance + (weapon?.def?.critBonus ?? 0);
+    // 第四十一轮：暴击溢出转换 ——
+    // 用户原话："暴击达到100%时，每提升1%暴击自动换成2%暴击伤害提升。
+    // 让溢出的暴击有用。"
+    // 超过 100% 的部分不再浪费：每 1% 溢出折算 +2% 暴击伤害；
+    // 判定概率封顶 100%（必爆）。
+    const critOverflow = Math.max(0, critChance - 100);
+    const isCrit = this.rng.next() * 100 < Math.min(100, critChance);
+    let dmg = baseDamage;
+    if (isCrit) {
+      dmg *= 1 + (stats.critDamage + critOverflow * 2
+        + (weapon?.def?.critDamageBonus ?? 0)) / 100;
+    }
+
+    // ---- 第十六轮：角色技能对伤害的三处修正 ----
+    //
+    // 顺序是**刻意**的，从"最该先算"到"最后算"：
+    //
+    //  1. 幸运一击（悠怡萌妹）—— 用户说"造成伤害有10%概率造成150%伤害"，
+    //     是**替代**这一次伤害的乘算，该在暴击之后、其它加成之前。
+    //  2. 距离加成（neon）—— "离敌人越远伤害越高"，是本次命中的环境因素。
+    //     必须在**命中时**用当前距离算，不能用开火时的距离：
+    //     子弹飞行期间玩家一直在移动，用开火距离等于这条技能白给。
+    //  3. 炮台叠层（neon宴会）—— "该敌人受到的最终伤害 +1%×层数"，
+    //     是挂在**目标**身上的易伤，所以放最后（它就是"最终"的意思）。
+    if (rt) {
+      const lucky = rt.rollLuckyHit?.() ?? 1;
+      if (lucky !== 1) dmg *= lucky;
+
+      if (rt.id === 'luna') {
+        const dist = Math.hypot(target.x - player.x, target.y - player.y);
+        dmg *= rt.distanceMul(dist);
+      }
+
+      if (rt.id === 'neon_party' && opts.fromTurret) {
+        // 先读当前层数（不写），再叠一层给"下一次"用 ——
+        // 反过来的话第一次命中就吃到了 +1%，和用户描述的
+        // "命中时使它受到的最终伤害+1%"（先挨打再涨）不符。
+        const cur = rt.turretBonusFor(target);
+        if (cur > 0) dmg *= 1 + cur;
+        rt.onTurretHit(target);
+      }
+    }
+
+    // 命中目标
+    // 第一百零八轮：天气 —— 浓雾 miss（走天气独立随机流，不污染主流）
+    // 与雾雨"所有人造成的伤害+25%"（最终乘算）。opts.noWx 豁免
+    // （天气自己的流星伤害不吃天气加成，避免循环放大）。
+    const wx = this.weather;
+    if (wx && !opts.noWx) {
+      if (wx.miss > 0 && wx.rng.next() * 100 < wx.miss) {
+        this.fx.damageText(target.x, target.y - target.radius, 'MISS', false, '#b8c4e0');
+        return { dodged: true, dealt: 0 };
+      }
+      if (wx.playerOut !== 1) dmg *= wx.playerOut;
+    }
+    const res = target.takeDamage(dmg, { pierceArmor: opts.pierceArmor });
+
+    if (res.dodged) {
+      this.fx.damageText(target.x, target.y - target.radius, 'MISS', false, '#9aa3bb');
+      return 0;
+    }
+    // Boss 锁血（登场/转阶段/卡点无敌）：不显示 0 伤害，改成"免疫"提示，
+    // 否则玩家会以为是自己伤害不够，而不是机制在挡。
+    if (res.blocked) {
+      this.fx.damageText(target.x, target.y - target.radius, '免疫', false, '#8fd9f0');
+      this.fx.ring(target.x, target.y, target.radius * 1.15, '#8fd9f0', 0.35, { player: true });
+      return 0;
+    }
+
+    const dealt = res.dealt;
+    player.damageDealt += dealt;
+    if (weapon) weapon.damageDealt += dealt;
+
+    // 击退
+    // 第一百零八轮：台风天全场免疫击退（台风自己的推挤不走这里）
+    if (opts.knockback && !target.boss && !(this.weather?.noKnockback)) {
+      target.applyKnockback(opts.fromX ?? player.x, opts.fromY ?? player.y, opts.knockback);
+    }
+
+    // 伤害数字
+    this.fx.damageText(target.x, target.y - target.radius * 0.6, dealt, isCrit);
+    // 卡点命中：换一个颜色 + 一圈冲击环，明确"打到了但被卡住"
+    if (res.gated) {
+      this.fx.ring(target.x, target.y, target.radius * 1.25, '#ffc857', 0.4, { player: true });
+      this.fx.hit(target.x, target.y, '#ffc857', { player: true });
+      if (this.onBossGated) this.onBossGated(target, res.gated);
+    } else {
+      // ---- 第九轮：命中特效分级（用户要"近战看起来有一些打击感"）----
+      // 原来所有命中都只播一个 hit()，轻击和重击看起来一模一样。
+      // 现在按"武器类型 + 暴击"决定强度：
+      //   近战武器 → 播 impact（放射星芒 + 白核），重击额外带冲击波和碎片
+      //   远程武器 → 只播 hit（弹幕本身已经很花了，再加星芒会糊成一团）
+      // 这样"近战打击感"和"远程弹幕华丽"两个诉求分别满足，不会互相打架。
+      const isMelee = (weapon?.def?.kind ?? weapon?.kind) === 'melee';
+      const power = isCrit ? 1 : (isMelee ? 0.62 : 0.34);
+      if (isMelee) {
+        this.fx.impact(target.x, target.y, power,
+          isCrit ? '#ffc857' : '#ffffff', opts.hitAngle ?? null, { player: true });
+        // 重击/暴击额外甩碎片，轻击不甩（否则满屏碎屑）
+        if (isCrit) this.fx.shards(target.x, target.y, target.radius, target.color ?? '#ffffff', 4, { player: true });
+      } else {
+        this.fx.hit(target.x, target.y, isCrit ? '#ffc857' : '#ffffff', { player: true });
+      }
+    }
+
+    // 吸血
+    const ls = stats.lifesteal + (weapon?.def?.lifesteal ?? 0);
+    if (ls > 0) player.applyLifesteal(ls);
+
+    // ---- 第十六轮：小八「龙虾突击」----
+    //
+    // 用户原话："近战类武器攻击敌人的时候有概率20%触发一次龙虾追击，
+    //           造成触发的武器伤害的200%。"
+    //
+    // 两个实现要点：
+    //  1. **走完整的 dealDamage 递归**，而不是直接 `target.hp -= x`。
+    //     直接扣血会绕过暴击/吸血/击杀/掉落，玩家会发现"龙虾打死的怪不掉东西"。
+    //     递归是安全的：触发条件是 `weapon.kind === 'melee'` 且 opts 里
+    //     带了 `noLobster` 标记，所以追击本身不会再触发追击（不会无限递归）。
+    //  2. 伤害基数是 `dealt / 本次倍率`…不行 —— 直接用 `dmg`（这一击的实际伤害）
+    //     乘 2。用户说的是"触发的武器伤害的200%"，就是这一下的 2 倍。
+    if (rt && !opts.noLobster && !res.killed && weapon?.def?.kind === 'melee') {
+      if (rt.rollLobster?.('melee')) {
+        // 第四十五轮：触发龙虾突击时给小八回 5 滴血 ——
+        // 用户原话："然后技能龙虾突击加强：造成龙虾突击时给小八回5滴血。"
+        player.heal?.(5);
+        this.fx?.damageText?.(player.x, player.y - 24, '+5', false, '#6ee7a8');
+        const followDmg = dmg * (rt.lobsterMul ?? 2);
+        // 视觉：一道橙红的追击划痕，和普通命中区分开
+        this.fx?.thrust?.(player.x, player.y, target.x, target.y, 16, '#ff6b4a');
+        this.fx?.damageText?.(target.x, target.y - target.radius * 1.1, '龙虾突击', false, '#ff6b4a');
+        this.dealDamage(player, weapon, target, followDmg, {
+          ...opts,
+          noLobster: true,      // 防递归
+          knockback: 0,
+        });
+      }
+    }
+
+    if (res.killed) {
+      this._onKill(player, target, weapon);
+    }
+    return dealt;
+  }
+
+  /**
+   * 宠物造成的伤害。
+   *
+   * 故意和玩家伤害分开：
+   *  - 不吃玩家的暴击（宠物有自己的节奏，否则会喧宾夺主）
+   *  - 不吃吸血（吸血是玩家武器的属性）
+   *  - **会**触发正常的击杀掉落与击杀统计
+   * 宠物的战斗力本身已经乘过玩家的伤害加成了（见 Pet.damage）。
+   */
+  petDealDamage(pet, target, baseDamage) {
+    if (!target || target.dead) return 0;
+    const res = target.takeDamage(baseDamage, {});
+    if (res.dodged) {
+      this.fx.damageText(target.x, target.y - target.radius, 'MISS', false, '#9aa3bb');
+      return 0;
+    }
+    const dealt = res.dealt;
+    this.fx.damageText(target.x, target.y - target.radius * 0.6, dealt, false, '#ffd166');
+    this.fx.hit(target.x, target.y, '#ffd166', { player: true });
+    if (res.killed) {
+      // 击杀归属给玩家（掉落照常），但武器传 null
+      this._onKill(this.player, target, null);
+    }
+    return dealt;
+  }
+
+  _onKill(player, enemy, weapon) {
+    enemy.dead = true;
+
+    // ---- 宝箱：不走普通击杀流程 ----
+    // 宝箱不是"敌人"，不计入击杀数、不掉经验/材料，
+    // 只结算它自己预先掷好的奖励（道具或医疗包）。
+    if (enemy.isChest) {
+      this.fx.explosion(enemy.x, enemy.y, 60, enemy.color);
+      this.fx.sparkle(enemy.x, enemy.y, enemy.color, 10);
+      this.camera.shake(5, 0.2);
+      this._resolveTreasure(player, enemy);
+      this.onEnemyKilled?.(enemy);
+      return;
+    }
+
+    this.totalKills++;
+    player.kills++;
+    if (weapon) weapon.kills++;
+
+    // 掉落
+    this._dropLoot(player, enemy);
+
+    // 死亡特效
+    if (enemy.boss) {
+      this.fx.explosion(enemy.x, enemy.y, 160, enemy.color);
+      this.fx.nova(enemy.x, enemy.y, 220, '#ffffff');
+      this.camera.shake(22, 0.9);
+      // 通知外层（用于猫娘吐槽 / 成就等），World 本身不关心谁在听
+      if (typeof this.onBossKilled === 'function') {
+        try { this.onBossKilled(enemy); } catch { /* 监听方的问题不该影响战斗 */ }
+      }
+    } else if (enemy.elite) {
+      this.fx.explosion(enemy.x, enemy.y, 80, enemy.color);
+      this.camera.shake(8, 0.3);
+    } else if (enemy.def?.treasure) {
+      // 宝箱怪：金色爆开 + 结算道具奖励
+      this.fx.explosion(enemy.x, enemy.y, 90, '#ffc857');
+      this.fx.nova(enemy.x, enemy.y, 120, '#ffc857');
+      this.camera.shake(7, 0.25);
+      this._resolveTreasure(player, enemy);
+    } else {
+      this.fx.sparkle(enemy.x, enemy.y, enemy.color, 4);
+    }
+
+    // 分裂
+    if (enemy.def?.behavior === 'splitter' && !enemy.splitDone) {
+      enemy.splitDone = true;
+      const n = enemy.def.splitCount ?? 3;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU;
+        const child = this.spawnEnemyById(enemy.def.splitInto ?? 'slime',
+          enemy.x + Math.cos(a) * 26, enemy.y + Math.sin(a) * 26);
+        if (child) {
+          // 分裂体血量减半，避免滚雪球
+          child.maxHp *= 0.5;
+          child.hp = child.maxHp;
+        }
+      }
+    }
+
+    this.onEnemyKilled?.(enemy);
+  }
+
+  _dropLoot(player, enemy) {
+    // 经验
+    const xp = enemy.xpValue;
+    const xpCount = Math.min(8, Math.max(1, Math.round(xp / 2)));
+    const perXp = Math.max(1, Math.round(xp / xpCount));
+    for (let i = 0; i < xpCount; i++) {
+      const a = this.rng.next() * TAU;
+      const d = this.rng.range(4, 22);
+      this.pickups.add(new Pickup(PICKUP_TYPE.XP, enemy.x + Math.cos(a) * d, enemy.y + Math.sin(a) * d, perXp));
+    }
+
+    // 材料掉落
+    // 数值调整史：
+    //  - 最初掉率 0.62、普通敌人 1 份 → 前期太穷
+    //  - 改成 0.85 + 前 5 波 ×1.35 + 40% 双份 → 中期后期又太富
+    //  - 然后：前期保持大方，中后期逐步收回（见 lateDamp）
+    //  - 第三轮把波次时长从固定 30s 拉到最高 60s（Boss 关 90s）后，
+    //    每波能杀完的敌人变多，收入又翻倍 → 再加一层"时长归一化"
+    //    （见 durationDamp），让**每波**收入和原来一致。
+    // 第十轮：幸运总效果削弱到 80%，统一走 effectiveLuck()。
+    // 注意这里读的是"面板幸运 → 实际生效幸运"，所以面板上玩家
+    // 仍然看到自己买的 +25%，只是换算出来的掉率倍率变小了。
+    //
+    // 第十六轮：改用 player.stats.luckEff —— 它在 effectiveLuck 之上
+    // 再乘角色的 luckEffectMul（悠怡萌妹 = 1.2）。
+    // 这一处是"幸运总效果 +20%"最核心的消费点：材料掉率。
+    // 不改这里的话，萌妹的被动等于没写。
+    const luckMul = 1 + player.stats.luckEff / 100;
+    const w = this.currentWave;
+    const earlyBonus = w < 5 ? 1.35 : w < 10 ? 1.15 : 1;
+    // 中后期收紧：11-13 波 ×0.65，14 波以后 ×0.38。
+    // （第三轮把时长拉长后，中后期收入仍偏高，这里顺势再收紧一档）
+    const lateDamp = w < 10 ? 1 : w < 14 ? 0.65 : 0.38;
+    const matChance = enemy.boss || enemy.elite
+      ? 1
+      : Math.min(1, 0.85 * luckMul * earlyBonus * this.durationDamp);
+    if (this.rng.next() < matChance) {
+      const value = Math.max(1, Math.round(
+        enemy.materialValue * lateDamp * this.durationDamp * (enemy.boss ? 1 : 1),
+      ));
+      // 双份概率：前期有帮助，中后期收回
+      const dbl = w < 10 ? 0.4 : 0.2;
+      const count = enemy.boss ? 14 : enemy.elite ? 6 : (this.rng.next() < dbl ? 2 : 1);
+      for (let i = 0; i < count; i++) {
+        const a = this.rng.next() * TAU;
+        const d = this.rng.range(4, 30);
+        this.pickups.add(new Pickup(PICKUP_TYPE.MATERIAL, enemy.x + Math.cos(a) * d, enemy.y + Math.sin(a) * d, value));
+      }
+    }
+
+    // 生命掉落（稀有）。
+    // 第二十轮：掉落率对半砍（用户原话："把敌人的医疗包掉落率对半砍"）——
+    // Boss 1 → 0.5、精英 0.5 → 0.25、小怪 0.03 → 0.015；幸运加成照旧乘在上面。
+    const healChance = (enemy.boss ? 0.5 : enemy.elite ? 0.25 : 0.015) * luckMul;
+    if (this.rng.next() < healChance) {
+      // 第十九轮：地图医疗包上限（用户原话："把地图上的可存在医疗包上限
+      // 改到30。如果玩家发育比较好不掉血，地图上最后会全是医疗包。满地图
+      // 都是太花眼了。改到30个上限，这样缺血的时候有的吃也不至于太花哨"）。
+      // 到上限后新的不再生成；吃掉一个立刻又腾出一个名额。
+      const healAlive = this.pickups.items.filter(
+        (p) => !p.dead && p.type === PICKUP_TYPE.HEAL,
+      ).length;
+      if (healAlive < HEAL_PICKUP_MAX) {
+        // 第二十轮：默认回血翻倍 2 → 4（用户原话："医疗包默认的回血翻倍"）。
+        // Boss 的 999 是"回满"哨兵值，不跟着翻倍。
+        this.pickups.add(new Pickup(PICKUP_TYPE.HEAL, enemy.x, enemy.y, enemy.boss ? 999 : 4));
+      }
+    }
+  }
+
+  // =========================================================
+  // 炮台部署
+  // =========================================================
+  /**
+   * 放置一座炮台（由 behavior:'deploy' 的武器调用）。
+   * 同一把武器有自己的上限 turretMax；放满后替换最早的一座。
+   * 玩家的「炮台上限」属性会额外增加可同时存在的数量。
+   */
+  deployTurret(player, weapon) {
+    const def = weapon.def;
+    const bonus = Math.max(0, Math.round(player.stats.values.turretMax ?? 0));
+    const max = Math.max(1, (def.turretMax ?? 3) + bonus);
+
+    // 放在玩家身前一点，避免和玩家模型重叠
+    const a = player.facing;
+    const x = player.x + Math.cos(a) * 26;
+    const y = player.y + Math.sin(a) * 26;
+
+    const res = this.turrets.deploy(def, x, y, weapon, player, max);
+    this.fx?.ring(x, y, 34, def.color, 0.45);
+    return res;
+  }
+
+  // =========================================================
+  // 生成弹丸
+  // =========================================================
+  spawnBullet(cfg) {
+    const b = new Bullet(cfg);
+    // 第十六轮：显式记下开火者。
+    // 默认回落到 this.player —— 玩家武器和炮台子弹都该归到玩家身上，
+    // 而 world.player 就是当前这一局的玩家（重试本波会整个重建 World）。
+    b.ownerPlayer = cfg.ownerPlayer ?? this.player;
+    this.bullets.add(b);
+    return b;
+  }
+
+  spawnEnemyBullet(cfg) {
+    const b = new EnemyBullet(cfg);
+    this.enemyBullets.add(b);
+    return b;
+  }
+
+  // =========================================================
+  // 范围查询（供武器使用）
+  // =========================================================
+  queryArc(x, y, facing, halfAngle, radius) {
+    const out = [];
+    const candidates = this.grid.query(x, y, radius, []);
+    for (const e of candidates) {
+      if (!e.isEnemy || e.dead) continue;
+      const a = angleTo(x, y, e.x, e.y);
+      let diff = (a - facing) % TAU;
+      if (diff > Math.PI) diff -= TAU;
+      if (diff < -Math.PI) diff += TAU;
+      if (Math.abs(diff) <= halfAngle) out.push(e);
+    }
+    return out;
+  }
+
+  queryCapsule(x1, y1, x2, y2, radius) {
+    const out = [];
+    const seen = new Set();
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy);
+    const steps = Math.max(1, Math.ceil(len / Math.max(8, radius)));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = x1 + dx * t;
+      const py = y1 + dy * t;
+      const hits = this.grid.query(px, py, radius, []);
+      for (const h of hits) {
+        if (!h.isEnemy || h.dead || seen.has(h.id)) continue;
+        seen.add(h.id);
+        out.push(h);
+      }
+    }
+    return out;
+  }
+
+  // =========================================================
+  // 每帧更新
+  // =========================================================
+  update(dt, player, waveElapsed) {
+    this.player = player;
+
+    // Boss 阶段需要知道"剩余时间比例"。main.js 负责计时，
+    // 这里把 waveElapsed 换算成比例注入，Boss 就能同时用血量/时间双触发。
+    const dur = this.waveDuration || 1;
+    this.bossTimeRatio = clamp(1 - (waveElapsed || 0) / dur, 0, 1);
+
+    // ---- 重建空间网格 ----
+    this.grid.clear();
+    for (const e of this.enemies.items) {
+      if (!e.dead) this.grid.insert(e);
+    }
+
+    // ---- 刷怪 ----
+    // 第四十九轮：芙兰朵露战期间 noSpawn=true —— 波次系统已经结束，
+    // 场上只允许芙兰本尊，普通刷怪/宝箱/宝箱怪全部停掉。
+    if (!this.noSpawn) {
+      this.updateSpawning(dt, player, waveElapsed);
+      // ---- 宝箱 / 宝箱怪 ----
+      this._updateTreasureSpawning(dt, player);
+    }
+
+    // ---- 敌人 ----
+    for (const e of this.enemies.items) {
+      if (e.dead) continue;
+      e.update(dt, player, this);
+    }
+
+    // ---- 玩家子弹 ----
+    for (const b of this.bullets.items) {
+      if (b.dead) continue;
+      b.update(dt, this);
+      if (!b.dead) b.checkEnemyHit(this);
+    }
+
+    // ---- 炮台 ----
+    this.turrets.update(dt, player, this);
+
+    // ---- 宠物（小小猫娘）----
+    if (this.pet && !this.pet.dead) {
+      this.pet.update(dt, player, this);
+      this.pet.clampToWorld(this);
+    }
+
+    // ---- 敌人子弹 ----
+    for (const b of this.enemyBullets.items) {
+      if (b.dead) continue;
+      b.update(dt, this, player);
+    }
+
+    // ---- 拾取物 ----
+    for (const p of this.pickups.items) {
+      if (p.dead) continue;
+      p.update(dt, this, player);
+    }
+
+    // ---- 特效 ----
+    this.fx.update(dt);
+
+    // ---- 清理 ----
+    this.enemies.sweep();
+    this.bullets.sweep();
+    this.enemyBullets.sweep();
+    this.pickups.sweep();
+  }
+
+  /** 波次结束时清场：把残余敌人清掉（Brotato 的做法） */
+  endWaveCleanup(player, opts = {}) {
+    let cleaned = 0;
+    let bonus = 0;
+    // 第四十八轮：Boss 关到时判过关（用户要求"无法获得boss击杀奖励"）——
+    // removeBosses=true 时活着的 Boss 直接无声移走：不掉材料、不掉经验、
+    // 不触发 onBossKilled（那是击杀奖励的入口）。
+    const removeBosses = !!opts.removeBosses;
+    // 清场奖励的折算比例：前期给一半（帮玩家攒钱），
+    // 中后期逐步降到 30% —— 否则后期一波清场就能白拿上百材料。
+    const w = this.currentWave;
+    const ratio = w < 8 ? 0.5 : w < 14 ? 0.35 : 0.22;
+    // 时长归一化：波次变长后残余敌人也变多，不清掉这层收入同样会翻倍
+    const damp = this.durationDamp ?? 1;
+    for (const e of this.enemies.items) {
+      if (e.dead) continue;
+      if (e.boss) {
+        // 只清普通敌人，Boss 保留到被击杀（到时放行时例外，见上）
+        if (!removeBosses) continue;
+        e.dead = true;
+        continue;
+      }
+      // 宝箱：不折算成材料，直接消失（没打掉就没奖励，这是合理的代价）
+      if (e.isChest) { e.dead = true; continue; }
+      e.dead = true;
+      cleaned++;
+      const v = Math.max(1, Math.round(e.materialValue * ratio * damp));
+      this.pickups.add(new Pickup(PICKUP_TYPE.MATERIAL, e.x, e.y, v));
+      bonus += v;
+    }
+    this.enemies.sweep();
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    // 炮台随波次清空：每波重新布阵，避免跨波无限累积
+    this.turrets.clear();
+    this.lastCleanupBonus = bonus;
+    return cleaned;
+  }
+
+  clearAll() {
+    this.enemies.clear();
+    this.bullets.clear();
+    this.enemyBullets.clear();
+    this.turrets.clear();
+    this.pickups.clear();
+    this.fx.clear();
+    this.grid.clear();
+  }
+
+  /** 供 UI 显示：场上敌人数量 */
+  get enemyCount() { return this.enemies.length; }
+}
