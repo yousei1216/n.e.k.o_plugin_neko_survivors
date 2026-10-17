@@ -58,8 +58,8 @@ except ModuleNotFoundError:  # 本地跑测试（无 NEKO SDK）时的等价兜�
             self.error = error
 
     class Ok:  # type: ignore[no-redef]
-        def __init__(self, data=None):
-            self.data = data
+        def __init__(self, value=None):
+            self.value = value
 
     class SdkError(Exception):  # type: ignore[no-redef]
         pass

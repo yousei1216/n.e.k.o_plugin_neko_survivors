@@ -33,7 +33,7 @@ def _make():
 def test_game_event_pushes_respond_message():
     p, log = _make()
     r = asyncio.run(p.game_event(event="boss_spawn", text="第 10 波，Boss 登场"))
-    assert getattr(r, "data", None) == {"status": "queued"}
+    assert getattr(r, "value", None) == {"status": "queued"}   # 真实 SDK Ok.value
     assert len(log) == 1
     kw = log[0]
     assert kw["visibility"] == ["chat"]
@@ -46,16 +46,16 @@ def test_throttle_same_event_and_global_gap():
     p, log = _make()
     asyncio.run(p.game_event(event="boss_spawn", text="Boss 登场"))
     r = asyncio.run(p.game_event(event="boss_spawn", text="又来"))
-    assert getattr(r, "data", {}).get("status") == "throttled"
+    assert (getattr(r, "value", None) or {}).get("status") == "throttled"
     r2 = asyncio.run(p.game_event(event="boss_kill", text="打倒了"))  # 全局间隔未到
-    assert getattr(r2, "data", {}).get("status") == "throttled"
+    assert (getattr(r2, "value", None) or {}).get("status") == "throttled"
     assert len(log) == 1
 
 
 def test_empty_text_rejected():
     p, log = _make()
     r = asyncio.run(p.game_event(event="win", text="   "))
-    assert not hasattr(r, "data") or getattr(r, "data", None) is None  # Err 分支
+    assert not hasattr(r, "value") or getattr(r, "value", None) is None  # Err 分支
     assert len(log) == 0
 
 
