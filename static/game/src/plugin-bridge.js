@@ -33,6 +33,7 @@ export const pluginBridge = {
     } catch {
       this.enabled = false;
     }
+    console.log(`[neko-bridge] 探活 ${PROBE_URL} → ${this.enabled ? '命中，桥启用' : '未命中，桥禁用（本地/宿主环境走原通道）'}`);
     return this.enabled;
   },
 
@@ -61,13 +62,25 @@ export const pluginBridge = {
     const now = Date.now() / 1000;
     const key = gapKey || action;
     const last = this._last.get(key) || 0;
-    if (now - last < minGapSec) return;
+    if (now - last < minGapSec) {
+      console.log(`[neko-bridge] ${action} 被客户端限频吞掉（距上次 ${Math.round(now - last)}s < ${minGapSec}s）`);
+      return;
+    }
     this._last.set(key, now);
+    console.log(`[neko-bridge] → POST ${action}:`, args);
     fetch(`${BASE}/hosted-ui/action/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ args, kind: 'panel' }),
-    }).catch(() => { /* 插件没起/离线：静默 */ });
+    }).then((r) => {
+      if (!r.ok) {
+        console.warn(`[neko-bridge] ${action} 响应 ${r.status}（404/409 多为插件没在运行 —— 去插件面板把 neko_survivors 启动起来）`);
+      } else {
+        console.log(`[neko-bridge] ${action} → 已受理`);
+      }
+    }).catch((e) => {
+      console.warn('[neko-bridge] 请求失败：', e && e.message);
+    });
   },
 
   /** 事件 → 给猫娘看的战况一句话（她会用自己口吻重新播报） */

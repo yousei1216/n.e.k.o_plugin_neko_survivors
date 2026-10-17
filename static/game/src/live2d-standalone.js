@@ -64,6 +64,34 @@ function engineSources() {
 
 let _enginePromise = null;
 
+/**
+ * 第一百二十六轮：插件面板里给 live2d 引擎的宿主 API 请求装一个同源 shim。
+ *
+ * live2d-core / live2d-model 会去请求宿主的 /api/live2d/...（表情/参数/
+ * 模型列表等）；插件面板源上没有这些路由（404 刷控制台，表情参数丢失），
+ * 跨源去 48911 又被 CORS 拦。这里在引擎加载前把 /api/live2d/ 的 fetch
+ * 短路成空数据 200 —— 引擎拿到"没有额外配置"的正常空响应，形象/待机
+ * 动作照常，控制台不再刷 404。
+ */
+function installLive2dApiShim() {
+  if (window.__nekoLive2dApiShim) return;
+  window.__nekoLive2dApiShim = true;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    try {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url.includes('/api/live2d/')) {
+        console.warn('[neko-bridge] 插件面板拦截 Live2D 宿主 API（返回空数据）：', url);
+        const body = url.includes('/models') ? '[]' : '{}';
+        return Promise.resolve(new Response(body, {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+    } catch { /* 解析不了就按原样放行 */ }
+    return origFetch(input, init);
+  };
+}
+
 /** 插一个 <script>，加载失败要 reject（否则后面报错看不懂） */
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -92,13 +120,17 @@ export function ensureEngine() {
   if (_enginePromise) return _enginePromise;
   _enginePromise = (async () => {
     const { host, scripts } = engineSources();
+    if (pluginUiBase()) installLive2dApiShim();
+    console.log('[neko-bridge] Live2D 引擎加载开始：', host, scripts.length, '个引擎脚本');
     // avatar-host 优先：它提供 mount 契约和 fitLive2DModel
     await loadScript(host);
     for (const src of scripts) await loadScript(src);
-    return (
+    const ok = (
       typeof window.Live2DManager === 'function'
       && typeof window.NekoMiniGameAvatarHost !== 'undefined'
     );
+    console.log('[neko-bridge] Live2D 引擎加载结果：', ok ? '成功' : '失败');
+    return ok;
   })().catch((e) => {
     // 失败就把 Promise 清掉，允许下次重试（比如用户中途才把 NEKO 开起来）
     _enginePromise = null;

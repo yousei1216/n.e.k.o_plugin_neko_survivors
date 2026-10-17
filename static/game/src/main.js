@@ -176,13 +176,17 @@ export class Game {
     } catch {
       this.nekoReady = false;
     }
-    // 第一百二十四轮：SDK 没连上（插件面板/纯网页）→ 探测官方猫娘通道。
-    // 插件面板里 ui-info 探活成功即启用；本地/部署环境探活 404，桥保持禁用。
-    if (!this.nekoReady) {
-      pluginBridge.init()
-        .then((on) => { if (on) this.ui.setNekoStatus(neko.status()); })
-        .catch(() => { /* 探测失败：桥保持禁用 */ });
-    }
+    // 第一百二十四/二十六轮：官方猫娘桥**总是**探活 —— 插件面板里
+    // standalone 形象挂成功后 nekoReady 会是 true，但对话/语音仍然只能
+    // 走桥；非插件环境探活 404，桥保持禁用，零开销。
+    pluginBridge.init()
+      .then((on) => {
+        if (on) {
+          console.log('[neko-bridge] 插件面板环境 → 官方猫娘通道已启用（战况播报 + 台词 TTS）');
+          this.ui.setNekoStatus(neko.status());
+        }
+      })
+      .catch(() => { /* 探测失败：桥保持禁用 */ });
   }
 
   /**
@@ -245,11 +249,15 @@ export class Game {
 
   /** 统一的吐槽入口：任何异常都不影响游戏 */
   _nekoComment(event, ctx = {}) {
-    if (this.nekoReady) {
+    // 第一百二十六轮：nekoReady 只代表"形象/状态可用"，不代表有对话能力。
+    // 插件面板里 standalone 形象挂上后 nekoReady 也是 true —— 那时 SDK
+    // 对话通道并不存在，必须继续走桥（第一百二十五轮修好后这成了
+    // "形象有了、台词语音全没了"的元凶）。
+    if (this.nekoReady && !neko.isStandalone) {
       neko.comment(event, ctx).catch(() => { /* 忽略 */ });
       return;
     }
-    // 第一百二十四轮：插件环境（SDK 没连上）→ 走官方猫娘通道：
+    // 插件环境（SDK 没连上/独立模式）→ 走官方猫娘通道：
     // 同源 POST 插件 action → Python push_message(ai_behavior="respond")
     // → 官方猫娘在聊天界面带形象+语音播报战况。非插件环境桥是禁用的，零开销。
     this._pluginComment(event, ctx);
@@ -258,7 +266,9 @@ export class Game {
   /** 插件环境限频播报（详细间隔由插件 Python 侧再兜一层） */
   _pluginComment(event, ctx = {}) {
     try {
-      pluginBridge.report(event, pluginBridge.formatEvent(event, ctx), 25);
+      const text = pluginBridge.formatEvent(event, ctx);
+      console.log(`[neko-bridge] 事件 ${event} →`, text);
+      pluginBridge.report(event, text, 25);
     } catch { /* 永不影响游戏 */ }
   }
 
@@ -270,7 +280,9 @@ export class Game {
    * 送达成功同样返回 true —— 调用方不再出粉色 toast，她本人来说。
    */
   _nekoSay(text, opts = {}) {
-    if (this.nekoReady) {
+    // 第一百二十六轮：与 _nekoComment 同口径 —— standalone（含插件面板）
+    // 即使形象挂上了也没有 SDK 对话通道，固定台词一律优先走桥（官方 TTS）。
+    if (this.nekoReady && !neko.isStandalone) {
       try { return neko.sayFixed(text, opts); } catch { return false; }
     }
     try {

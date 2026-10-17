@@ -188,11 +188,16 @@ class SurvivorsPlugin(NekoPluginBase):
     )
     async def game_event(self, event: str = "", text: str = "", **_) -> Ok:
         """把游戏战况交给官方猫娘播报（节流后 push_message）。"""
+        log = getattr(self, "logger", None)
         now = time.monotonic()
         gap = _MIN_GAPS.get(event, 30.0)
         if now - self._last_event_at.get(event, 0.0) < gap:
+            if log:
+                log.info("[neko_survivors] game_event %s 被节流（同类间隔）", event)
             return Ok({"status": "throttled", "reason": "event_gap"})
         if now - self._last_any_at < _GLOBAL_GAP:
+            if log:
+                log.info("[neko_survivors] game_event %s 被节流（全局间隔）", event)
             return Ok({"status": "throttled", "reason": "global_gap"})
         self._last_event_at[event] = now
         self._last_any_at = now
@@ -200,6 +205,8 @@ class SurvivorsPlugin(NekoPluginBase):
         safe_text = str(text or "").strip()[:300]
         if not safe_text:
             return Err(SdkError("empty text"))
+        if log:
+            log.info("[neko_survivors] game_event %s → push_message（%s）", event, safe_text[:60])
         self.push_message(
             source="neko_survivors",
             visibility=["chat"],
@@ -238,31 +245,42 @@ class SurvivorsPlugin(NekoPluginBase):
     )
     async def speak(self, text: str = "", **_):
         """照念台词：转发宿主 /api/game/<type>/speak（官方 TTS 管线）。"""
+        log = getattr(self, "logger", None)
         safe = str(text or "").strip()[:300]
         if not safe:
             return Err(SdkError("empty text"))
         now = time.monotonic()
         if now - self._last_speak_at < SPEAK_GAP:
+            if log:
+                log.info("[neko_survivors] speak 被节流（%.1fs 间隔）", now - self._last_speak_at)
             return Ok({"status": "throttled"})
         self._last_speak_at = now
 
         lanlan = await self._current_lanlan()
         if not lanlan:
+            if log:
+                log.info("[neko_survivors] speak 跳过：读不到当前猫娘（宿主没开？）")
             return Ok({"status": "no_lanlan"})
         payload = json.dumps(
             {"lanlan_name": lanlan, "session_id": f"{GAME_TYPE}_panel", "line": safe},
             ensure_ascii=False,
         ).encode("utf-8")
+        if log:
+            log.info("[neko_survivors] speak → 宿主 TTS（%s）：%.60s", lanlan, safe)
         status, body = await asyncio.to_thread(
             self._http_request, "POST", f"/api/game/{GAME_TYPE}/speak", payload,
         )
         if status != 200:
+            if log:
+                log.info("[neko_survivors] speak 宿主不可达（HTTP %s）", status)
             return Ok({"status": "upstream_unavailable", "code": status})
         try:
             data = json.loads(body.decode("utf-8"))
         except Exception:
             data = {}
         if data.get("ok") is False:
+            if log:
+                log.info("[neko_survivors] speak 被宿主跳过：%s", data.get("reason"))
             return Ok({"status": "skipped", "reason": str(data.get("reason") or "")[:80]})
         return Ok({"status": "spoken", "method": str(data.get("method") or "")[:40]})
 
