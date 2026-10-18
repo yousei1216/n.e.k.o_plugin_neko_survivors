@@ -5,6 +5,8 @@
 
 import { Entity } from './entity.js';
 import { angleTo, angleDiff, TAU } from '../core/math.js';
+// 第一百三十二轮：波次真伤档位随弹携带（命中时按当前波结算）
+import { trueDamageBonus } from '../data/difficulty.js';
 
 export class Bullet extends Entity {
   constructor(cfg) {
@@ -171,6 +173,9 @@ export class EnemyBullet extends Entity {
     // 第四十九轮：芙兰朵露弹幕 —— 命中走 30% 真实伤害（无视护甲/闪避），
     // 由 player.flandreHit() 处理；其余敌人子弹走普通 takeDamage。
     this.flandre = !!cfg.flandre;
+    // 第一百三十二轮：波次真伤档位（1 小怪 / 2 精英 / 3 Boss；0 = 不附加，
+    // 芙兰弹与未标注来源的弹）—— 命中时按当时的 world.currentWave 结算。
+    this.trueTier = cfg.trueTier ?? 0;
     this.rotation = 0;
     // 第八十八轮：弹幕形状 —— 'orb' 圆球（默认，历史行为）/
     // 'longball' 长球（两端圆润的椭圆，长:短 ≈ 2.2:1，沿飞行方向对齐，
@@ -264,9 +269,16 @@ export class EnemyBullet extends Entity {
         return;
       }
       // 第四十九轮：芙兰的弹 = 30% 真实伤害（无视护甲/闪避，保留无敌帧）
-      if (this.flandre) player.flandreHit?.(this.x, this.y);
+      // 第一百三十二轮：普通敌弹附加波次真伤 —— 档位在发射时记在
+      // trueTier 上（小怪 1 / 精英 2 / Boss 3），命中时按**当时**波次算，
+      // 跨波飞行的弹也吃最新成长。芙兰弹走 flandreHit，天然不叠加。
+      const trueBonus = this.trueTier
+        ? trueDamageBonus(world?.currentWave ?? 0, this.trueTier)
+        : 0;
       // 第九十六轮：敌弹命中 → 弹幕档无敌帧 0.6s（其余伤害仍是 0.8s）
-      else player.takeDamage(this.damage * (wxW?.enemyOut ?? 1), this.x, this.y, { projectile: true });
+      // 第一百三十二轮：附加 trueBonus（round96 的 projectile 标记保留）
+      if (this.flandre) player.flandreHit?.(this.x, this.y);
+      else player.takeDamage(this.damage * (wxW?.enemyOut ?? 1), this.x, this.y, { projectile: true, trueBonus });
       this.dead = true;
     }
   }

@@ -248,6 +248,34 @@ export const DIFFICULTY = {
 /** 展示顺序 */
 export const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'nightmare'];
 
+// ---- 第一百三十二轮：波次真实伤害附加 ----
+//
+// 用户设计："从第 6 波开始，敌人的所有伤害（接触、弹幕）都附加真实伤害。
+//   6-10 波：小怪 +1，精英 +2，Boss +3；11-15 波：+2/+4/+6；
+//   16-20 波：+3/+6/+9；无尽模式每回合额外 +1（21 波 +4/+7/+10，
+//   22 波 +5/+8/+11，以此类推）。这部分真伤无视护甲，直接扣 HP，
+//   且跟着现有的无敌帧一起结算（每次有效受击只结算 1 次附加真伤）。
+//   芙兰朵露除外——芙兰战已经走 22% 最大生命值真伤。"
+//
+// 制裁对象很明确：中后期堆护甲/堆回血的玩家 —— 护甲乘区减不掉这部分，
+// 高护甲不再是"站着让怪挠痒痒"的免死金牌。tier：1 小怪 / 2 精英 / 3 Boss。
+
+/** 真伤从第 6 波（1-based）开始 */
+export const TRUE_DMG_FROM_WAVE = 6;
+
+/**
+ * 计算某波次、某档位敌人附加的真实伤害。
+ * @param {number} wave 当前波次（1-based；world.currentWave）
+ * @param {number} tier 1 小怪 / 2 精英 / 3 Boss
+ */
+export function trueDamageBonus(wave, tier) {
+  if (wave < TRUE_DMG_FROM_WAVE) return 0;
+  // 阶段基值：6-10 波小怪 +1、11-15 +2、16-20 +3（精英 ×2、Boss ×3）
+  const base = wave >= 16 ? 3 : wave >= 11 ? 2 : 1;
+  const endless = wave > 20 ? wave - 20 : 0;   // 无尽每回合再 +1
+  return base * tier + endless;
+}
+
 export const DEFAULT_DIFFICULTY = 'normal';
 
 export function getDifficulty(id) {

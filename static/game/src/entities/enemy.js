@@ -13,6 +13,8 @@ import {
   ENEMY_BULLET_SPEED_BUFF,
   ENEMY_MELEE_HP_BUFF,
 } from '../data/difficulty.js';
+// 第一百三十二轮：波次真实伤害附加（6 波起，制裁高护甲/高回血玩家）
+import { trueDamageBonus } from '../data/difficulty.js';
 import { ELITE_DAMAGE_MUL, BOSS_DAMAGE_MUL } from '../data/waves.js';
 // 第一百二十一轮：Boss 射击音效（shoot1 齐射 / shoot2 水柱）。
 import { audio } from '../systems/audio.js';
@@ -276,6 +278,26 @@ export class Enemy extends Entity {
   get curseCooldownMul() {
     const m = this.curseRateMul;
     return m > 0 && m !== 1 ? 1 / m : 1;
+  }
+
+  /**
+   * 第一百三十二轮：本敌人当前应附加的真实伤害。
+   * 接触/自爆直接用；弹幕在发射时把档位（trueTier）记到弹上，
+   * 命中时按**当时**的波次算（见 bullet.js）。
+   * 芙兰战全程排除 —— 她已经走 22% 最大生命值真伤体系，不叠加固定真伤。
+   */
+  trueBonusFor(world) {
+    if (world?.flandreFight) return 0;
+    const tier = this.boss ? 3 : this.elite ? 2 : 1;
+    return trueDamageBonus(world?.currentWave ?? 0, tier);
+  }
+
+  /**
+   * 弹幕档位标记：1 小怪 / 2 精英 / 3 Boss。
+   * spawnEnemyBullet 的调用方把它塞进 cfg（trueTier），弹命中时用。
+   */
+  get trueTier() {
+    return this.boss ? 3 : this.elite ? 2 : 1;
   }
 
   takeDamage(amount, opts = {}) {
@@ -562,7 +584,8 @@ export class Enemy extends Entity {
             if (wxW.rng.next() * 100 < wxW.miss) return;
           }
         }
-        player.takeDamage(dmg, this.x, this.y);
+        // 第一百三十二轮：接触伤害附加波次真伤（6 波起，无视护甲直扣 HP）
+        player.takeDamage(dmg, this.x, this.y, { trueBonus: this.trueBonusFor(world) });
         // 撞击后自己也退一点（台风天全场免击退，这一下也免）
         if (!(wxW?.noKnockback)) this.applyKnockback(player.x, player.y, 40);
       }
@@ -813,7 +836,7 @@ export class Enemy extends Entity {
           break;
         }
       }
-      world.spawnEnemyBullet({
+      world.spawnEnemyBullet({ trueTier: this.trueTier,
         x: this.x, y: this.y, angle: a,
         speed, damage, radius, color, range,
       });
@@ -1102,7 +1125,8 @@ export class Enemy extends Entity {
     const dmg = (this.def.explosionDamage ?? 12) * this.dmgScale;
     const d = dist(this.x, this.y, player.x, player.y);
     if (d < radius + player.radius) {
-      player.takeDamage(dmg, this.x, this.y);
+      // 第一百三十二轮：自爆同样附加波次真伤（接触类伤害）
+      player.takeDamage(dmg, this.x, this.y, { trueBonus: this.trueBonusFor(world) });
     }
     world.fx.explosion(this.x, this.y, radius, this.color);
     world.camera.shake(6, 0.2);
@@ -1234,7 +1258,7 @@ export class Enemy extends Entity {
       const t = count === 1 ? 0.5 : i / (count - 1);
       const off = (t - 0.5) * spreadDeg * Math.PI / 180;
       const a = Math.atan2(this.jetDirY, this.jetDirX) + off;
-      world.spawnEnemyBullet({
+      world.spawnEnemyBullet({ trueTier: this.trueTier,
         x: this.x, y: this.y, angle: a,
         // 水柱速度**不叠难度倍率**。
         // 理由：噩梦的 bulletSpeed 是 1.28 倍，1400 × 1.28 = 1792px/s，
@@ -1366,7 +1390,7 @@ export class Enemy extends Entity {
         // 逐发抖之后间距本身就不均匀了，没有固定的缝隙可站。
         a += this._bulletJitter(def);
         const crystal = ce > 0 && i % ce === ce - 1;
-        world.spawnEnemyBullet({
+        world.spawnEnemyBullet({ trueTier: this.trueTier,
           x: this.x, y: this.y, angle: a,
           speed: bulletSpeed,
           damage: (def.projectileDamage ?? 10) * this.dmgScale,   // 第二十九轮：吃成长
@@ -1413,7 +1437,7 @@ export class Enemy extends Entity {
         for (let i = 0; i < n2; i++) {
           // 交错环同样逐发抖（理由见主环那段注释）
           const a = (i / n2) * TAU + offset + this._bulletJitter(def);
-          world.spawnEnemyBullet({
+          world.spawnEnemyBullet({ trueTier: this.trueTier,
             x: this.x, y: this.y, angle: a,
             speed: bulletSpeed * r.speed,
             damage: Math.round((def.projectileDamage ?? 10) * this.dmgScale * 0.75),   // 第二十九轮：吃成长
@@ -1436,7 +1460,7 @@ export class Enemy extends Entity {
         for (let i = 0; i < n; i++) {
           const t = n === 1 ? 0.5 : i / (n - 1);
           const a = baseAngle - halfSpread + halfSpread * 2 * t;
-          world.spawnEnemyBullet({
+          world.spawnEnemyBullet({ trueTier: this.trueTier,
             x: this.x, y: this.y, angle: a,
             speed: bulletSpeed * (fan.speedMul ?? 1),
             damage: Math.round((def.projectileDamage ?? 10) * this.dmgScale * 0.8),
@@ -1680,7 +1704,7 @@ export class Enemy extends Entity {
         let a = baseAngle - (spread * Math.PI / 180) / 2 + (spread * Math.PI / 180) * t;
         a += this._bulletJitter(def);
         const crystal = ce > 0 && i % ce === ce - 1;
-        world.spawnEnemyBullet({
+        world.spawnEnemyBullet({ trueTier: this.trueTier,
           x: this.x, y: this.y, angle: a,
           speed: bulletSpeed,
           damage: (def.projectileDamage ?? 10) * this.dmgScale,   // 第二十九轮：吃成长
@@ -1707,7 +1731,7 @@ export class Enemy extends Entity {
         for (let i = 0; i < n2; i++) {
           const a = (i / n2) * TAU + this.age * 0.8 + this._bulletJitter(def);
           const crystal = !!apple && i % 2 === 0;
-          world.spawnEnemyBullet({
+          world.spawnEnemyBullet({ trueTier: this.trueTier,
             x: this.x, y: this.y, angle: a,
             speed: bulletSpeed * 0.55,
             damage: Math.round((def.projectileDamage ?? 10) * this.dmgScale * 0.7),   // 第二十九轮：吃成长
