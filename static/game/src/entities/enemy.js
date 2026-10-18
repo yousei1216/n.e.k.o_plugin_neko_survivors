@@ -16,6 +16,8 @@ import {
 import { ELITE_DAMAGE_MUL, BOSS_DAMAGE_MUL } from '../data/waves.js';
 // 第一百二十一轮：Boss 射击音效（shoot1 齐射 / shoot2 水柱）。
 import { audio } from '../systems/audio.js';
+// 第一百三十一轮：Boss 过载减伤（0.5s 掉血 ≥10% maxHp → 一层 50% 乘算减伤）
+import { OverloadGuard } from '../systems/overload.js';
 
 /**
  * 第九十二轮：标准 Boss 弹幕的七彩结晶环配色（与芙兰符卡的 RAINBOW 同组）。
@@ -173,6 +175,13 @@ export class Enemy extends Entity {
 
     // Boss 三阶段（血量/时间双触发，见 data/boss-phases.js）
     this.bossPhase = this.boss ? new BossPhaseState() : null;
+    // 第一百三十一轮：Boss「过载减伤」（含芙兰 —— 她也是 boss:true 的
+    // Enemy，自动继承）。0.5s 内实际掉血 ≥ 10% maxHp → 一层 50% 乘算
+    // 减伤，每层独立计时 5 秒。时钟用 this.overloadNow（update 里累加），
+    // 注入式设计让 round131 测试能精确复现"连打 5 秒叠几层"。
+    this.overload = this.boss ? new OverloadGuard(this.maxHp) : null;
+    this.overloadNow = 0;
+    this.overloadFlash = 0;   // 触发新层时的金红闪光（渲染层读）
     this.chargeTimer = 3;   // Boss 冲锋计时器（二阶段起使用）
     // 第十一轮：近战 Boss 的"连续冲刺"剩余次数（依趣苹果醋 = 2，会连冲两次）
     this._chargeRepeatsLeft = 0;
@@ -302,6 +311,16 @@ export class Enemy extends Entity {
       dmg = Math.max(1, dmg * (1 / (1 + effArmor / 20)));
     }
 
+    // ---- 第一百三十一轮：Boss 过载减伤（独立乘算层）----
+    //
+    // 位置在护甲与奶妈减伤之后、扣血之前：过载是对"实际掉血速度"的
+    // 限流，与护甲/固定减伤各自独立乘算。层数越高伤害越小（0.5^N），
+    // 但永远 > 0 —— 乘算叠加防无敌，符合用户设计。
+    let overloaded = false;
+    if (this.overload) {
+      this.overload.tick(this.overloadNow);
+      dmg = Math.max(1, dmg * this.overload.multiplier);
+    }
     // ---- 奶妈怪给的固定减伤（第十二轮）----
     //
     // 用户要的是"30% 固定减伤"。这里刻意用**乘算的独立一层**，
@@ -320,6 +339,16 @@ export class Enemy extends Entity {
 
     this.hp -= dmg;
     this.hurtFlash = 0.12;
+
+    // ---- 第一百三十一轮：过载层记账（用**实际掉血**触发）----
+    // 减伤生效后掉血变慢，层数增长自然放缓 —— 机制自我平衡。
+    // 触发新层 → 金红闪光计时器（渲染层读 overloadFlash 画护盾特效）。
+    if (this.overload) {
+      if (this.overload.recordDamage(this.overloadNow, dmg)) {
+        this.overloadFlash = 0.35;
+        overloaded = true;
+      }
+    }
     // 表情计时（第十轮）：比受击闪白长得多。
     // hurtFlash 只有 0.12 秒，是给"整只怪刷白"用的，快到几乎看不见；
     // 而 >< 这种表情需要 **0.5 秒**玩家才能看清"她哎呀了一下"。
@@ -339,9 +368,9 @@ export class Enemy extends Entity {
     if (this.hp <= 0) {
       this.hp = 0;
       this.dead = true;
-      return { killed: true, dealt: dmg, gated: blocked };
+      return { killed: true, dealt: dmg, gated: blocked, overloaded };
     }
-    return { killed: false, dealt: dmg, gated: blocked };
+    return { killed: false, dealt: dmg, gated: blocked, overloaded };
   }
 
   applyKnockback(fromX, fromY, force) {
@@ -364,6 +393,15 @@ export class Enemy extends Entity {
    */
   update(dt, player, world) {
     this.age += dt;
+    // 第一百三十一轮：闪光先衰减、过载后置位 —— 新结算出的层当帧就有满值闪光
+    if (this.overloadFlash > 0) this.overloadFlash = Math.max(0, this.overloadFlash - dt);
+    // 过载减伤的时钟推进 + 窗口滚动结算 + 到期层清理
+    if (this.overload) {
+      this.overloadNow += dt;
+      if (this.overload.update(this.overloadNow)) {
+        this.overloadFlash = 0.35;   // 停火时窗口结算出的新层也闪
+      }
+    }
     if (this.spawnAnimation > 0) {
       this.spawnAnimation -= dt;
       this.scale = clamp(1 - this.spawnAnimation / 0.28, 0.2, 1);

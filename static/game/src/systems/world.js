@@ -829,7 +829,14 @@ export class World {
     }
 
     // 伤害数字
-    this.fx.damageText(target.x, target.y - target.radius * 0.6, dealt, isCrit);
+    // 第一百三十一轮：过载减伤生效的命中 → 暗灰色数字（正常亮色），
+    // 让玩家一眼区分"打中了但太硬"。命中音效/火花特效（下面 else 分支）
+    // 刻意保留 —— 用户："不能看起来像子弹穿过去了。要让玩家知道
+    // 「我打中了，但它太硬了」"。'
+    this.fx.damageText(
+      target.x, target.y - target.radius * 0.6, dealt, isCrit,
+      res.overloaded ? '#8a8f98' : undefined,
+    );
     // 卡点命中：换一个颜色 + 一圈冲击环，明确"打到了但被卡住"
     if (res.gated) {
       this.fx.ring(target.x, target.y, target.radius * 1.25, '#ffc857', 0.4, { player: true });

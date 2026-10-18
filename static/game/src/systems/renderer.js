@@ -906,6 +906,33 @@ export class Renderer {
 
     const col = e.hurtFlash > 0 ? '#ffffff' : e.color;
 
+    // ---- 第一百三十一轮：过载减伤触发闪光 ----
+    // 每触发一层"过载减伤"（0.5s 掉血 ≥10% maxHp）闪一次金红护盾光圈。
+    // 有层期间留一圈淡金呼吸底光 —— 用户："要显示当前减伤……让玩家知道
+    // 「现在你的输出被限制了，但这正是你专心躲弹幕的 5 秒钟」"。
+    if (e.overload && (e.overloadFlash > 0 || e.overload.layersCount > 0)) {
+      const has = e.overload.layersCount > 0;
+      const breath = has ? 0.5 + Math.sin(e.age * 5) * 0.5 : 0;
+      const flash = Math.max(0, e.overloadFlash / 0.35);
+      const glowR = r + 6 + flash * 10 + breath * 3;
+      const g3 = ctx.createRadialGradient(0, 0, r * 0.5, 0, 0, glowR);
+      g3.addColorStop(0, 'rgba(255,200,87,0)');
+      g3.addColorStop(0.75, `rgba(255,200,87,${0.06 + breath * 0.05})`);
+      g3.addColorStop(1, `rgba(255,120,60,${0.18 + flash * 0.5 + breath * 0.08})`);
+      ctx.fillStyle = g3;
+      ctx.beginPath();
+      ctx.arc(0, 0, glowR, 0, TAU);
+      ctx.fill();
+      // 触发瞬间的一道亮环（0.35s 内从大缩到无）
+      if (flash > 0) {
+        ctx.strokeStyle = `rgba(255,214,120,${0.85 * flash})`;
+        ctx.lineWidth = 3 * flash + 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 4 + (1 - flash) * 16, 0, TAU);
+        ctx.stroke();
+      }
+    }
+
     // 宝箱怪 / 宝箱：加一圈脉动光效，方便玩家在地图上看到（用户要求）
     if (e.def?.glow || e.isChest) {
       const pulse = 0.5 + Math.sin((e.glowPhase ?? e.age * 2)) * 0.5;
@@ -3269,15 +3296,35 @@ export class Renderer {
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.strokeText(`${boss.def.bossName}  ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`,
-      x + w / 2, y + h / 2 + 0.5);
+    const barText = `${boss.def.bossName}  ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`;
+    ctx.strokeText(barText, x + w / 2, y + h / 2 + 0.5);
     ctx.fillStyle = rage ? gothic.rageText : gothic.text;
-    ctx.fillText(`${boss.def.bossName}  ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`,
-      x + w / 2, y + h / 2 + 0.5);
+    ctx.fillText(barText, x + w / 2, y + h / 2 + 0.5);
     // 阶段锁无敌提示：🔒 护盾标（右尖角外侧）
     if (lock) {
       ctx.font = '700 13px sans-serif';
       ctx.fillText('🔒', x + w + 24, y + h / 2);
+    }
+
+    // ---- ⑦ 过载减伤徽标（第一百三十一轮）----
+    // 血条正下方：🛡 ×层数 −减伤%。有层时徽标金橙呼吸 —— 用户要求
+    // "血条附近必须显示当前减伤层数或减伤百分比"，并让玩家明白
+    // "输出被限制的这几秒，正是专心躲弹幕的窗口"。
+    if (boss.overload && boss.overload.layersCount > 0) {
+      const ov = boss.overload;
+      const pct = Math.round(ov.reduction * 100);
+      const pulse = 0.6 + 0.4 * Math.abs(Math.sin(t * 4));
+      const text = `🛡 过载 ×${ov.layersCount}  −${pct}%`;
+      ctx.font = '700 12px "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(text, x + w / 2, y + h + 11);
+      ctx.fillStyle = `rgba(255,${Math.round(150 + 60 * pulse)},60,${0.75 + 0.25 * pulse})`;
+      ctx.fillText(text, x + w / 2, y + h + 11);
+      // 血条外框叠一层金橙描边，余光也能注意到
+      ctx.strokeStyle = `rgba(255,180,80,${0.35 + 0.35 * pulse})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
     }
     ctx.restore();
   }
