@@ -8,6 +8,43 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<!-- 第一百三十九轮：暂停属性方块的小图标库（暗金/淡紫 currentColor 描边） -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-damage" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M19 5l-8.5 8.5M19 5h-3.2M19 5v3.2M8.5 15.5l-2 2M6 13l5 5M4 20l2.5-2.5"/>
+    </symbol>
+    <symbol id="i-atkspeed" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M13 2L4.5 13.5h5L8 22l9.5-11.5h-5.2L13 2z"/>
+    </symbol>
+    <symbol id="i-crit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/>
+      <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-critdmg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2l2.1 6.4L20.5 10l-6.4 2.1L12 18.5 9.9 12.1 3.5 10l6.4-1.6L12 2z"/>
+    </symbol>
+    <symbol id="i-armor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M12 2.5l7.5 3v5.5c0 5.2-3.8 8.6-7.5 10.5C8.3 19.6 4.5 16.2 4.5 11V5.5l7.5-3z"/>
+    </symbol>
+    <symbol id="i-dodge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M3 8h9.5a2.8 2.8 0 1 0-2.8-2.8M3 12.5h13.5a3 3 0 1 1-3 3M3 17h6.5"/>
+    </symbol>
+    <symbol id="i-speed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 5l7 7-7 7M12.5 5l7 7-7 7"/>
+    </symbol>
+    <symbol id="i-paw" viewBox="0 0 24 24" fill="currentColor">
+      <ellipse cx="12" cy="15.6" rx="5" ry="4.1"/>
+      <circle cx="6.2" cy="9.6" r="2.2"/><circle cx="12" cy="7.4" r="2.3"/><circle cx="17.8" cy="9.6" r="2.2"/>
+    </symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+      <path d="M12 3l7 6-7 12L5 9l7-6zM5 9h14M12 3v18" stroke-width="1.6"/>
+    </symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2.5s6.5 7 6.5 11.5a6.5 6.5 0 0 1-13 0C5.5 9.5 12 2.5 12 2.5z"/>
+    </symbol>
+  </defs>
+</svg>
 <div id="app">
   <canvas id="game"></canvas>
 

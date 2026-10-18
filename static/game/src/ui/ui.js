@@ -1098,24 +1098,40 @@ export class UI {
   }
 
   // ---------------- 暂停 ----------------
+  // 第一百三十九轮：属性方块图标映射（暗金 = 进攻系 / 淡紫 = 防御辅助系）
+  static PAUSE_ICONS = {
+    damage: 'i-damage', attackSpeed: 'i-atkspeed', critChance: 'i-crit',
+    critDamage: 'i-critdmg', armor: 'i-armor', dodge: 'i-dodge',
+    moveSpeed: 'i-speed', luck: 'i-paw', harvesting: 'i-gem', lifesteal: 'i-drop',
+  };
+  static PAUSE_GOLD = new Set(['damage', 'attackSpeed', 'critChance', 'critDamage', 'lifesteal']);
+
   showPause({ onResume, onQuit, onExit, player, fxAlpha = 100, onFxAlpha = null }) {
     const s = player.stats.values;
     const rows = [];
+    // 第一百三十九轮：进阶反馈 —— 和上一次暂停的快照比，刚涨过的数值闪绿光
+    const prev = this._lastPauseStats ?? {};
     for (const k of ['damage', 'attackSpeed', 'critChance', 'critDamage', 'armor', 'dodge', 'moveSpeed', 'luck', 'harvesting', 'lifesteal']) {
-      rows.push(`<div class="result-stat"><div class="k">${STAT_DEFS[k].name}</div><div class="v" style="font-size:16px">${fmtStat(k, s[k])}</div></div>`);
+      const tone = UI.PAUSE_GOLD.has(k) ? 'gold' : 'violet';
+      const changed = prev[k] !== undefined && Math.abs(Number(prev[k]) - Number(s[k])) > 0.01;
+      rows.push(`<div class="result-stat tone-${tone}${changed ? ' rs-flash' : ''}">` +
+        `<svg class="rs-icon"><use href="#${UI.PAUSE_ICONS[k]}"/></svg>` +
+        `<div class="rs-txt"><div class="k">${STAT_DEFS[k].name}</div>` +
+        `<div class="v">${fmtStat(k, s[k])}</div></div></div>`);
     }
+    this._lastPauseStats = { ...s };
 
     const root = this._mount(`
       <div class="screen">
-        <h2>已暂停</h2>
+        <h2 class="pause-title">已暂停</h2>
         <div class="sub">当前属性一览</div>
         <div class="result-stats">${rows.join('')}</div>
         <div style="margin-top:16px;text-align:left">
           <div class="sub" style="margin-bottom:6px">设置</div>
           <div style="display:flex;align-items:center;gap:12px">
             <span style="white-space:nowrap">玩家特效</span>
-            <input type="range" min="0" max="100" step="5" value="${fxAlpha}"
-              data-act="fx-alpha" style="flex:1;accent-color:#ffd166">
+            <input type="range" class="fx-slider" min="0" max="100" step="5" value="${fxAlpha}"
+              data-act="fx-alpha" style="flex:1">
             <span data-act="fx-alpha-val" style="min-width:44px;text-align:right">${fxAlpha}%</span>
           </div>
           <div class="sub" style="margin-top:6px;opacity:.75">
