@@ -913,7 +913,11 @@ export class Game {
       // 10 和 20 的 Boss 掉落的随机红品不含莱万汀。"
       // 池子 = 8 件 bossDropOnly 红品（莱万汀是 flandreOnly，天然不在内）。
       {
-        const wave = this.world.currentWave ?? 0;
+        // 第一百三十五轮修复：waveIndex 是 0 起算的（_beginWave(0) = 玩家
+        // 的第 1 波），所以"第 10/20 波"= currentWave 9/19。旧写法
+        // wave === 10 || wave === 20 永远不成立 → Boss 从不掉红品
+        //（用户："打过第十波boss没有掉落红色物品"）。转成玩家视角 1-based。
+        const wave = (this.world.currentWave ?? 0) + 1;
         if (wave === 10 || wave === 20) {
           const pool = ITEMS.filter((it) => it.bossDropOnly);
           const def = this.rng.pick(pool);

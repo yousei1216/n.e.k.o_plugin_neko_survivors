@@ -126,7 +126,13 @@ export const pluginBridge = {
     if (ctx.difficultyName) bits.push(ctx.difficultyName);
     if (ctx.characterName) bits.push(`操纵${ctx.characterName}`);
     if (ctx.bossName) bits.push(`对手是 ${ctx.bossName}`);
-    if (typeof ctx.hpRatio === 'number') bits.push(`血量 ${Math.round(ctx.hpRatio * 100)}%`);
+    // 第一百三十五轮：新波开播报不再报血量 —— 新回合开始必然满血，
+    // "血量 100%"是废话（用户："每次都播报血量有点没意义……可以改成
+    // 其他的"）。改成报等级（有成长感）；其它事件（低血量告警等）
+    // 的血量照旧保留，那才是有信息量的时刻。
+    const isWaveStart = event === 'wave_start';
+    if (!isWaveStart && typeof ctx.hpRatio === 'number') bits.push(`血量 ${Math.round(ctx.hpRatio * 100)}%`);
+    if (ctx.level != null) bits.push(`已到 Lv ${ctx.level}`);
     if (ctx.kills != null) bits.push(`击杀 ${ctx.kills}`);
     if (ctx.weaponName) bits.push(`主武器 ${ctx.weaponName}`);
     return `${label}（${bits.join('，')}）`;

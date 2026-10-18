@@ -126,9 +126,13 @@ export class WeatherSystem {
     if (def.id === 'typhoon') {
       this._spawnTyphoon(world, player);
       this._spawnTyphoon(world, player);
+      // 第一百三十五轮：龙卷风 2 → 4 个（用户："只有2个龙卷风太少啦"）
+      this._spawnTyphoon(world, player);
+      this._spawnTyphoon(world, player);
     }
     if (def.id === 'riverFog') {
-      for (let i = 0; i < 4; i++) this._spawnFogCloud(world, player);
+      // 第一百三十五轮：雾团 4 → 8 团（用户："雾气数量多一倍"）
+      for (let i = 0; i < 8; i++) this._spawnFogCloud(world, player);
     }
     if (def.id === 'rain') this._initDrops();
   }
@@ -238,10 +242,23 @@ export class WeatherSystem {
         if (this.meteors.length >= 24) break;
         const a = this.rng.next() * Math.PI * 2;
         const r = this.rng.range(300, 600);
+        // 第一百三十五轮：流星大小随机性更丰富（用户："有的再小点，有的
+        // 再大点，最大可以到半个屏幕那么大才比较震撼"）。固定 60 → 分档：
+        //   55% 小（34~54） 30% 中（60~90，原口径带）
+        //   12% 大（120~240） 3% 巨型（320~640 ≈ 半个屏幕，震撼弹）
+        // r 同时是警告圈与 20% 最大生命真伤的判定半径 —— 巨型是"必须
+        // 跑出去"的事件，出现率压到 3%。走 this.rng（机制参数不进
+        // Math.random，保证重试本波可复现）。
+        const roll = this.rng.next();
+        let mr;
+        if (roll < 0.55) mr = this.rng.range(34, 54);
+        else if (roll < 0.85) mr = this.rng.range(60, 90);
+        else if (roll < 0.97) mr = this.rng.range(120, 240);
+        else mr = this.rng.range(320, 640);
         this.meteors.push({
           x: player.x + Math.cos(a) * r,
           y: player.y + Math.sin(a) * r,
-          r: 60, warnT: 1,
+          r: mr, warnT: 1,
           // 第一百一十二轮：火球从屏幕外斜着砸下来的方向（纯视觉，
           // Math.random）—— ±1 左右交替，落点不变
           side: Math.random() < 0.5 ? -1 : 1,
@@ -268,14 +285,18 @@ export class WeatherSystem {
     // ---- 第一百一十二轮砸地打击感（用户："不要只播一个碎裂"）----
     // 震屏 + 白闪 + 双冲击波 + 碎石火星，全走现成基建（camera.shake /
     // fx.shockwave / fx.shards），零新引擎代码。
-    world.camera?.shake?.(9, 0.3);
+    world.camera?.shake?.(9 + m.r / 40, 0.3);
     this.flash = 0.16;
-    world.fx?.shockwave?.(m.x, m.y, 70, '#ffd9a0', 0.38);
-    world.fx?.shockwave?.(m.x, m.y, 55, '#ff7a3a', 0.52);
-    world.fx?.shards?.(m.x, m.y, 26, '#ffb066', 8);
-    world.fx?.shards?.(m.x, m.y, 20, '#e8542a', 5);
+    // 第一百三十五轮：视觉随流星半径走（固定 70/55 的冲击波配 640 的
+    // 巨型流星会像针尖冒花）
+    world.fx?.shockwave?.(m.x, m.y, m.r * 1.15, '#ffd9a0', 0.38);
+    world.fx?.shockwave?.(m.x, m.y, m.r * 0.9, '#ff7a3a', 0.52);
+    const shardN = Math.max(8, Math.min(30, Math.round(m.r / 8)));
+    world.fx?.shards?.(m.x, m.y, Math.round(m.r * 0.45), '#ffb066', shardN);
+    world.fx?.shards?.(m.x, m.y, Math.round(m.r * 0.32), '#e8542a', Math.max(5, Math.round(shardN / 2)));
     // 阶段 4：地面保留 3 秒燃烧区（对应 3 秒掉血，"这里还在烧，别进来"）
-    this.burnZones.push({ x: m.x, y: m.y, r: 60, t: 3, max: 3 });
+    // 第一百三十五轮：半径随流星（旧固定 60 配巨型流星不协调）
+    this.burnZones.push({ x: m.x, y: m.y, r: m.r, t: 3, max: 3 });
     const hit = (unit) => {
       const dmg = unit.maxHp * 0.2;
       let dealt = 0;
@@ -288,15 +309,16 @@ export class WeatherSystem {
       // 无敌帧/miss 吃掉的砸击不上余烬
       if (dealt > 0) this.burns.push({ e: unit, t: 3, acc: 0, isPlayer: unit === player });
     };
-    // 网格查询（世界空间格，60px 内的敌人）
-    const near = world.grid ? world.grid.query(m.x, m.y, 60, []) : [];
+    // 网格查询（世界空间格，判定半径 = 流星半径）
+    const R = m.r;
+    const near = world.grid ? world.grid.query(m.x, m.y, R, []) : [];
     for (const e of near) {
       if (e.dead) continue;
       const dx = e.x - m.x, dy = e.y - m.y;
-      if (dx * dx + dy * dy <= 60 * 60) hit(e);
+      if (dx * dx + dy * dy <= R * R) hit(e);
     }
     const pdx = player.x - m.x, pdy = player.y - m.y;
-    if (pdx * pdx + pdy * pdy <= 60 * 60) hit(player);
+    if (pdx * pdx + pdy * pdy <= R * R) hit(player);
   }
 
   _tickBurns(dt) {
