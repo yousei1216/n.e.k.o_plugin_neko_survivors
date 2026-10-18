@@ -173,6 +173,9 @@ export class UI {
     // 第一百三十八轮：经验条/Lv 改由 renderer._drawHudBars 纯 Canvas 绘制，
     // DOM 版退役（原来这里每帧改 xpFill.style.width 和 level.textContent）。
 
+    // 武器（第一百三十八轮修复：重构时误删了这行调用，装备框整个消失）
+    this._renderHudWeapons(p);
+
     // 关键属性
     this._renderHudStats(p);
   }

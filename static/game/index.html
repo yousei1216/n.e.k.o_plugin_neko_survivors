@@ -32,14 +32,15 @@
     </div>
 
     <div class="hud-bottom">
-      <!-- 第一百三十八轮：血条/护盾/数字改纯 Canvas（renderer._drawHudBars）。
-           容器壳保留占位，防止武器栏/属性栏布局位移。 -->
+      <!-- 第一百三十八轮二改（用户："把道具和那些小属性的显示提到血条上面"）：
+           武器框/属性栏在上，血条行垫底 —— 底部只留"血条 + 经验条"双条面板。
+           血条本体改纯 Canvas（renderer._drawHudBars），壳只做占位。 -->
+      <div id="hud-weapons" class="hud-weapons"></div>
+      <div id="hud-stats" class="hud-stats"></div>
       <div class="hud-hp" aria-hidden="true">
         <div class="hud-hp-bar"></div>
         <div id="hud-hp-ghost"></div>
       </div>
-      <div id="hud-weapons" class="hud-weapons"></div>
-      <div id="hud-stats" class="hud-stats"></div>
     </div>
 
     <!-- 第一百三十八轮：经验条与 Lv 改为纯 Canvas 绘制（renderer._drawXpBar），

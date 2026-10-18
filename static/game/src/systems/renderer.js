@@ -3922,11 +3922,35 @@ export class Renderer {
     const S = this._hud ??= {};
 
     // ================ 血条 ================
+    //
+    // 第一百三十八轮修复（用户："属性文字叠在血条上了""装备栏不见了"）：
+    // 之前血条画在"贴底 30px"的自算坐标上，而 DOM 布局里血条行在
+    // 武器栏/属性栏**上方** —— Canvas 血条正好压在属性/武器区域上。
+    // 改为**直接测量 DOM 占位壳的真实位置**（hud-hp-bar 壳 + 数字 ghost），
+    // Canvas 跟随 DOM 布局画，窗口缩放时重测 —— 永不重叠。
     {
-      const HP_H = 16;
-      const hpW = Math.min(520, W - 32) - 88;   // 预留右侧数字 78px + 间距
-      const hpX = 16;
-      const hpY = H - 14 - HP_H;                // .hud-bottom padding-bottom 14
+      if (!this._hudShell || this._hudShellW !== W || this._hudShellH !== H) {
+        const barEl = document.querySelector('.hud-hp-bar');
+        if (barEl) {
+          const r = barEl.getBoundingClientRect();
+          const shell = { x: r.left, y: r.top, w: r.width, h: r.height };
+          const ghostEl = document.getElementById('hud-hp-ghost');
+          if (ghostEl) {
+            const g = ghostEl.getBoundingClientRect();
+            shell.textX = g.left;
+            shell.textY = g.top + g.height / 2;
+          }
+          this._hudShell = shell;
+          this._hudShellW = W;
+          this._hudShellH = H;
+        }
+      }
+      const shell = this._hudShell;
+      if (shell) {
+      const HP_H = shell.h;
+      const hpW = shell.w;
+      const hpX = shell.x;
+      const hpY = shell.y;
       const r = 8;
       const hpRatio = Math.max(0, Math.min(1, player.hp / player.maxHp));
 
@@ -4077,9 +4101,10 @@ export class Renderer {
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      // ---- 数字：黑描边 + 淡金外发光 ----
+      // ---- 数字：黑描边 + 淡金外发光（位置 = DOM ghost 测量点）----
       const hpText = `${Math.ceil(player.hp)} / ${Math.round(player.maxHp)}`;
-      const txX = hpX + hpW + 10, txY = hpY + HP_H / 2;
+      const txX = shell.textX ?? hpX + hpW + 10;
+      const txY = shell.textY ?? hpY + HP_H / 2;
       ctx.save();
       ctx.font = '800 15px "Segoe UI", "Microsoft YaHei", sans-serif';
       ctx.textAlign = 'left';
@@ -4094,6 +4119,7 @@ export class Renderer {
       ctx.fillStyle = '#fff4e2';
       ctx.fillText(hpText, txX, txY);
       ctx.restore();
+      }
     }
 
     // ================ 经验条 ================
