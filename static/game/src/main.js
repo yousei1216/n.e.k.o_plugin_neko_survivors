@@ -38,6 +38,7 @@ import { neko, EVENT } from './neko-integration.js';
 import { pluginBridge } from './plugin-bridge.js';
 // 第四十九轮：隐藏挑战 Boss 芙兰朵露（素材与弹幕规格来自 touhou-flandre 拆包）
 import { FlandreFight, flandreUnlockOk, ARENA } from './systems/flandre.js';
+import { VergilFight, VERGIL_MAX_HP } from './systems/vergil.js';
 
 export const STATE = {
   TITLE: 'title',
@@ -49,6 +50,8 @@ export const STATE = {
   RESULT: 'result',
   // 第四十九轮：隐藏挑战 Boss 芙兰朵露的专属状态（世界活着，波次系统停摆）
   FLANDRE: 'flandre',
+  // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同芙兰骨架）
+  VERGIL: 'vergil',
 };
 
 const SAVE_KEY = 'neko_miao_save_v1';
@@ -373,6 +376,8 @@ export class Game {
     this._lastTime = performance.now();
     this.showTitle();
     this._loop(this._lastTime);
+    // 第一百四十轮：?vergil=1 直达刀光实验室
+    if (new URLSearchParams(location.search).has('vergil')) this._enterVergilLab();
   }
 
   stop() {
@@ -405,6 +410,8 @@ export class Game {
       // 难度芙兰之后永久开启。" EP（Extra Phantom）存活 60 秒拿到
       // outcome 'beat' 时置 meta.flandreUnlocked（localStorage 永久）。
       onFlandreTest: this.meta.flandreUnlocked ? () => this._debugStartFlandre() : null,
+      // 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮 + ?vergil=1 直达）
+      onVergilLab: () => this._enterVergilLab(),
       // 第六十五轮的 onSeCheck（音效自检）随标题页按钮一并下线（第一百二十二轮）
       audioEnabled: audio.enabled,
     });
@@ -465,6 +472,11 @@ export class Game {
     this._bossKillPending = false;
     this._lastHpRatio = 1;
     this._shopDeferred = false;   // 体检修复：新局清掉"商店被升级打断"旗子
+    // 第一百四十一轮：维吉尔触发标志（每局一次）+ 阎魔刀次元斩状态复位
+    this._vergilFought = false;
+    this.playerUlt = null;
+    this.playerUltWave = -1;
+    if (this.world) this.world.playerUlt = null;
     // 第八轮：重试计数只在本局内累计（meta.retries 原来是跨局总数）。
     // 必须在 _beginWave 之前清零 —— 那一波会顺手拍快照。
     this.waveRetries = 0;
@@ -694,6 +706,8 @@ export class Game {
       case STATE.PLAYING: this._updatePlaying(dt); break;
       // 第四十九轮：芙兰朵露战 —— 世界照推，波次/刷怪停摆，战斗由控制器接管
       case STATE.FLANDRE: this._updateFlandre(dt); break;
+      // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同款骨架 + 大招全场 timeScale）
+      case STATE.VERGIL: this._updateVergil(dt); break;
       case STATE.PAUSED:
         if (this.input.pressed('Escape')) this._resume();
         break;
@@ -747,6 +761,68 @@ export class Game {
     // 配额要在这之前就位，否则本帧的武器音全被挡掉。
     audio.beginFrame();
 
+    // ---- 第一百四十一轮：阎魔刀 · 次元斩 ----
+    // 生命低于 50% 时自动释放，每回合限一次；时间变慢只作用于怪物
+    //（世界 dt×0.05），玩家照常速拔刀。斩击只伤敌人：每连每怪 500 真伤。
+    if (this.playerUlt) {
+      // 已在次元斩中：推进演出（真实秒）
+      const pu = this.playerUlt;
+      pu.t += dt;
+      const CHARGE = 0.3, GAP = 0.18, COMBOS = 10, LIFE = 0.2;
+      if (pu.t >= CHARGE && pu.launched < COMBOS) {
+        pu.acc = (pu.acc ?? 0) + dt;
+        while (pu.acc >= GAP && pu.launched < COMBOS) {
+          pu.acc -= GAP;
+          pu.launched++;
+          const cam = this.camera;
+          const vw = cam.viewW, vh = cam.viewH;
+          // 半数刀光瞄怪，半数满屏随机 —— 演出与杀伤兼顾
+          const foes = this.world.enemies.items.filter((e) => !e.dead);
+          for (let i = 0; i < 8; i++) {
+            let ox, oy;
+            const foe = foes.length ? foes[(Math.random() * foes.length) | 0] : null;
+            if (i % 2 === 0 && foe) { ox = foe.x; oy = foe.y; }
+            else {
+              ox = cam.cx + (Math.random() - 0.5) * vw;
+              oy = cam.cy + (Math.random() - 0.5) * vh;
+            }
+            const a = Math.random() * Math.PI * 2;
+            const half = Math.hypot(vw, vh) * 0.62;
+            pu.blades.push({
+              x1: ox - Math.cos(a) * half, y1: oy - Math.sin(a) * half,
+              x2: ox + Math.cos(a) * half, y2: oy + Math.sin(a) * half,
+              seed: (Math.random() * 1e9) | 0, t: 0, life: LIFE,
+            });
+          }
+          // 每连斩：屏内每个敌人 500 真伤（绕护甲；不伤玩家）
+          for (const e of foes) {
+            if (Math.abs(e.x - cam.cx) < vw && Math.abs(e.y - cam.cy) < vh) {
+              e.takeDamage(500, { pierceArmor: true });
+            }
+          }
+        }
+      }
+      for (let i = pu.blades.length - 1; i >= 0; i--) {
+        const b = pu.blades[i];
+        b.t += dt;
+        if (b.t >= b.life) pu.blades.splice(i, 1);
+      }
+      if (pu.t >= CHARGE + COMBOS * GAP + 0.4) this.playerUlt = null;
+      this.world.playerUlt = this.playerUlt;   // 渲染层读这个画玩家刀光
+    } else if (this.world.playerUlt) {
+      this.world.playerUlt = null;
+    } else if (
+      p.hasItem?.('yamato') && !p.dead
+      && p.hp < p.stats.get('maxHp') * 0.5
+      && this.playerUltWave !== this.waveIndex
+      && this.world.enemies.items.some((e) => !e.dead)
+    ) {
+      this.playerUltWave = this.waveIndex;     // 每回合限一次
+      this.playerUlt = { t: 0, blades: [], launched: 0, acc: 0 };
+      this.world.playerUlt = this.playerUlt;
+      this.ui.toast('阎魔刀 · 次元斩！', 'good', 2500);
+    }
+
     // 更新玩家
     p.update(dt, this.input, this.camera, this.world);
 
@@ -761,8 +837,8 @@ export class Game {
       if (say) this.pet?.say(say, 4200, this.world, 'weather');
     }
 
-    // 更新世界
-    this.world.update(dt, p, this.waveTimer);
+    // 更新世界（阎魔刀次元斩期间怪物慢放 ×0.05 —— 玩家照常速）
+    this.world.update(dt * (this.playerUlt ? 0.05 : 1), p, this.waveTimer);
 
     // 相机跟随
     this.camera.follow(p.x, p.y, dt);
@@ -1229,6 +1305,14 @@ export class Game {
       return;
     }
 
+    // 第一百四十一轮：噩梦难度第 10 波 Boss 倒下 → 大排档椅子维吉尔降临
+    //（每局一次；黑屏 3s → 大排档场地 9 秒演出 → 90 秒限时 Boss 战。
+    // 结算后 _vergilFinish 会正常进第 10 波商店）
+    if (waveReached === 10 && this.difficultyId === 'nightmare' && !this._vergilFought) {
+      this._startVergil();
+      return;
+    }
+
     // 进入商店
     this._openShop();
   }
@@ -1256,6 +1340,126 @@ export class Game {
     } catch { /* 武器表变动时不让测试按钮崩 */ }
     this.meta.retries = 0;   // 满足"总重开次数不大于3"的前置
     this._startFlandre();
+  }
+
+  /**
+   * 第一百四十一轮：大排档椅子·维吉尔 Boss 战。
+   * 两种入口：
+   *  · 正式：噩梦难度打完第 10 波 Boss 自动触发（保留玩家当前局，
+   *    战后进第 10 波商店 → 第 11 波）—— 用户："之后可以打第十一回合"。
+   *  · 测试：标题按钮 / ?vergil=1 → _startVergil({ test: true }) 开独立局。
+   * 入场演出（9 秒）由 VergilFight 的 intro 状态自管：3s 黑屏 → 3s 场地
+   * 淡入 + Bury the Light 从 0 秒起播 → 9s 背对剪影换成本尊开战。
+   */
+  _startVergil(opts = {}) {
+    if (opts.test) {
+      this.setDifficulty('nightmare');
+      this.startRun('yui');
+      // 测试局发两把远程武器（同芙兰调试局理由：肉眼可见的输出）
+      try { this.player.addWeapon('meow_cannon'); this.player.addWeapon('star_wand'); } catch { /* */ }
+      this.meta.retries = 0;
+    }
+    this._vergilFought = true;                // 本局触发标志（第 10 波不重复进）
+    const p = this.player;
+    p.noAttack = true;                        // 入场演出期间不攻击（fight 解除）
+    this.world.noSpawn = true;
+    audio.stopMusic();                        // 掐掉当前曲，等演出第 3 秒的 Bury the Light
+    this.vergil = new VergilFight(this, {
+      onDone: (outcome) => this._vergilFinish(outcome),
+    });
+    this.world.vergilFight = this.vergil;     // 渲染层读这个画演出层
+    this.state = STATE.VERGIL;
+  }
+
+  /** 维吉尔战每一帧：世界照推（吃 timeScale 慢放），AI 用真实秒 */
+  _updateVergil(dtReal) {
+    const fight = this.vergil;
+    const p = this.player;
+    if (!fight || !p) return;
+    if (this.input.pressed('Escape')) {
+      this._pause();
+      return;
+    }
+    // 大招全场慢动作：世界与玩家都吃 timeScale（用户硬性要求）
+    const dt = dtReal * fight.timeScale;
+    audio.beginFrame();
+    this.weather.update(dt, this.world, p);
+    p.update(dt, this.input, this.camera, this.world);
+    // waveElapsed 传 0：残留的 bossTimeRatio 不参与任何判定（同芙兰双保险）
+    this.world.update(dt, p, 0);
+    // 玩家软性圈在竞技场里（与芙兰同规格）
+    const minX = ARENA.cx - ARENA.hw, maxX = ARENA.cx + ARENA.hw;
+    const minY = ARENA.cy - ARENA.hh, maxY = ARENA.cy + ARENA.hh;
+    p.x = clamp(p.x, minX, maxX);
+    p.y = clamp(p.y, minY, maxY);
+    // AI / 技能 / 命中判定：真实秒（大招里刀光节奏不吃慢动作）
+    fight.update(dtReal);
+  }
+
+  /**
+   * 维吉尔战结算（用户指定）：
+   *   beat    —— 90 秒内打败：3 倍第 10 波 Boss 的经验/金币 + 阎魔刀
+   *              （红色至尊，商店战利品栏里决定留下还是卖掉）；
+   *   timeout / death —— 什么都不获得。
+   * 两条路都正常进入第 10 波商店，之后可以打第 11 波（不回标题）。
+   */
+  _vergilFinish(outcome) {
+    this._teardownVergil();
+    audio.stopMusic();
+    const p = this.player;
+    // 死亡路径复活满血（芙兰战同款"死局不残留"口径，正常继续流程）
+    if (p.dead) {
+      p.dead = false;
+      p.hp = p.stats.get('maxHp');
+      p.invuln = Math.max(p.invuln ?? 0, 1.5);
+    }
+    if (outcome === 'beat') {
+      // 奖励：3 倍第 10 波 Boss（boss_void_lord）的经验和金币
+      const def = getEnemy('boss_void_lord');
+      const scaling = this.world.waveScaling ?? { xp: 1, materials: 1 };
+      const xp = Math.round((def?.xp ?? 120) * 3 * (scaling.xp ?? 1));
+      const mats = Math.round((def?.materials ?? 120) * (scaling.materials ?? 1) * 3);
+      p.gainXp(xp);
+      p.gainMaterials(mats);
+      audio.play('bossKill');
+      this.ui.toast(`次元斩落下！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
+      // 阎魔刀：红色至尊（每回合一次的次元斩），走宝箱战利品流程
+      this.world.pendingItemRewards.push({
+        id: 'yamato', name: '阎魔刀', price: 88, rare: true, sellValue: 66,
+      });
+      this.ui.toast('他掉落了【阎魔刀】！在商店里决定留下还是卖掉', 'good', 6000);
+    } else if (outcome === 'timeout') {
+      this.ui.toast('90 秒到……椅子收刀离场，什么都没有留下', 'bad', 4200);
+    } else {
+      this.ui.toast('被次元斩吞没了……什么都没有留下', 'bad', 4200);
+    }
+    // 正常进入第 10 波商店（下一波 = 第 11 波）
+    this._openShop();
+  }
+
+  /** 维吉尔战现场复位（正常结算 / ESC 放弃 / 关闭游戏共用） */
+  _teardownVergil() {
+    if (this.world) {
+      this.world.noSpawn = false;
+      this.world.vergilFight = null;
+      // 椅子实体随清场一起消失
+      const items = this.world.enemies?.items;
+      if (items) {
+        for (let i = items.length - 1; i >= 0; i--) {
+          if (items[i]?.def?.id === 'vergil_chair') items.splice(i, 1);
+        }
+      }
+      this.world.enemyBullets.clear();
+    }
+    this.vergil = null;
+  }
+
+  /**
+   * 第一百四十轮（旧）：刀光实验室 —— 已升级为正式 Boss 战。
+   * 现在是测试直通入口（标题按钮 / ?vergil=1）：开独立局 + 双武器。
+   */
+  _enterVergilLab() {
+    this._startVergil({ test: true });
   }
 
   /**
@@ -1699,6 +1903,7 @@ export class Game {
       if (this._rafId) cancelAnimationFrame(this._rafId);
       this._rafId = null;
       if (this.flandre) this._teardownFlandre();   // 体检修复：退出先拆芙兰战现场
+      if (this.vergil) this._teardownVergil();      // 141 轮：维吉尔战同理
       if (this.player && this.world) this._saveGame();
       audio.stopMusic?.();
     } catch { /* 退出流程里任何一步失败都不该挡住关窗 */ }
@@ -1822,6 +2027,8 @@ export class Game {
     // 体检修复（第九十二轮）：芙兰战里 ESC → 放弃/关闭 时清掉战斗现场，
     // 否则结算页背后还压着芙兰的暗层和符卡名（渲染层读 world.flandreFight）。
     if (this.flandre) this._teardownFlandre();
+    // 141 轮：维吉尔战同理（noSpawn/noAttack/演出层不残留到结算页）
+    if (this.vergil) this._teardownVergil();
 
     audio.stopMusic();
     // 结算曲（用户要求："end是输了或者结束的曲子"）。

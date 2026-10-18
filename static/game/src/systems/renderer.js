@@ -14,6 +14,7 @@ import { sprites } from '../core/assets.js';
 import { PET_VACUUM_RADIUS } from '../entities/pet.js';
 // 第五十四轮：芙兰战空气墙可视化的竞技场矩形（和逻辑层同一个数值来源）
 import { ARENA } from './flandre.js';
+import { drawZigzagBlade } from './dmc-blades.js';
 // 眼睛锚点（第九轮）：贴图按 2.6r 画，眼睛必须按同一个尺度画在"脸"上，
 // 否则就会像用户看到的那样"眼睛飞到脸外面"。见 data/enemy-eyes.js 的说明。
 import { eyeAnchor, eyePlacement } from '../data/enemy-eyes.js';
@@ -232,6 +233,10 @@ export class Renderer {
     ctx.save();
     ctx.translate(W / 2 - camera.cx, H / 2 - camera.cy);
 
+    // ---- 第一百四十一轮：维吉尔战场地背景（大排档椅子背景，ARENA 方形内，
+    // 世界坐标系 —— 画在游戏背景之上、一切实体之下；透明度随入场演出淡入）----
+    if (world.vergilFight) world.vergilFight.renderArena(ctx, camera);
+
     // ---- 世界边界 ----
     this._drawWorldBounds(ctx, world);
 
@@ -315,10 +320,24 @@ export class Renderer {
     // 压在实体与伤害数字之上、屏幕 UI 之下。
     this._drawWeatherWorld(ctx, world, camera, player, W, H);
 
+    // ---- 第一百四十一轮：维吉尔战世界层演出（椅子/追踪月牙/光圈/裂缝）----
+    if (world.vergilFight) world.vergilFight.renderWorld(ctx, camera);
+
+    // ---- 第一百四十一轮：阎魔刀 · 次元斩（玩家侧满屏刀光，金色偏白）----
+    if (world.playerUlt) {
+      for (const b of world.playerUlt.blades) {
+        const k = 1 - b.t / b.life;
+        drawZigzagBlade(ctx, b.x1, b.y1, b.x2, b.y2, b.seed, k, 7, '#ffe9a8');
+      }
+    }
+
     ctx.restore();
 
     // ---- 屏幕空间叠加 ----
     this._drawScreenOverlay(ctx, world, player, W, H);
+
+    // ---- 第一百四十一轮：维吉尔战屏幕层（大招暗幕/红边/白闪/Boss 血条）----
+    if (world.vergilFight) world.vergilFight.renderScreen(ctx, W, H);
 
     // ---- 第一百三十八轮：底部 HUD 条（纯 Canvas）----
     // 血条（底座/渐变/延迟伤害残影/护盾流光/描边数字）+ 经验条
@@ -3450,6 +3469,15 @@ export class Renderer {
             rage: world.flandreFight.phase === 'extra',
             t: world.flandreFight.t,
             ticks: [0.2, 0.4, 0.6, 0.8],
+          });
+        } else if (world.vergilFight && boss === world.vergilFight.boss) {
+          // 第一百四十一轮：维吉尔走普通哥特主题（黑红 + 66%/33% 阶段刻度）。
+          // lock 动态读阶段锁血（141 轮追加：切 2/3 阶段锁血 5 秒 → 🔒 闪烁）
+          this._drawFancyBossBar(ctx, boss, {
+            x: bx, y: by, w: bw, theme: 'boss',
+            t: Date.now() / 1000,
+            ticks: [1 / 3, 2 / 3],
+            lock: (boss.bossPhase?.invulnTimer ?? 0) > 0,
           });
         } else {
           this._drawFancyBossBar(ctx, boss, {

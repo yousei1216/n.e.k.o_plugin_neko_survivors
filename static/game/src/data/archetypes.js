@@ -102,6 +102,8 @@ export const ITEM_ARCH = {
   crit_eye: 'crit',
   // 第四十九轮：芙兰的魔剑 —— 纯输出（最终乘算通道）
   laevatein: 'damage',
+  // 第一百四十一轮：维吉尔的阎魔刀 —— 次元斩清场，归输出流派
+  yamato: 'damage',
   // 第一百三十四轮：Boss 专属掉落红品（8 件）—— round4 要求每件道具
   // 都有流派标签；按效果主轴归档。
   dried_fish: 'damage',        // 全属性 +1：泛用成长，归输出

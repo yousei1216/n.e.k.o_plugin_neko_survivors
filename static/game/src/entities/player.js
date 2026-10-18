@@ -358,7 +358,16 @@ export class Player extends Entity {
    * （库洛等脆皮近战的贴脸保命帧不动，只收紧可以硬吃的弹幕）。
    */
   takeDamage(amount, sourceX, sourceY, opts = {}) {
-    if (this.invuln > 0 || this.dead) return 0;
+    // ---- 第一百四十轮：维吉尔系刀波（表演 Boss）----
+    // opts.ignoreIFrames = true：**无视无敌帧** —— 入口不做 invuln 拦截，
+    // 结算后也不给常规无敌帧（限频由攻击方自己的受击内置 CD 负责，
+    // 维吉尔系是 0.2s）。死亡拦截保留。
+    // opts.fixedDamage = 绝对值真伤：调用方算好（如 maxHp * 0.05），
+    //   跳过 miss / 闪避 / 护甲 / 承伤乘区 / 真伤附加 —— 护盾照常吸收，
+    //   猫的步伐锁血照常触发（防暴毙精神保留），回血 / 吸血不受限制。
+    const ignoreI = opts.ignoreIFrames === true;
+    if (this.dead) return 0;
+    if (!ignoreI && this.invuln > 0) return 0;
 
     // ---- 第一百零八轮：浓雾 miss ----
     // 用户："玩家的攻击有20%概率miss，敌人也是（概率计算为额外增加
@@ -367,14 +376,14 @@ export class Player extends Entity {
     // 字不动（否则天气一激活，几百个确定性测试全移位）。
     // noMiss：流星/烧灼这类天气自身的伤害不吃 miss。
     const wxW = this.world?.weather;
-    if (wxW && wxW.miss > 0 && !opts.noMiss && wxW.rng.next() * 100 < wxW.miss) {
+    if (!ignoreI && wxW && wxW.miss > 0 && !opts.noMiss && wxW.rng.next() * 100 < wxW.miss) {
       this.onDodge?.();
       return 0;
     }
 
     // 闪避判定
     const dodge = this.stats.get('dodge');
-    if (dodge > 0 && this.rng.next() * 100 < dodge) {
+    if (!ignoreI && dodge > 0 && this.rng.next() * 100 < dodge) {
       this.onDodge?.();
       return 0;
     }
@@ -383,10 +392,41 @@ export class Player extends Entity {
     // **独立的第二次判定**（用户明确）：普通闪避没过再来这里掷一次 15%，
     // 中了照样完全免伤。与天气 miss 同级：免伤 + 不给无敌帧，走玩家
     // 主流 rng —— 它是道具效果，不是天气，不该吃天气独立流。
-    if (!opts.noMiss && this.hasItem('lucky_cat_paw')
+    if (!ignoreI && !opts.noMiss && this.hasItem('lucky_cat_paw')
         && this.rng.next() * 100 < 15) {
       this.onDodge?.();
       return 0;
+    }
+
+    // ---- 第一百四十轮：固定真伤直取（在一切乘区之前）----
+    if (opts.fixedDamage != null) {
+      const fixed = Math.max(1, opts.fixedDamage);
+      let toHpF = fixed;
+      if (this.shield > 0) {
+        const absorbedF = Math.min(this.shield, toHpF);
+        this.shield -= absorbedF;
+        toHpF -= absorbedF;
+        if (this.shield <= 0) { this.shield = 0; this._breakShield(); }
+      }
+      if (this.charRt && toHpF > 0 && toHpF >= this.hp && this.hp > 0) {
+        if (this.charRt.tryLethalSave()) {
+          this.damageTaken += Math.max(0, this.hp - 1);
+          this.hp = 1;
+          this.onHurt?.(toHpF, sourceX, sourceY);
+          return toHpF;
+        }
+      }
+      this.hp -= toHpF;
+      this.damageTaken += fixed;
+      this.hurtFlash = 0.25;
+      if (toHpF > 0) this.charRt?.onHurt?.();
+      this.onHurt?.(fixed, sourceX, sourceY);
+      if (this.hp <= 0) {
+        this.hp = 0;
+        this.dead = true;
+        this.onDeath?.();
+      }
+      return fixed;
     }
 
     // 护甲减伤（第一百零八轮：流星的真实伤害 pierceArmor 无视护甲）
@@ -504,10 +544,14 @@ export class Player extends Entity {
     // 第九十六轮：分档 —— 弹幕 0.6s，其余 0.8s（见文件头常量注释）。
     // opts.invuln：显式覆盖（第九十七轮，芙兰战激光扫中传 1s）。
     // 第一百零八轮：台风把无敌帧下限抬到 1.5s（弹幕/接触都适用）。
-    this.invuln = Math.max(
-      opts.invuln ?? (opts.projectile ? PROJECTILE_INVULN : CONTACT_INVULN),
-      this.world?.weather?.invulnMin ?? 0,
-    );
+    // 第一百四十轮：ignoreIFrames 时不给常规无敌帧（维吉尔系自己的
+    // 0.2s 受击内置 CD 负责防秒杀）。
+    if (!ignoreI) {
+      this.invuln = Math.max(
+        opts.invuln ?? (opts.projectile ? PROJECTILE_INVULN : CONTACT_INVULN),
+        this.world?.weather?.invulnMin ?? 0,
+      );
+    }
     this.hurtFlash = 0.25;
 
     // ---- 第十六轮：开发猫猫「M博士来了」叠层 ----

@@ -388,7 +388,7 @@ export class UI {
   }
 
   // ---------------- 标题页 ----------------
-  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest }) {
+  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -426,6 +426,8 @@ export class UI {
           <button class="btn small" data-act="audio">${audioEnabled ? '🔊 音效开' : '🔇 音效关'}</button>
           <!-- 第四十九轮补充：临时调试直通按钮（用户要求，方便人工测验芙兰战），正式版可删 -->
           ${onFlandreTest ? '<button class="btn small" data-act="flandre-test" style="border-color:#ff4060;color:#ff4060">🐱 直接挑战芙兰！</button>' : ''}
+          <!-- 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮，用户要看效果） -->
+          ${onVergilLab ? '<button class="btn small" data-act="vergil-lab" style="border-color:#59f2ff;color:#59f2ff">⚔ 挑战：大排档椅子·维吉尔</button>' : ''}
           <button class="btn small danger" data-act="exit">关闭游戏</button>
           <!-- 第一百二十二轮：音效自检按钮下线（用户："把音效自检按钮
                隐藏或者去掉"—— 诊断使命完成，audio.seSelfTest 保留在
@@ -438,6 +440,9 @@ export class UI {
     // 第四十九轮补充：临时调试直通按钮
     const flTest = root.querySelector('[data-act="flandre-test"]');
     if (flTest) flTest.onclick = onFlandreTest;
+    // 第一百四十轮：椅子维吉尔刀光实验室
+    const vgLab = root.querySelector('[data-act="vergil-lab"]');
+    if (vgLab) vgLab.onclick = onVergilLab;
     // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');
     if (cont) cont.onclick = onContinue;
