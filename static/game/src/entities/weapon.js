@@ -97,6 +97,14 @@ export class WeaponInstance {
     // 玩家打赢芙兰只吃到 +50% 承伤惩罚、拿不到收益。）
     if ((player.dealtFinalMul ?? 1) !== 1) out *= player.dealtFinalMul;
 
+    // ---- 第一百三十四轮：龙虾抱枕 —— 每 1% 吸血，伤害 +1%（最终乘算）----
+    // 动态乘区：吸血面板会变（升级/其他道具），所以在这里现算而不是
+    // 拿道具时折算进 dealtFinalMul。0 吸血 = 无加成。
+    if (player.hasItem?.('lobster_pillow')) {
+      const ls = player.stats.values.lifesteal ?? 0;
+      if (ls > 0) out *= 1 + ls / 100;
+    }
+
     return out;
   }
 
@@ -138,6 +146,12 @@ export class WeaponInstance {
       let mul = 1 + (rangeStat / 100) * rate;
       if (player.charRt?.id === 'kuro') mul *= player.charRt.params.meleeRangeMul ?? 1.2;
       r *= mul;
+    }
+    // ---- 第一百三十四轮：智慧型魔棒 —— 远程攻击射程 +30%（最终乘算）----
+    // "最终乘算" = 乘在所有 range 属性加成之后；近战不吃（用户说的是
+    // "远程攻击"）。360 度/环绕武器的"范围"不是射程，同样不吃。
+    if (this.def.kind !== 'melee' && player.hasItem?.('smart_wand')) {
+      r *= 1.3;
     }
     return r;
   }

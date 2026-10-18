@@ -243,6 +243,77 @@ export const ITEMS = [
     curse: { armor: 0.3 },
     desc: '停不下来。攻速 +30%，护甲 ×0.7（乘算，可叠加）。',
   },
+
+  // ============================================================
+  // ---------- 第一百三十四轮：Boss 专属掉落红品（8 件）----------
+  //
+  // 用户设计："不再进商店，改为 Boss 专属掉落。击败第 10 波 Boss 掉落
+  // 1 个随机红品；击败第 20 波 Boss 掉落 1 个随机红品（为无尽模式准备）。
+  // 掉落后在商店领取，和宝箱掉落一样。10 和 20 的 Boss 掉落的随机红品
+  // 不含莱万汀。"
+  //
+  // bossDropOnly: true —— 商店随机池 / 宝箱 / 宝箱怪池 / 兜底全部排除，
+  // 唯一入口是 Boss 击杀掉落（main.js onBossKilled 塞货架，走宝箱战利品
+  // 同款"留下或卖掉"流程）。
+  // 效果实现散布在消费点，字段只是声明：
+  //   levelUpAllStats  → player.applyUpgrade（每升一级全属性 +1）
+  //   lifestealHealBonus / lifestealDamageMul → applyLifesteal / computeDamage
+  //   forceHoming      → world.spawnBullet（远程/炮台弹追踪）+ computeRange ×1.3
+  //   thornsRadius/thornsArmorMul → main.js player.onHurt（受击 AOE = 护甲×50）
+  //   critAgainChance  → world.dealDamage（暴击时概率再暴击一次）
+  //   hurtMissChance   → player.takeDamage（受伤概率变 miss）
+  //   statCapBonus     → stats（闪避上限 80 → 90）
+  //   healDoubleBelowHalf → player.heal（低于 50% 血治疗翻倍）
+  //   hitDebuff        → world.dealDamage / enemy.takeDamage（命中叠易伤）
+  // ============================================================
+  {
+    id: 'dried_fish', name: '小鱼干', color: '#ff6d6d', glyph: '鱼', price: 38,
+    bossDropOnly: true, maxStacks: 1,
+    levelUpAllStats: 1,
+    desc: '很普通的小鱼干，但这是那个人买给人家的，看到它人家就充满了力量。每升一级，所有属性 +1。',
+  },
+  {
+    id: 'lobster_pillow', name: '龙虾抱枕', color: '#ff5252', glyph: '虾', price: 40,
+    bossDropOnly: true, maxStacks: 1,
+    lifestealHealBonus: 1, lifestealDamageMul: true,
+    desc: '应该不会有人不喜欢吃龙虾吧~龙虾人家最喜欢了。吸血回复翻倍，每有 1% 的吸血，伤害增加 1%（最终乘算）。',
+  },
+  {
+    id: 'smart_wand', name: '智慧型魔棒', color: '#e64a8f', glyph: '棒', price: 40,
+    bossDropOnly: true, maxStacks: 1,
+    forceHoming: true, rangeFinalMul: 1.3,
+    desc: '对的，对的，魔法也是法，枪法也是法。所有远程攻击和炮台攻击都会追踪敌人，且远程攻击射程 +30%（最终乘算）。',
+  },
+  {
+    id: 'dr_m_notes', name: 'M博士心得', color: '#d32f2f', glyph: '博', price: 42,
+    bossDropOnly: true, maxStacks: 1,
+    finalTakenMul: 0.8, thornsRadius: 300, thornsArmorMul: 50,
+    desc: '上面密密麻麻的写满了什么时候什么地点挨打更舒服，看着吓人。受到的伤害 -20%（最终乘算），每次受到伤害时触发一次 300 范围的 AOE 攻击，伤害为护甲数值的 50 倍。',
+  },
+  {
+    id: 'lucky_cat_paw', name: '幸运猫脚', color: '#ff7043', glyph: '脚', price: 40,
+    bossDropOnly: true, maxStacks: 1,
+    critAgainChance: 0.2, hurtMissChance: 15,
+    desc: '谁说只有兔子的脚丫才能带来好运，人家的也可以，要踩踩你吗？暴击时有 20% 概率再暴击一次，受伤时有 15% 概率变成 miss。',
+  },
+  {
+    id: 'black_cape', name: '黑色披风', color: '#8e24aa', glyph: '披', price: 38,
+    bossDropOnly: true, maxStacks: 1,
+    pct: { dodge: 20 }, statCapBonus: { dodge: 10 },
+    desc: '这是人家的衣服，谁和你说是披风的？闪避 +20%，闪避上限变成 90%。',
+  },
+  {
+    id: 'cat_taffy', name: '猫娘奶糖', color: '#ef5350', glyph: '糖', price: 38,
+    bossDropOnly: true, maxStacks: 1,
+    mods: { hpRegen: 2 }, healDoubleBelowHalf: true,
+    desc: '哇，这个超级甜呢。感觉体力恢复了好多！生命回复 +2，生命低于 50% 时，受到的所有治疗效果翻倍。',
+  },
+  {
+    id: 'overload_chip', name: '超载芯片', color: '#f44336', glyph: '芯', price: 45,
+    bossDropOnly: true, maxStacks: 1,
+    hitDebuff: { perHit: 1, max: 30 },
+    desc: '这个东西怎么越来越红了？不会爆炸吧喵？攻击命中敌人会让其获得受到的伤害 +1% 的效果，最多叠加 30%。',
+  },
 ];
 
 export const ITEM_MAP = Object.fromEntries(ITEMS.map((i) => [i.id, i]));

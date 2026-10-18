@@ -186,7 +186,7 @@ export function addMods(target, mods) {
  * @param {object} flatMods  加法修正总和
  * @param {object} pctMods   百分比修正总和
  */
-export function computeStats(base, flatMods, pctMods) {
+export function computeStats(base, flatMods, pctMods, capBonus = {}) {
   const out = {};
   for (const k of STAT_KEYS) {
     const def = STAT_DEFS[k];
@@ -224,8 +224,12 @@ export function computeStats(base, flatMods, pctMods) {
       v = (b + f) * mul;
     }
 
+    // 第一百三十四轮：上限夹紧感知 capBonus（黑色披风：闪避上限 90）。
+    // 必须在**这里**放宽 —— 等 computeStats 返回后再放宽已经来不及，
+    // 值早被 def.max=80 截断了。
+    const cap = def.max !== undefined ? def.max + (capBonus[k] ?? 0) : undefined;
     if (def.min !== undefined) v = Math.max(def.min, v);
-    if (def.max !== undefined) v = Math.min(def.max, v);
+    if (cap !== undefined) v = Math.min(cap, v);
     out[k] = v;
   }
   // 护甲上限：避免无敌
@@ -300,6 +304,10 @@ export class StatSheet {
     // 诅咒：key -> 累计乘数（每次购买乘以 (1-frac)，真正的乘算）
     this.curse = emptyMods();
     for (const k of STAT_KEYS) this.curse[k] = 1;
+    // 第一百三十四轮：属性上限加成（黑色披风：闪避上限 80 → 90）。
+    // key -> 附加量；values 夹紧时用 def.max + capBonus[key] 当上限。
+    // 只放宽数值上限，不改变 min（负闪避照旧夹住）。
+    this.capBonus = {};
 
     // ---- 第十六轮：最终乘算（角色专属能力）----
     //
@@ -416,20 +424,29 @@ export class StatSheet {
     this.flat = emptyMods();
     this.pct = emptyMods();
     for (const k of STAT_KEYS) this.curse[k] = 1;
+    this.capBonus = {};
+    this.dirty = true;
+  }
+
+  /** 第一百三十四轮：放宽某属性的上限（黑色披风：闪避 +10 上限） */
+  addCapBonus(key, extra) {
+    if (!(key in this.capBonus)) this.capBonus[key] = 0;
+    this.capBonus[key] += extra;
     this.dirty = true;
   }
 
   get values() {
     if (this.dirty || !this.cache) {
-      const out = computeStats(this.base, this.flat, this.pct);
-      // 诅咒按乘算作用在最终值上
+      const out = computeStats(this.base, this.flat, this.pct, this.capBonus ?? {});
+      // 诅咒按乘算作用在最终值上（夹紧同样感知 capBonus）
       for (const k of STAT_KEYS) {
         const c = this.curse[k];
         if (c !== 1) {
           out[k] *= c;
           const def = STAT_DEFS[k];
+          const cap = def.max !== undefined ? def.max + ((this.capBonus ?? {})[k] ?? 0) : undefined;
           if (def.min !== undefined) out[k] = Math.max(def.min, out[k]);
-          if (def.max !== undefined) out[k] = Math.min(def.max, out[k]);
+          if (cap !== undefined) out[k] = Math.min(cap, out[k]);
         }
       }
       // ---- 第十六轮：最终乘算（必须放在最后一步）----

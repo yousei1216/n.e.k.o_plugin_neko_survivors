@@ -407,14 +407,15 @@ export class Shop {
     const rng = this.rng;
     // 过滤已达上限的道具；第八十五轮：芙兰专属（莱万汀）不进随机池 ——
     // 用户："应该只有打败芙兰才能获得。"（芙兰结算直接塞货架，不走这里）
+    // 第一百三十四轮：Boss 专属掉落红品（小鱼干等 8 件）同理排除。
     const pool = ITEMS.filter((it) => {
-      if (it.flandreOnly) return false;
+      if (it.flandreOnly || it.bossDropOnly) return false;
       const count = player.items.get(it.id) || 0;
       return count < (it.maxStacks ?? 99);
     });
     if (pool.length === 0) {
-      // 兜底也不能把莱万汀摇出来：从"非芙兰专属"里挑
-      const def = rng.pick(ITEMS.filter((it) => !it.flandreOnly));
+      // 兜底也不能把莱万汀/专属红品摇出来：从"非专属"里挑
+      const def = rng.pick(ITEMS.filter((it) => !it.flandreOnly && !it.bossDropOnly));
       return new ShopOffer('item', def, this._itemPrice(def, luckBonus));
     }
 

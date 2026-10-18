@@ -877,10 +877,53 @@ export class Game {
   _bindBossEvents() {
     if (!this.world) return;
 
+    // ---- 第一百三十四轮：M博士心得 —— 受伤触发 300 范围 AOE（护甲×50）----
+    // 用户："每次受到伤害的时候触发一次300范围的aoe攻击，伤害为护甲数值
+    // 的 50 倍。"挂在 player.onHurt（takeDamage 真正扣血后触发；闪避/
+    // miss/免疫不会调它）。走完整 dealDamage：能暴击（玩家面板暴击），
+    // 无武器 → 不吃武器系加成；伤害 0 护甲时为 0（0×50），不出手省特效。
+    this.player.onHurt = (amount, sx, sy) => {
+      const p = this.player;
+      if (p.dead || !p.hasItem('dr_m_notes')) return;
+      const armor = p.stats.get('armor');
+      if (armor <= 0) return;
+      const dmg = Math.max(1, Math.round(armor * 50));
+      const R = 300;
+      let hitAny = false;
+      for (const e of this.world.grid.query(p.x, p.y, R, [])) {
+        if (!e.isEnemy || e.dead) continue;
+        const dx = e.x - p.x, dy = e.y - p.y;
+        if (dx * dx + dy * dy > R * R) continue;
+        hitAny = true;
+        this.world.dealDamage(p, null, e, dmg, { thorns: true });
+      }
+      // 视觉：一圈金色冲击环（命中与否都放 —— "挨打反弹"的反馈感）
+      this.world.fx?.ring?.(p.x, p.y, R * 0.35, '#ffd23a', 0.4, { player: true });
+      if (hitAny) this.world.camera?.shake?.(4, 0.15);
+    };
+
     this.world.onBossKilled = (boss) => {
       audio.play('bossKill');
       this._nekoComment(EVENT.BOSS_KILL, this._nekoContext({ bossName: boss.def?.name }));
       neko.setEmotion('happy');
+
+      // ---- 第一百三十四轮：Boss 专属掉落（10/20 波各掉 1 个随机红品）----
+      // 用户："击败第 10 波 Boss 掉落 1 个随机红品；击败第 20 波 Boss 掉落
+      // 1 个随机红品（为无尽模式准备）。掉落后在商店领取，和宝箱掉落一样。
+      // 10 和 20 的 Boss 掉落的随机红品不含莱万汀。"
+      // 池子 = 8 件 bossDropOnly 红品（莱万汀是 flandreOnly，天然不在内）。
+      {
+        const wave = this.world.currentWave ?? 0;
+        if (wave === 10 || wave === 20) {
+          const pool = ITEMS.filter((it) => it.bossDropOnly);
+          const def = this.rng.pick(pool);
+          this.world.pendingItemRewards.push({
+            id: def.id, name: def.name, price: def.price, rare: true,
+            sellValue: Math.max(4, Math.round(def.price * 0.55)),
+          });
+          this.ui.toast(`击败了波次 Boss！掉落了【${def.name}】！在商店里决定留下还是卖掉`, 'good', 6000);
+        }
+      }
 
       // 自动拾取 Boss 掉落的经验与材料（用户明确要求）
       this._autoCollectBossLoot();

@@ -47,6 +47,9 @@ export class Turret extends Entity {
     this.damageMul = 1 + (s.damage + s.turretDamage + kindDmg) / 100;
     this.damageMul *= player.mulFor ? player.mulFor('turretDamage') : 1;
     this.range = (def.range ?? 260) * (1 + (s.turretRange + s.range) / 100);
+    // 第一百三十四轮：智慧型魔棒 —— 炮台也是"炮台攻击"，射程同样 +30%
+    //（最终乘算）；追踪注入见 world.spawnBullet。
+    if (player.hasItem?.('smart_wand')) this.range *= 1.3;
     this.rateMul = 1 + (s.turretRate + s.attackSpeed * 0.5) / 100;
     this.rateMul *= player.mulFor ? player.mulFor('turretRate') : 1;
     // 记住放它的玩家：炮台每帧要问"这个角色的技能有没有给目标叠层"

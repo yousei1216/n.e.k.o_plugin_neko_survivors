@@ -102,6 +102,16 @@ export const ITEM_ARCH = {
   crit_eye: 'crit',
   // 第四十九轮：芙兰的魔剑 —— 纯输出（最终乘算通道）
   laevatein: 'damage',
+  // 第一百三十四轮：Boss 专属掉落红品（8 件）—— round4 要求每件道具
+  // 都有流派标签；按效果主轴归档。
+  dried_fish: 'damage',        // 全属性 +1：泛用成长，归输出
+  lobster_pillow: 'damage',    // 吸血转伤害：吸血输出流
+  smart_wand: 'ranged',        // 远程追踪 + 射程
+  dr_m_notes: 'tank',          // 承伤 -20% + 受击反伤
+  lucky_cat_paw: 'crit',       // 暴击再暴击
+  black_cape: 'tank',          // 闪避生存
+  cat_taffy: 'tank',           // 回复生存
+  overload_chip: 'damage',     // 易伤叠层：输出
   // 炮台
   gear_oil: 'turret',
   radar_chip: 'turret',

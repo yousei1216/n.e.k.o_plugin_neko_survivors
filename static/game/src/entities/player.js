@@ -4,7 +4,7 @@
 // ============================================================
 
 import { Entity } from './entity.js';
-import { StatSheet, defaultBaseStats } from '../core/stats.js';
+import { StatSheet, defaultBaseStats, STAT_DEFS } from '../core/stats.js';
 import { clamp } from '../core/math.js';
 import { resolveTerrain } from '../data/terrain.js';
 import { getWeapon } from '../data/weapons.js';
@@ -14,6 +14,11 @@ import { xpForLevel } from '../data/upgrades.js';
 import { WeaponInstance } from './weapon.js';
 import { getCharSkill } from '../data/char-skills.js';
 import { attachCharRuntime } from '../systems/char-runtime.js';
+
+// 第一百三十四轮：小鱼干「每升一级，所有属性 +1」的属性全集。
+// 剔除 turretMax（flat 但有 max=8 的实体数量属性）——多 1 座炮台上限
+// 不该是"属性+1"的语义。其余全部 +1（含 maxHp / armor / 伤害系 / 幸运）。
+const ALL_STAT_KEYS = Object.keys(STAT_DEFS).filter((k) => k !== 'turretMax');
 
 export const MAX_WEAPONS = 6;
 
@@ -242,11 +247,18 @@ export class Player extends Entity {
     return true;
   }
 
+  /** 第一百三十四轮：是否拥有某道具（Boss 专属红品的效果查询用） */
+  hasItem(itemId) {
+    return (this.items.get(itemId) || 0) > 0;
+  }
+
   applyItemMods(def) {
     for (const k in (def.mods || {})) this.stats.addFlat(k, def.mods[k]);
     for (const k in (def.pct || {})) this.stats.addPct(k, def.pct[k]);
     // 诅咒类（扣最大生命等）走乘算，避免叠加到 1 点血上限
     for (const k in (def.curse || {})) this.stats.addCurse(k, def.curse[k]);
+    // 第一百三十四轮：属性上限放宽（黑色披风：闪避上限 80 → 90）
+    for (const k in (def.statCapBonus || {})) this.stats.addCapBonus(k, def.statCapBonus[k]);
     // 第四十九轮：最终乘算类道具（莱万汀：伤害 +80% / 承伤 +50%）。
     // 体检修复（第九十二轮）：'damage' 是 kind:'percent' 属性，
     // addFinalMul 的守卫（第十六轮加的，防止 percent 属性被乘成 0）
@@ -263,6 +275,12 @@ export class Player extends Entity {
 
   /** 升级带来的修正 */
   applyUpgrade(def) {
+    // 第一百三十四轮：小鱼干 —— "每升一级，所有属性 +1"。
+    // 放在最前面：本次升级选项本身给的加成之后还要吃满血/护盾结算，
+    // 全属性 +1（含 maxHp）必须先落地，后面的 _refreshMaxHp 才算得对。
+    if (this.hasItem('dried_fish')) {
+      for (const k of ALL_STAT_KEYS) this.stats.addFlat(k, 1);
+    }
     for (const k in (def.mods || {})) this.stats.addFlat(k, def.mods[k]);
     for (const k in (def.pct || {})) this.stats.addPct(k, def.pct[k]);
     const prev = this.upgradesTaken.get(def.id) || 0;
@@ -357,6 +375,16 @@ export class Player extends Entity {
     // 闪避判定
     const dodge = this.stats.get('dodge');
     if (dodge > 0 && this.rng.next() * 100 < dodge) {
+      this.onDodge?.();
+      return 0;
+    }
+
+    // ---- 第一百三十四轮：幸运猫脚 —— 受伤 15% 概率变成 miss ----
+    // **独立的第二次判定**（用户明确）：普通闪避没过再来这里掷一次 15%，
+    // 中了照样完全免伤。与天气 miss 同级：免伤 + 不给无敌帧，走玩家
+    // 主流 rng —— 它是道具效果，不是天气，不该吃天气独立流。
+    if (!opts.noMiss && this.hasItem('lucky_cat_paw')
+        && this.rng.next() * 100 < 15) {
       this.onDodge?.();
       return 0;
     }
@@ -533,6 +561,12 @@ export class Player extends Entity {
    */
   heal(amount, opts = {}) {
     if (this.noHeal && !opts.force) return 0;
+    // ---- 第一百三十四轮：猫娘奶糖 —— 生命低于 50% 时治疗翻倍 ----
+    // "受到的所有治疗效果"：入口处翻倍，regen/吸血/血包全走 heal()，
+    // 一处改动全覆盖（与 gainXp 的入口策略同一思路）。
+    if (this.hasItem('cat_taffy') && this.hp < this.stats.get('maxHp') / 2) {
+      amount *= 2;
+    }
     const max = this.stats.get('maxHp');
     const before = this.hp;
     this.hp = Math.min(max, this.hp + amount);
@@ -700,7 +734,8 @@ export class Player extends Entity {
     // 没预算时这次命中只吃概率不回血；失败的掷骰不消耗预算。
     if ((this.lsBudget ?? LIFESTEAL_PROCS_PER_SEC) < 1) return 0;
     this.lsBudget -= 1;
-    return this.heal(1);
+    // 第一百三十四轮：龙虾抱枕 —— 吸血回复翻倍（1 滴 → 2 滴）
+    return this.heal(this.hasItem('lobster_pillow') ? 2 : 1);
   }
 
   /**

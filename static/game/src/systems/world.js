@@ -46,6 +46,9 @@ function getRewardItemPool() {
     // 第八十五轮：芙兰专属（莱万汀）不进宝箱/宝箱怪奖励池 ——
     // 用户："应该只有打败芙兰才能获得。"
     if (it.flandreOnly) return false;
+    // 第一百三十四轮：Boss 专属掉落红品（小鱼干等 8 件）同理排除 ——
+    // 唯一入口是第 10/20 波 Boss 击杀掉落。
+    if (it.bossDropOnly) return false;
     // 纯炮台加成的道具，只在玩家已有炮台时才有意义 → 不放进通用奖励池
     const keys = Object.keys(it.pct || {}).concat(Object.keys(it.mods || {}));
     const turretOnly = keys.length > 0 && keys.every((k) => k.startsWith('turret'));
@@ -865,6 +868,24 @@ export class World {
     const ls = stats.lifesteal + (weapon?.def?.lifesteal ?? 0);
     if (ls > 0) player.applyLifesteal(ls);
 
+    // ---- 第一百三十四轮：超载芯片 —— 命中让敌人"受到的伤害 +1%"----
+    // 最多 30%。挂在目标身上（enemy.debuffTakenPct），永久叠（用户没给
+    // 重置条件；波次结束怪清场自然归零）。结算在 enemy.takeDamage 的
+    // 护甲之后 —— 与"受到的伤害 +%"的字面一致。已死的怪不用叠。
+    if (!res.killed && player.hasItem?.('overload_chip') && target.isEnemy) {
+      target.debuffTakenPct = Math.min(30, (target.debuffTakenPct ?? 0) + 1);
+    }
+
+    // ---- 第一百三十四轮：幸运猫脚 —— 暴击时 20% 概率再暴击一次 ----
+    // 递归一跳（完整结算：能吸血/能击杀/能触发超载芯片），带 noCritAgain
+    // 防无限递归。只在真的暴击了才掷骰；宠物/道具内层调用不带猫脚判定。
+    if (isCrit && !opts.noCritAgain
+        && player.hasItem?.('lucky_cat_paw') && this.rng.next() * 100 < 20) {
+      this.dealDamage(player, weapon, target, baseDamage, {
+        ...opts, noCritAgain: true, knockback: 0,
+      });
+    }
+
     // ---- 第十六轮：小八「龙虾突击」----
     //
     // 用户原话："近战类武器攻击敌人的时候有概率20%触发一次龙虾追击，
@@ -1087,6 +1108,16 @@ export class World {
   // 生成弹丸
   // =========================================================
   spawnBullet(cfg) {
+    // ---- 第一百三十四轮：智慧型魔棒 —— 远程/炮台攻击全部追踪 ----
+    // 玩家武器与炮台的弹都从这里过（宠物弹不经过，见 pet.js 自己的
+    // 生成路径）；已是 homing 的保持原样。近战 sweep/thrust 不发弹，
+    // 天然不受影响。追踪强度 3 = 与星杖系追踪武器一致。
+    const p = cfg.ownerPlayer ?? this.player;
+    if (p?.hasItem?.('smart_wand') && !cfg.fromPet
+        && cfg.behavior && cfg.behavior !== 'homing'
+        && cfg.behavior !== 'orbit' && cfg.behavior !== 'spin') {
+      cfg = { ...cfg, behavior: 'homing', homing: Math.max(cfg.homing ?? 0, 3) };
+    }
     const b = new Bullet(cfg);
     // 第十六轮：显式记下开火者。
     // 默认回落到 this.player —— 玩家武器和炮台子弹都该归到玩家身上，

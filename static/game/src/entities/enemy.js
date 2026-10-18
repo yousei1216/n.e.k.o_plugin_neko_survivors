@@ -343,6 +343,13 @@ export class Enemy extends Entity {
       this.overload.tick(this.overloadNow);
       dmg = Math.max(1, dmg * this.overload.multiplier);
     }
+
+    // ---- 第一百三十四轮：超载芯片 —— 受到伤害 +1%×层数（最多 30%）----
+    // 玩家攻击命中时叠层（world.dealDamage），放在护甲之后：护甲先减，
+    // 易伤再放大 —— 与"受到的伤害 +1%"的字面一致。
+    if ((this.debuffTakenPct ?? 0) > 0) {
+      dmg *= 1 + this.debuffTakenPct / 100;
+    }
     // ---- 奶妈怪给的固定减伤（第十二轮）----
     //
     // 用户要的是"30% 固定减伤"。这里刻意用**乘算的独立一层**，

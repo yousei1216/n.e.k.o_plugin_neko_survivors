@@ -63,7 +63,19 @@ export const SPRITE_KINDS = {
  * 默认规则会去找 item_ap_round.png；别名让它指向 item_armor_piercer.png。
  */
 export const SPRITE_FILE_ALIAS = {
-  item: { ap_round: 'armor_piercer' },
+  item: {
+    ap_round: 'armor_piercer',
+    // 第一百三十四轮：Boss 专属掉落红品 —— 用户直接用中文名放的素材，
+    // 别名映射到用户文件名，不改文件、不改数据 id。
+    dried_fish: '小鱼干',
+    lobster_pillow: '龙虾抱枕',
+    smart_wand: '智慧型魔棒',
+    dr_m_notes: 'M博士心得',
+    lucky_cat_paw: '幸运猫脚',
+    black_cape: '黑色披风',
+    cat_taffy: '猫娘奶糖',
+    overload_chip: '超载芯片',
+  },
 };
 
 export class SpriteStore {
