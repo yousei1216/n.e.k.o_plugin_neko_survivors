@@ -857,8 +857,10 @@ export class World {
       if (isMelee) {
         this.fx.impact(target.x, target.y, power,
           isCrit ? '#ffc857' : '#ffffff', opts.hitAngle ?? null, { player: true });
-        // 重击/暴击额外甩碎片，轻击不甩（否则满屏碎屑）
-        if (isCrit) this.fx.shards(target.x, target.y, target.radius, target.color ?? '#ffffff', 4, { player: true });
+        // 第一百三十九轮 E：命中溅射碎火星（用户："周围溅射几个碎火星"）
+        // —— 轻击 2 粒小的，暴击 4 粒大的（原暴击碎片保留并档）。
+        this.fx.shards(target.x, target.y, target.radius * (isCrit ? 1 : 0.55),
+          isCrit ? '#ffc857' : '#cfe4ff', isCrit ? 4 : 2, { player: true });
       } else {
         this.fx.hit(target.x, target.y, isCrit ? '#ffc857' : '#ffffff', { player: true });
       }

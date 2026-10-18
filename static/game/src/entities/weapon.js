@@ -246,6 +246,9 @@ export class WeaponInstance {
           world.dealDamage(player, this, e, dmg, { knockback: def.knockback ?? 60, fromX: player.x, fromY: player.y });
         }
         world.fx.thrust(player.x, player.y, ex, ey, w, def.color, { player: true });
+        // 第一百三十九轮 E：顿帧感 —— 命中时轻微震屏（幅度 2 / 0.1s），
+        // 配合枪影"停留 0.05s 再缩回"，落空不震。
+        if (hits.length > 0) world.camera?.shake(2, 0.1);
         break;
       }
 
@@ -474,6 +477,10 @@ export class WeaponInstance {
         if (now - last < 0.4) continue;
         this._orbitHits.set(e.id, now);
         world.dealDamage(player, this, e, dmg, { knockback: 30, fromX: ox, fromY: oy });
+        // 第一百三十九轮 C：白色十字星光（用户："球击中敌人时，爆出白色
+        // 的十字星光，类似猫咪拍打玩具"）—— IMPACT 放射星芒 + 一粒白火花
+        world.fx.impact(ox, oy, 0.32, '#ffffff', a);
+        world.fx.sparkle(ox, oy, '#ffffff', 1);
       }
     }
     this.orbitPositions = [];
@@ -482,6 +489,21 @@ export class WeaponInstance {
       this.orbitPositions.push({ x: player.x + Math.cos(a) * radius, y: player.y + Math.sin(a) * radius });
     }
     this.orbitRadius = radius;
+
+    // 第一百三十九轮 C：拖尾残影采样 —— 每 0.035s 记一帧球位（每球一条），
+    // renderer 画 4 段渐隐残影，体现高速旋转。
+    if (this._trailLen !== count) {
+      this._trailLen = count;
+      this._trail = Array.from({ length: count }, () => []);
+    }
+    if (now - (this._trailT ?? -1) > 0.035) {
+      this._trailT = now;
+      for (let i = 0; i < count; i++) {
+        const t = this._trail[i];
+        t.push({ x: this.orbitPositions[i].x, y: this.orbitPositions[i].y });
+        if (t.length > 4) t.shift();
+      }
+    }
   }
 }
 

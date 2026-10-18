@@ -796,17 +796,85 @@ export class Renderer {
       if (w.def.behavior !== 'orbit' || !w.orbitPositions) continue;
       // 第三十三轮：视觉球随 orbitBallRadius 同比例放大（默认 16 → 9px）
       const br = (w.def.orbitBallRadius ?? 16) * 0.5625;
-      for (const pos of w.orbitPositions) {
+      for (let i = 0; i < w.orbitPositions.length; i++) {
+        const pos = w.orbitPositions[i];
+        // ---- 第一百三十九轮 C：连线（玩家 → 球的弯曲绳线）----
+        // 用户："画一条半透明的、轻微弯曲的动态曲线，让它看起来是
+        // '连着玩家在甩'，而不是凭空绕着玩家飞。"
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = 'rgba(255,210,58,0.42)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        const mx = (p.x + pos.x) / 2, my = (p.y + pos.y) / 2;
+        // 控制点垂直偏移随时间摆动 → 绳子的"甩动感"
+        const dx = pos.x - p.x, dy = pos.y - p.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const sway = Math.sin(p.age * 9 + i * 2.4) * len * 0.12;
+        ctx.quadraticCurveTo(mx - (dy / len) * sway, my + (dx / len) * sway, pos.x, pos.y);
+        ctx.stroke();
+        ctx.restore();
+
+        // ---- 拖尾残影：4 段渐隐黄影（高速旋转的速度感）----
+        const trail = w._trail?.[i] ?? [];
+        for (let j = 0; j < trail.length; j++) {
+          const tp = trail[j];
+          const f = (j + 1) / (trail.length + 1);
+          ctx.save();
+          ctx.globalAlpha = fxSettings.playerAlpha * f * 0.3;
+          ctx.fillStyle = w.def.color;
+          ctx.beginPath();
+          ctx.arc(tp.x, tp.y, br * (0.45 + f * 0.5), 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        // ---- 环形拖尾（F 轮，用户："加一条半透明的黄色环形拖尾，
+        // 像彗星尾巴，体现甩起来的离心力"）—— 球贴着轨道圆周跑，
+        // 拖尾直接沿轨道往回扫一段弧，分 6 段渐细渐淡，比散点更"环"。
+        if (w.orbitRadius) {
+          const ang = Math.atan2(pos.y - p.y, pos.x - p.x);
+          const SEGS = 6, SWEEP = 1.05;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = w.def.color;
+          ctx.lineCap = 'round';
+          for (let sIdx = 0; sIdx < SEGS; sIdx++) {
+            const f = 1 - sIdx / SEGS;             // 头亮尾淡
+            const a0 = ang - (sIdx * SWEEP) / SEGS;
+            const a1 = ang - ((sIdx + 1) * SWEEP) / SEGS;
+            ctx.globalAlpha = f * f * 0.30;
+            ctx.lineWidth = br * 1.35 * f + 0.4;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, w.orbitRadius, a1, a0);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        // ---- 毛线球本体：底色球 + 交错缠绕暗黄线 + 高光 ----
         ctx.save();
         ctx.translate(pos.x, pos.y);
-        ctx.rotate(p.age * 5);
         ctx.fillStyle = w.def.color;
         ctx.beginPath();
         ctx.arc(0, 0, br, 0, TAU);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        // 毛线缠绕：三条交错弧线（各随年龄差速旋转 → 线团在"滚"）
+        ctx.strokeStyle = 'rgba(150,102,16,0.75)';
+        ctx.lineWidth = Math.max(1, br * 0.14);
+        ctx.lineCap = 'round';
+        const spinA = p.age * 6;
+        for (let s = 0; s < 3; s++) {
+          const ra = spinA + s * 2.1;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, br * 0.72, br * (0.26 + s * 0.14), ra, 0.3, Math.PI - 0.3);
+          ctx.stroke();
+        }
+        // 白高光（左上）
+        ctx.fillStyle = 'rgba(255,255,255,0.8)';
         ctx.beginPath();
-        ctx.arc(-2, -2, br / 3, 0, TAU);
+        ctx.arc(-br * 0.32, -br * 0.34, br * 0.22, 0, TAU);
         ctx.fill();
         ctx.restore();
       }
@@ -1440,10 +1508,15 @@ export class Renderer {
   // 炮台
   // =========================================================
   _drawTurret(ctx, t) {
+    // 第一百三十九轮 D 重构（用户："灰白色六边形线框太丑"）：
+    //   底座 = 深灰实心六边形 + 金属渐变 + 亮棱边；炮管 = 深色短管 +
+    //   炮口环；核心 = 发光色球，开火瞬间随 recoil 闪亮。
+    // 品质差异只体现在 def.color（核心/描边/辉光），结构全档通用。
     const def = t.def;
     // 出生放大动画
     const grow = t.spawnAnim > 0 ? 1 - t.spawnAnim / 0.3 : 1;
     const s = 0.5 + grow * 0.5;
+    const r = t.radius;
 
     ctx.save();
     ctx.translate(t.x, t.y);
@@ -1452,40 +1525,91 @@ export class Renderer {
     ctx.globalAlpha = 0.28;
     ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.ellipse(0, t.radius * 0.55, t.radius * 1.05, t.radius * 0.5, 0, 0, TAU);
+    ctx.ellipse(0, r * 0.55, r * 1.05, r * 0.5, 0, 0, TAU);
     ctx.fill();
     ctx.globalAlpha = 1;
 
     ctx.scale(s, s);
 
-    // 底座（六边形）
+    // ---- 底座：深灰金属六边形 ----
+    const hex = () => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + Math.PI / 6;
+        const px = Math.cos(a) * r, py = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+    hex();
+    const mg = ctx.createLinearGradient(0, -r, 0, r);   // 金属纵向渐变
+    mg.addColorStop(0, '#3d4356');
+    mg.addColorStop(0.45, '#2a2e3d');
+    mg.addColorStop(1, '#1c1f2b');
+    ctx.fillStyle = mg;
+    ctx.fill();
+    // 金属亮棱边：上半圈亮、下半圈暗 —— 用两段描边模拟受光
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 6) * TAU + Math.PI / 6;
+      const a2 = ((i + 1) / 6) * TAU + Math.PI / 6;
+      if (i === 0) { ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+      ctx.lineTo(Math.cos(a2) * r, Math.sin(a2) * r);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = def.color;
+    ctx.globalAlpha = 0.55;
+    hex();
+    ctx.stroke();                                        // 品质色细描边
+    ctx.globalAlpha = 1;
+    // 内圈刻线（机械感）
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * TAU + Math.PI / 6;
-      const px = Math.cos(a) * t.radius;
-      const py = Math.sin(a) * t.radius;
+      const px = Math.cos(a) * r * 0.72, py = Math.sin(a) * r * 0.72;
       if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = def.color + '33';
-    ctx.fill();
-    ctx.strokeStyle = def.color;
-    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // 炮管：朝目标方向，开火后有后坐
+    // ---- 炮管：朝目标的深色短管 + 炮口环，开火后坐 ----
     const recoil = t.recoil > 0 ? t.recoil / 0.16 : 0;
-    const barrelLen = t.radius * 1.5 - recoil * 4;
+    const barrelLen = r * 1.5 - recoil * 4;
     ctx.save();
     ctx.rotate(t.angle);
-    ctx.fillStyle = def.color;
-    ctx.fillRect(0, -3.5, barrelLen, 7);
+    ctx.fillStyle = '#171a24';
+    ctx.fillRect(r * 0.2, -4.2, barrelLen, 8.4);
+    // 管身高光棱线
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(r * 0.2, -4.2, barrelLen, 2);
+    // 炮口环（品质色）
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(barrelLen + r * 0.2, -5);
+    ctx.lineTo(barrelLen + r * 0.2, 5);
+    ctx.stroke();
     ctx.restore();
 
-    // 核心
+    // ---- 核心：发光色球，开火瞬间闪亮 ----
+    const flash = 1 + recoil * 1.1;                      // 开火瞬间核心暴涨
+    if (!this._fxSaturated()) {
+      const gr = r * 1.15 * flash;
+      ctx.globalAlpha = 0.55;
+      ctx.drawImage(this._glowSprite(def.color), -gr, -gr, gr * 2, gr * 2);
+      ctx.globalAlpha = 1;
+    }
     ctx.beginPath();
-    ctx.arc(0, 0, t.radius * 0.45, 0, TAU);
+    ctx.arc(0, 0, r * 0.42 * flash, 0, TAU);
     ctx.fillStyle = def.color;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.2, 0, TAU);
+    ctx.fillStyle = '#ffffff';
     ctx.fill();
 
     ctx.restore();
@@ -2138,44 +2262,85 @@ export class Renderer {
   // 子弹
   // =========================================================
   _drawBullet(ctx, b) {
-    // 拖尾
-    //
-    // 第九轮升级（用户："远程武器的弹幕也华丽一点"）：
-    //   原来是几个等大的圆点，看起来像"一串珠子"。
-    //   现在改成：加色混合 + 逐节收缩 + 逐节变淡的锥形尾迹，
-    //   视觉上就是一道"拖出来的光"。
-    if (b.trail.length > 1) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      // 连成一条**连续的光带**，而不是一串分离的圆点。
-      // 之前的实现每节单独 moveTo→lineTo，节点处靠 lineCap 的圆头勉强接上，
-      // 看起来像"珠链"。这里走一条 path 一口气画完，再叠一层细白芯，
-      // 就变成流畅的光轨了。
+    // 第一百三十九轮 D：子弹视觉身份分家（用户："魔法棒、硬币、炮台
+    // 全是长条+十字星，同质化太严重"）——
+    //   element  → 元素光球（大圆 + 彗尾圆点 + 环绕小金星，无十字芒）
+    //   bounce   → 旋转金币（翻滚椭圆 + 厚度线 + 速度线残影）
+    //   turret   → 能量曳光弹（加粗长条 + 青色外晕 + 多角刺芒头 + 尾焰）
+    //   其余     → 通用弹头椭圆 + 白芯（去掉千篇一律的十字星芒）
+    const isCoin = b.behavior === 'bounce';
+    const isOrb = b.kind === 'element';
+    const isTracer = b.kind === 'turret';
+
+    // ---- 拖尾 ----
+    if (isCoin) {
+      // 金币：不要圆形拖尾，画 3 道"速度线"（沿反方向平行错开的短线）
+      if (b.trail.length > 0) {
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(b.angle);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = b.color;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 3; i++) {
+          const off = (i - 1) * b.radius * 1.1;
+          const ln = b.radius * (3.2 - i * 0.7);
+          ctx.globalAlpha = 0.4 - i * 0.1;
+          ctx.lineWidth = 1.6 - i * 0.3;
+          ctx.beginPath();
+          ctx.moveTo(-b.radius * 1.2, off);
+          ctx.lineTo(-b.radius * 1.2 - ln, off * 1.4);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    } else if (isOrb) {
+      // 光球：彗星尾巴 —— trail 上取 4 个节点画渐小渐淡的同色圆点
       const pts = b.trail.filter((t) => t.a > 0);
       if (pts.length > 1) {
-        // 外层：宽而淡的辉光带
-        ctx.globalAlpha = 0.34;
-        ctx.strokeStyle = b.color;
-        ctx.lineWidth = b.radius * 1.7;
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-
-        // 内层：细而亮的白芯，营造"能量被包裹"的层次
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = b.radius * 0.55;
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const n = Math.min(4, pts.length);
+        for (let i = 0; i < n; i++) {
+          const f = 1 - (i + 1) / (n + 1);        // 越靠后越小越淡
+          const tp = pts[pts.length - 1 - i];
+          ctx.globalAlpha = 0.34 * (0.4 + f * 0.6);
+          ctx.fillStyle = b.color;
+          ctx.beginPath();
+          ctx.arc(tp.x, tp.y, b.radius * (0.35 + f * 0.6), 0, TAU);
+          ctx.fill();
+        }
+        ctx.restore();
       }
-      ctx.restore();
+    } else {
+      // 曳光弹 / 通用：连续光带（第九轮原样，曳光弹加宽加亮）
+      if (b.trail.length > 1) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const pts = b.trail.filter((t) => t.a > 0);
+        if (pts.length > 1) {
+          const wMul = isTracer ? 2.1 : 1.7;
+          ctx.globalAlpha = isTracer ? 0.4 : 0.34;
+          ctx.strokeStyle = b.color;
+          ctx.lineWidth = b.radius * wMul;
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          ctx.globalAlpha = 0.5;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = b.radius * (isTracer ? 0.75 : 0.55);
+          ctx.beginPath();
+          ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
     }
     ctx.globalAlpha = 1;
 
@@ -2183,49 +2348,99 @@ export class Renderer {
     ctx.translate(b.x, b.y);
     ctx.globalCompositeOperation = 'lighter';
 
-    // 外发光：用缓存精灵代替每帧新建径向渐变。
-    // 子弹是**数量最多**的绘制对象（后期几百发），这里省下来的是大头。
-    // 饱和时跳过外发光：满屏子弹时每颗的光晕互相重叠，
-    // 少一层几乎看不出来，但省下的是几百次大面积半透明填充。
+    // 外发光：缓存精灵（数量最多的绘制对象，省每帧渐变）
     if (!this._fxSaturated()) {
       const gr = b.radius * 3.2;
       ctx.globalAlpha = 0.34;
       ctx.drawImage(this._glowSprite(b.color), -gr, -gr, gr * 2, gr * 2);
     }
 
-    // 主体
     ctx.globalAlpha = 1;
-    ctx.fillStyle = b.color;
-    if (b.behavior === 'bounce') {
-      // 硬币：方形
+
+    if (isCoin) {
+      // ---- 旋转金币：翻滚椭圆 + 厚度竖线 + 高光 ----
       ctx.rotate(b.age * 8);
-      ctx.fillRect(-b.radius, -b.radius, b.radius * 2, b.radius * 2);
-    } else if (b.behavior === 'homing') {
-      // 星星
-      ctx.rotate(b.age * 4);
-      this._starPath(ctx, b.radius * 1.4, b.radius * 0.6, 4);
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, b.radius * 1.4, b.radius * 0.8, 0, 0, TAU);
+      ctx.fill();
+      // 厚度：沿短轴的中线（翻滚时像硬币侧面）
+      ctx.strokeStyle = 'rgba(122,80,10,0.9)';
+      ctx.lineWidth = Math.max(1, b.radius * 0.22);
+      ctx.beginPath();
+      ctx.moveTo(0, -b.radius * 0.8);
+      ctx.lineTo(0, b.radius * 0.8);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.arc(-b.radius * 0.45, -b.radius * 0.25, b.radius * 0.2, 0, TAU);
+      ctx.fill();
+    } else if (isOrb) {
+      // ---- 元素光球：高亮大圆 + 白芯 + 环绕小金星 ----
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, b.radius * 1.15, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(0, 0, b.radius * 0.5, 0, TAU);
+      ctx.fill();
+      // 环绕金色小星星（3 颗差速旋转）
+      ctx.fillStyle = '#ffe08a';
+      for (let i = 0; i < 3; i++) {
+        const sa = b.age * 5 + (i / 3) * TAU;
+        const sx = Math.cos(sa) * b.radius * 1.9;
+        const sy = Math.sin(sa) * b.radius * 1.9;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(sa * 2);
+        this._starPath(ctx, b.radius * 0.4, b.radius * 0.16, 4);
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (isTracer) {
+      // ---- 能量曳光弹：加粗长条 + 青色能量外晕 + 多角刺芒头 + 尾焰 ----
+      ctx.rotate(b.angle);
+      // 青色能量外晕
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = b.radius * 1.3;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, b.radius * 2.3, b.radius * 1.25, 0, 0, TAU);
+      ctx.stroke();
+      // 主体长条（加粗）
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      ctx.ellipse(-b.radius * 0.3, 0, b.radius * 2.0, b.radius * 0.9, 0, 0, TAU);
+      ctx.fill();
+      // 尾部喷射焰：朝后的锥形（白→透明的能量喷射）
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = '#ffffff';
+      const flame = b.radius * (2.6 + Math.sin(b.age * 40) * 0.5);  // 抖动的焰长
+      ctx.beginPath();
+      ctx.moveTo(-b.radius * 1.2, -b.radius * 0.55);
+      ctx.lineTo(-b.radius * 1.2 - flame, 0);
+      ctx.lineTo(-b.radius * 1.2, b.radius * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      // 头部：爆发状多角刺芒（替代十字星）
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      this._starPath(ctx, b.radius * 1.9, b.radius * 0.65, 6);
       ctx.fill();
     } else {
-      // 椭圆朝向前进方向
+      // ---- 通用弹头：椭圆 + 白芯（十字星芒已除名）----
       ctx.rotate(b.angle);
+      ctx.fillStyle = b.color;
       ctx.beginPath();
       ctx.ellipse(0, 0, b.radius * 1.5, b.radius, 0, 0, TAU);
       ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(b.radius * 0.25, 0, b.radius * 0.42, 0, TAU);
+      ctx.fill();
     }
-
-    // 白芯 + 十字星芒，让子弹在密集弹幕里也看得清
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.beginPath();
-    ctx.arc(0, 0, b.radius * 0.42, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 0.5;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.2;
-    const flare = b.radius * 2.0;
-    ctx.beginPath();
-    ctx.moveTo(-flare, 0); ctx.lineTo(flare, 0);
-    ctx.moveTo(0, -flare); ctx.lineTo(0, flare);
-    ctx.stroke();
 
     ctx.restore();
   }
@@ -2590,64 +2805,80 @@ export class Renderer {
   // =========================================================
   // 特效
   // =========================================================
+  // =========================================================
+  // 第一百三十九轮 C：三层刀光（SLASH / SPIN 共用）
+  // =========================================================
+  //
+  // 用户："一个半透明的月牙弧线出现一瞬间就消失，像塑料片，没有切割感。"
+  // 新结构（外→内）：
+  //   · 最外层 尖锐亮白 高光（最宽，运动方向感来源）
+  //   · 中间层 青色 主体
+  //   · 最内层 极细深蓝 核心
+  // 两端（剑尖/剑柄）用锥形渐变（createConicGradient）渐隐到全透明；
+  // 整体加法混合，暗色地板上像在发光。内核不支持 conic 时退回实线
+  //（旧内核只是少了渐隐，三层结构仍在）。
+  _bladeArc(ctx, r, a0, a1, fade, phaseShift = 0) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    const span = a1 - a0;
+    const useConic = typeof ctx.createConicGradient === 'function';
+    const layers = [
+      { col: '#ffffff', w: 10 * fade + 2.5, rr: r * 1.02, al: 0.92 },  // 白高光
+      { col: '#7ee7ff', w: 6.5 * fade + 2, rr: r * 0.94, al: 0.8 },    // 青主体
+      { col: '#1e3a8a', w: 2.2 * fade + 0.8, rr: r * 0.86, al: 0.85 }, // 深蓝核
+    ];
+    for (const L of layers) {
+      ctx.globalAlpha = L.al * fade;
+      if (useConic) {
+        const g = ctx.createConicGradient(a0 + phaseShift, 0, 0);
+        const q = Math.min(0.5, span / Math.PI * 2 / 2); // span/TAU（防 0）
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(Math.min(0.999, q * 0.18), L.col);
+        g.addColorStop(Math.min(0.9999, q * 0.82), L.col);
+        g.addColorStop(Math.min(1, q), 'rgba(255,255,255,0)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.strokeStyle = g;
+      } else {
+        ctx.strokeStyle = L.col;
+      }
+      ctx.lineWidth = L.w;
+      ctx.beginPath();
+      ctx.arc(0, 0, L.rr, a0, a1);
+      ctx.stroke();
+    }
+  }
+
   _drawFX(ctx, fx) {
     const k = clamp(fx.t / fx.life, 0, 1);
     const fade = 1 - k;
 
     switch (fx.type) {
       case FX_TYPE.SLASH: {
-        // 第九轮升级：单弧 → 三层弧 + 加色发光，做出"挥过去"的速度感。
-        // 关键变化：
-        //   1. 用 'lighter' 加色混合，重叠处自然变亮，像真的发光
-        //   2. 弧半径随进度向外推、刃宽随进度收窄 → 有方向感和速度感
-        //   3. 外侧再加一层更宽更淡的"残影弧"，制造运动模糊
+        // 第一百三十九轮 C 重构（用户："像塑料片，没有切割感"）：
+        // 三层刀光（白高光/青主体/深蓝核，见 _bladeArc）+ 两端锥形渐隐
+        // + 加法混合；残影弧相位后移制造"挥过去"的运动方向感。
+        // 火星粒子由 fx.slash() 生成（SHARD 类型单独渲染）。
         const half = (fx.arcDeg * Math.PI / 180) / 2;
         ctx.save();
         ctx.translate(fx.x, fx.y);
         ctx.rotate(fx.angle);
-        ctx.globalCompositeOperation = 'lighter';
         const r = fx.range * (0.62 + k * 0.5);
 
-        // 残影弧（最外、最淡、最宽）。
-        // 饱和时跳过 —— 16px 宽的弧填充率最高，而它在满屏特效里
-        // 只是让画面更糊，去掉反而更干净、更快。
+        // 残影弧：武器本色、相位后移（落后于主刀光）→ 运动模糊。
+        // 饱和时跳过（满屏特效里只是糊）。
         if (!this._fxSaturated()) {
-          ctx.globalAlpha = fade * 0.30;
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = fade * 0.26;
           ctx.strokeStyle = fx.color;
-          ctx.lineWidth = 16 * fade + 3;
+          ctx.lineWidth = 15 * fade + 3;
           ctx.beginPath();
-          ctx.arc(0, 0, r * 1.06, -half, half);
+          ctx.arc(0, 0, r * 1.04, -half - 0.14, half - 0.14);
           ctx.stroke();
+          ctx.restore();
         }
 
-        // 主刃
-        ctx.globalAlpha = fade * 0.85;
-        ctx.strokeStyle = fx.color;
-        ctx.lineWidth = (9 - k * 5) + 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, r, -half, half);
-        ctx.stroke();
-
-        // 内高光（白芯）
-        ctx.globalAlpha = fade * 0.9;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = (3.5 - k * 2) + 0.8;
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.95, -half * 0.88, half * 0.88);
-        ctx.stroke();
-
-        // 刃尖亮点：弧的两端各一个小光点，强化"划过"的收尾。
-        // 两个点合成一条 path（第十轮：省一次绘制调用）
-        ctx.globalAlpha = fade * 0.9;
-        ctx.fillStyle = '#ffffff';
-        const tipR = 2.5 * fade + 1;
-        ctx.beginPath();
-        for (const sgn of [-1, 1]) {
-          const a2 = sgn * half;
-          ctx.moveTo(Math.cos(a2) * r + tipR, Math.sin(a2) * r);
-          ctx.arc(Math.cos(a2) * r, Math.sin(a2) * r, tipR, 0, TAU);
-        }
-        ctx.fill();
+        this._bladeArc(ctx, r, -half, half, fade);
         ctx.restore();
         break;
       }
@@ -2678,21 +2909,26 @@ export class Renderer {
         // 才是真正的瓶颈（新建渐变几乎不花钱，切换 blend 模式也只 ~1µs）。
         // 所以按"长/短"分两组，每组只起一条 path、只 stroke 一次：
         // 12 次调用 → 2 次，画出来的东西完全一样。
+        // 放射星芒 → 第一百三十九轮 E：锐利尖刺（用户："不要温柔的线，
+        // 要爆开的锐刺"）—— 每根刺是外尖内宽的细长三角，长短交替。
+        // 仍按长/短分两组，每组一条 path 一次 fill（第十轮的性能约定不变）。
         ctx.globalAlpha = fade;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineCap = 'round';
+        ctx.fillStyle = '#ffffff';
         for (const long of [true, false]) {
-          ctx.lineWidth = (long ? 3.4 : 2) * fade + 0.8;
           ctx.beginPath();
           for (let i = 0; i < fx.rays; i++) {
             if ((i % 2 === 0) !== long) continue;
             const a2 = (i / fx.rays) * TAU;
             const r1 = (6 + fx.power * 8) * (0.5 + k * 0.9);
             const r2 = r1 + (long ? 20 : 11) * (0.6 + fx.power * 0.9) * (0.4 + fade * 0.8);
-            ctx.moveTo(Math.cos(a2) * r1, Math.sin(a2) * r1);
-            ctx.lineTo(Math.cos(a2) * r2, Math.sin(a2) * r2);
+            const ca = Math.cos(a2), sa = Math.sin(a2);
+            const bw = (long ? 2.6 : 1.6) * (0.5 + fade * 0.6);   // 根部半宽
+            // 细长三角：内缘两点 + 外尖一点
+            ctx.moveTo(ca * r1 - sa * bw, sa * r1 + ca * bw);
+            ctx.lineTo(ca * r2, sa * r2);                         // 锐利外尖
+            ctx.lineTo(ca * r1 + sa * bw, sa * r1 - ca * bw);
           }
-          ctx.stroke();
+          ctx.fill();
         }
         ctx.restore();
         break;
@@ -2746,66 +2982,83 @@ export class Renderer {
       }
 
       case FX_TYPE.THRUST: {
-        // 第九轮升级：一条线 → 锥形刺击（根部细、尖端亮）+ 加色发光
+        // 第一百三十九轮 E 重构（用户："像一根白棍子，完全没有刺穿感"）：
+        //   1. 梭形枪影：前端收成锐尖、根部略粗（两侧 quadratic 鼓肚），
+        //      渐变从剑尖纯白 → 冷蓝 → 半透明银灰尾；
+        //   2. 速度残影：主干两侧 3 道极细半透明线跟着刺出；
+        //   3. 顿帧：出现后满长钉住 0.05s（k<0.28），然后尖端迅速缩回
+        //      （不是平滑淡出）。
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         const dx = fx.ex - fx.x;
         const dy = fx.ey - fx.y;
         const len = Math.hypot(dx, dy) || 1;
-        // 垂直方向，用来把线"撑成"一个锥形
-        const px = -dy / len;
-        const py = dx / len;
+        const ux = dx / len, uy = dy / len;      // 前进方向
+        const px = -uy, py = ux;                 // 垂直方向
 
-        // 外层光晕
-        ctx.globalAlpha = fade * 0.5;
-        ctx.fillStyle = fx.color;
+        // ---- 顿帧曲线：短暂停留 → 迅速缩回 ----
+        const HOLD = 0.28;
+        const shrink = k < HOLD ? 1 : 1 - Math.pow((k - HOLD) / (1 - HOLD), 1.5);
+        const alpha = k < HOLD ? 1 : Math.max(0, 1 - ((k - HOLD) / (1 - HOLD)) * 1.05);
+        const tip = len * shrink;                // 尖端位置（缩回时往回拉）
+        const tx = fx.x + ux * tip, ty = fx.y + uy * tip;
+        const w = fx.width * (0.8 + 0.2 * shrink);
+
+        // ---- 梭形主体（尖端白 → 冷蓝 → 半透明尾）----
+        const grad = ctx.createLinearGradient(tx, ty, fx.x, fx.y);
+        grad.addColorStop(0, 'rgba(255,255,255,0.98)');   // 剑尖高亮纯白
+        grad.addColorStop(0.3, '#cfe4ff');                // 冷蓝
+        grad.addColorStop(1, 'rgba(150,170,205,0.22)');   // 银灰半透明尾
+        ctx.globalAlpha = alpha * 0.95;
+        ctx.fillStyle = grad;
+        const mxp = fx.x + ux * tip * 0.55, myp = fx.y + uy * tip * 0.55;
         ctx.beginPath();
-        ctx.moveTo(fx.x + px * fx.width * 0.35, fx.y + py * fx.width * 0.35);
-        ctx.lineTo(fx.ex, fx.ey);
-        ctx.lineTo(fx.x - px * fx.width * 0.35, fx.y - py * fx.width * 0.35);
+        ctx.moveTo(tx, ty);                                        // 锐尖
+        ctx.quadraticCurveTo(mxp + px * w * 0.62, myp + py * w * 0.62,
+          fx.x + px * w * 0.5, fx.y + py * w * 0.5);               // 上腹鼓肚
+        ctx.lineTo(fx.x - px * w * 0.5, fx.y - py * w * 0.5);      // 根部略粗
+        ctx.quadraticCurveTo(mxp - px * w * 0.62, myp - py * w * 0.62,
+          tx, ty);                                                 // 下腹鼓肚
         ctx.closePath();
         ctx.fill();
 
-        // 主锥体
-        ctx.globalAlpha = fade * 0.9;
-        ctx.strokeStyle = fx.color;
+        // ---- 速度残影：3 道极细半透明线（两侧+后方，比主干短一截）----
+        ctx.strokeStyle = '#cfe4ff';
         ctx.lineCap = 'round';
-        ctx.lineWidth = fx.width * fade * 0.8;
-        ctx.beginPath();
-        ctx.moveTo(fx.x, fx.y);
-        ctx.lineTo(fx.ex, fx.ey);
-        ctx.stroke();
+        for (let i = 0; i < 3; i++) {
+          const off = (i - 1) * w * 0.85;
+          const back = tip * (0.2 + i * 0.08);     // 各道起始位置错开
+          ctx.globalAlpha = alpha * (0.22 - i * 0.05);
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.moveTo(fx.x + ux * back * 0.35 + px * off, fx.y + uy * back * 0.35 + py * off);
+          ctx.lineTo(fx.x + ux * (tip * 0.82 - back * 0.2) + px * off, fx.y + uy * (tip * 0.82 - back * 0.2) + py * off);
+          ctx.stroke();
+        }
 
-        // 白芯
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = fx.width * fade * 0.3 + 0.6;
-        ctx.beginPath();
-        ctx.moveTo(fx.x, fx.y);
-        ctx.lineTo(fx.ex, fx.ey);
-        ctx.stroke();
-
-        // 尖端亮斑
-        ctx.globalAlpha = fade;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(fx.ex, fx.ey, fx.width * 0.42 * fade + 1.5, 0, TAU);
-        ctx.fill();
+        // ---- 剑尖小星芒（替代圆斑，锐利收尾）----
+        if (shrink > 0.25) {
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = '#ffffff';
+          ctx.save();
+          ctx.translate(tx, ty);
+          ctx.rotate(fx.t * 3);
+          this._starPath(ctx, fx.width * 0.55, fx.width * 0.2, 4);
+          ctx.fill();
+          ctx.restore();
+        }
         ctx.restore();
         break;
       }
 
       case FX_TYPE.SPIN: {
+        // 第一百三十九轮 C：咸鱼盾等全弧旋击也换三层刀光（用户：
+        // "全弧形的咸鱼盾之类的，都可以改改"）—— 弧随进度旋转扫过，
+        // 两端锥形渐隐，加法混合发光。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        ctx.rotate(k * TAU);
-        ctx.globalAlpha = fade * 0.6;
-        ctx.strokeStyle = fx.color;
-        ctx.lineWidth = 5 * fade;
-        for (let i = 0; i < 3; i++) {
-          ctx.beginPath();
-          ctx.arc(0, 0, fx.range * (0.7 + i * 0.12), 0, Math.PI * 0.7);
-          ctx.stroke();
-        }
+        ctx.rotate(k * Math.PI * 1.7);
+        this._bladeArc(ctx, fx.range * (0.78 + k * 0.14), -0.35, Math.PI * 0.7, fade);
         ctx.restore();
         break;
       }
@@ -2832,20 +3085,76 @@ export class Renderer {
       }
 
       case FX_TYPE.NOVA: {
+        // 第一百三十九轮 C 重构（用户："半透明实心黄圈像一滩果冻"）：
+        // 铃铛音波共振 —— 取消实心填充，改 3 层粗细/速度不同的波浪环
+        //（金→淡黄→透明），加法混合发光；环边缘随机音符/爪印伴飞淡出；
+        // 圆心一记闪光十字星"叮"一下即逝。节奏前快后慢（音波撞空气）。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        const r = fx.radius * (0.3 + k * 0.9);
-        ctx.globalAlpha = fade * 0.8;
-        ctx.strokeStyle = fx.color;
-        ctx.lineWidth = 10 * fade + 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, r, 0, TAU);
-        ctx.stroke();
-        ctx.globalAlpha = fade * 0.22;
-        ctx.fillStyle = fx.color;
-        ctx.beginPath();
-        ctx.arc(0, 0, r, 0, TAU);
-        ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+        const R = fx.radius;
+        const ek = 1 - Math.pow(1 - k, 2.6);   // 前半段极快，后半段骤减
+
+        // 圆心闪光十字星：只在最初一瞬（k<0.22）—— F 轮整体降亮一点
+        if (k < 0.22) {
+          const star = (1 - k / 0.22) * 0.8;
+          ctx.globalAlpha = star;
+          ctx.strokeStyle = '#fff6d0';
+          ctx.lineWidth = 2;
+          const L1 = 14 * star + 3;
+          ctx.beginPath();
+          for (let i = 0; i < 4; i++) {
+            const a = i * Math.PI / 2 + Math.PI / 4;
+            ctx.moveTo(Math.cos(a) * 3, Math.sin(a) * 3);
+            ctx.lineTo(Math.cos(a) * L1, Math.sin(a) * L1);
+          }
+          ctx.stroke();
+          ctx.globalAlpha = star;
+          ctx.drawImage(this._glowSprite('#ffffff'), -7, -7, 14, 14);
+        }
+
+        // 三层波浪音波环：外粗扩散快、内细稍慢；F 轮细调（用户：
+        // "波浪边缘调圆滑一点、中心亮度降一点，像真实空气震波"）——
+        // 扭曲幅度 0.028→0.011、分段 34→56（曲线更圆滑），三层整体降亮。
+        const rings = [
+          { w: 6.5, sp: 1.0, col: '#ffd23a', al: 0.52 },  // 外圈：亮金
+          { w: 4.0, sp: 0.8, col: '#ffe98a', al: 0.42 },  // 中圈：淡金
+          { w: 2.0, sp: 0.6, col: '#fff6d0', al: 0.36 },  // 内圈：近白淡黄
+        ];
+        const SEG = 56;
+        for (const rg of rings) {
+          const rr = R * (0.16 + Math.pow(ek, rg.sp) * 0.94);
+          ctx.globalAlpha = rg.al * fade;
+          ctx.strokeStyle = rg.col;
+          ctx.lineWidth = rg.w * fade + 0.6;
+          ctx.beginPath();
+          for (let i = 0; i <= SEG; i++) {
+            const a = (i / SEG) * TAU;
+            const wob = 1 + Math.sin(a * 9 + k * 38) * 0.011;  // 轻微震颤
+            const px = Math.cos(a) * rr * wob;
+            const py = Math.sin(a) * rr * wob;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+
+        // 音符/猫爪印伴飞：各自进度贴着环边缘，旋转着淡出
+        if (fx.notes) {
+          ctx.font = '13px "Segoe UI Emoji", "Segoe UI", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          for (const nt of fx.notes) {
+            const dd = R * (0.14 + Math.pow(ek, nt.sp) * 1.0);
+            ctx.save();
+            ctx.translate(Math.cos(nt.a) * dd, Math.sin(nt.a) * dd);
+            ctx.rotate(nt.rot + k * nt.spin);
+            ctx.globalAlpha = fade * 0.95;
+            ctx.font = `${nt.size}px "Segoe UI Emoji", "Segoe UI", sans-serif`;
+            ctx.fillText(nt.ch, 0, 0);
+            ctx.restore();
+          }
+        }
         ctx.restore();
         break;
       }
@@ -3015,14 +3324,21 @@ export class Renderer {
       }
 
       case FX_TYPE.RING: {
+        // 第一百三十九轮 E：完美正圆 → 破碎虚线圈（用户："正圆太温柔，
+        // 快速扩大后立刻碎裂消失"）—— 虚线段 + 随机起角，前半段扩张、
+        // 后半段碎裂散淡。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        ctx.globalAlpha = fade * 0.7;
+        ctx.rotate(fx.seed ?? 0);
+        const crack = k > 0.55 ? (1 - k) / 0.45 : 1;   // 碎裂淡出曲线
+        ctx.globalAlpha = fade * (k > 0.55 ? crack * crack : 0.7);
         ctx.strokeStyle = fx.color;
         ctx.lineWidth = 3 * fade + 1;
+        ctx.setLineDash([fx.radius * 0.34, fx.radius * 0.2]);
         ctx.beginPath();
         ctx.arc(0, 0, fx.radius * (0.4 + k * 0.8), 0, TAU);
         ctx.stroke();
+        ctx.setLineDash([]);
         ctx.restore();
         break;
       }

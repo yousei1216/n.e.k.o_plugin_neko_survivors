@@ -106,6 +106,18 @@ export class FXSystem {
       type: FX_TYPE.SLASH, x, y, angle, range, arcDeg,
       color: color ?? '#ffffff', t: 0, life: 0.22, ...extra,
     });
+    // 第一百三十九轮 C：切割火星。F 轮细调（用户："在刀光扫过的路径上
+    // 随机生成 3-4 个快速消散的白色火星"）—— 沿弧洒 4 粒白色 sparkle
+    //（小亮点、命短、消散快），另保留 2 粒碎屑增加质感层次。
+    const rad = (arcDeg * Math.PI / 180);
+    for (let i = 0; i < 4; i++) {
+      const ma = angle + (Math.random() - 0.5) * rad * 0.85;
+      const pr = range * (0.62 + Math.random() * 0.32);
+      this.sparkle(x + Math.cos(ma) * pr, y + Math.sin(ma) * pr, '#ffffff', 1, extra);
+    }
+    const ma2 = angle + (Math.random() - 0.5) * rad * 0.7;
+    this.shards(x + Math.cos(ma2) * range * 0.8, y + Math.sin(ma2) * range * 0.8,
+      8, '#cfefff', 2, extra);
   }
 
   thrust(x, y, ex, ey, width, color, extra = null) {
@@ -130,8 +142,22 @@ export class FXSystem {
   }
 
   nova(x, y, radius, color, extra = null) {
+    // 第一百三十九轮 C：铃铛音波环的伴飞粒子 —— 金色小音符 / 猫爪印，
+    // 渲染端（NOVA case）按各自的扩散进度画在环边缘并随环淡出。
+    const notes = [];
+    const n = 6 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      notes.push({
+        a: (i / n) * Math.PI * 2 + Math.random() * 0.8,
+        sp: 0.8 + Math.random() * 0.3,
+        ch: Math.random() < 0.75 ? '🎵' : '🐾',
+        size: 15 + Math.random() * 6,
+        rot: Math.random() * Math.PI,
+        spin: (Math.random() - 0.5) * 5,
+      });
+    }
     this._push({
-      type: FX_TYPE.NOVA, x, y, radius,
+      type: FX_TYPE.NOVA, x, y, radius, notes,
       color: color ?? '#ffffff', t: 0, life: 0.38, ...extra,
     });
   }
@@ -152,7 +178,7 @@ export class FXSystem {
     });
   }
 
-  sparkle(x, y, color, count = 1) {
+  sparkle(x, y, color, count = 1, extra = null) {
     for (let i = 0; i < count; i++) {
       const a = Math.random() * TAU;
       const s = 20 + Math.random() * 60;
@@ -160,6 +186,7 @@ export class FXSystem {
         type: FX_TYPE.SPARKLE,
         x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
         color: color ?? '#ffffff', t: 0, life: 0.4, size: 2 + Math.random() * 3,
+        ...extra,
       });
     }
   }
@@ -252,6 +279,8 @@ export class FXSystem {
   ring(x, y, radius, color, life = 0.5, extra = null) {
     this._push({
       type: FX_TYPE.RING, x, y, radius,
+      // 第一百三十九轮 E：破碎虚线圈的随机起角（每圈碎口位置不同）
+      seed: Math.random() * Math.PI * 2,
       color: color ?? '#ffffff', t: 0, life, ...extra,
     });
   }
