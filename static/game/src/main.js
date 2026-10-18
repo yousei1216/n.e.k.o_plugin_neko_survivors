@@ -1940,6 +1940,13 @@ export class Game {
   }
 
   _saveGame() {
+    // 第一百三十六轮：存档守卫 —— waveIndex 不是有效波次（undefined /
+    // 负数/读档恢复期）时**不写档**。旧代码会照单全收，而
+    // JSON.stringify 会把 undefined 字段直接丢掉 → 档里从此没有
+    // waveIndex → 下次读档永远回到第 1 波但道具成长还在（用户实测：
+    // "插件版继续会回到第一波，但是道具和成长还在"）。跳过这次写入，
+    // 保留上一份完好的档。
+    if (!Number.isInteger(this.waveIndex) || this.waveIndex < 0) return;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this._serializeRun()));
     } catch (e) { /* 忽略 */ }
@@ -2058,10 +2065,20 @@ export class Game {
     // 第九十四轮：重试本波**绕过**这个分支（见 opts.fromRetry 的说明）——
     // 否则波次快照若带 phase:'shop'，重试会变成开店且计时器不重置。
     if (!opts.fromRetry && data.phase === 'shop') {
+      // 第一百三十六轮：商店分支同样要拿到规整后的波次 —— 否则
+      // this.waveIndex 保持旧值/undefined，店里"开始下一波"会算出 NaN
+      this.waveIndex = Number.isInteger(data.waveIndex) && data.waveIndex >= 0
+        ? data.waveIndex : 0;
       this._openShop();
       return;
     }
-    this._beginWave(data.waveIndex);
+    // 第一百三十六轮：读档端兜底 —— 老档/坏档没有 waveIndex（或不是
+    // 非负整数）时回落第 1 波，绝不把 undefined 传进 _beginWave
+    //（否则 this.waveIndex 被污染，下一次进店存档又把 undefined 写回去，
+    // "回到第 1 波"从此固化）。
+    const waveIdx = Number.isInteger(data.waveIndex) && data.waveIndex >= 0
+      ? data.waveIndex : 0;
+    this._beginWave(waveIdx);
   }
 
   _readSave() {

@@ -3691,53 +3691,54 @@ export class Renderer {
     }
 
     // ---- 浓雾：视野圈（最上层）----
-    // 第一百三十四轮重写（用户："浓雾滤镜效果一闪一闪的是什么原因？
-    // ……大概雾气是第三层（400 那圈）会闪，200 的半透明没事"，且发生在
-    // 插件市场/NEKO 内嵌 WebView 环境）：
+    // 第一百三十六轮二次重写（用户："插件市场里玩正常的，通过插件市场的
+    // 浏览器玩还是闪"—— 那个"浏览器"是系统 Edge）。上一版虽然把渐变
+    // 烘焙成了贴图，但"雾底 fillRect + destination-out 擦洞"仍是**逐帧
+    // 半透明大层合成**，不同 GPU/合成路径（NEKO 内嵌 WebView vs Edge）
+    // 光栅化结果有差异，Edge 上外圈依旧量化抖动。
     //
-    // 根因：旧实现每帧 createRadialGradient(200→400) 且用 0.999 极限
-    // 色标 + 大面积 pad 延伸区铺 0.97 白。嵌入式内核的合成器对大半径
-    // 径向渐变按 tile 光栅化，0.97 高 alpha 的 pad 区量化不稳定 →
-    // 外圈一亮一暗地跳（内圈 alpha 0 不合成，所以不闪）。
-    //
-    // 修法：**渐变零分配** ——
-    //   1. 首帧烘焙一张"软洞"贴图（中心全擦 → 200~400 渐变擦 → 400 外不擦）；
-    //   2. 雾底改成纯色 fillRect（恒定，绝无闪烁）；
-    //   3. 每帧在**离屏雾层**上 destination-out 擦出视野圈，再一次
-    //      drawImage 贴回主画布。全程只有位图合成，任何内核都稳。
+    // 这一版做到**零合成模式**：
+    //   · 首帧烘焙一张"环带"贴图 —— 中心（视野内）全透明，200~400 线性
+    //     升到雾色，贴图外圈全是雾色；
+    //   · 运行时**一次 drawImage** 把贴图盖在玩家周围（贴图外圈与远处
+    //     雾底同色，视觉上无缝延伸），全程只有位图采样，任何内核都稳。
+    // 口径不变：200 内全透 / 200→400 渐变 / 400 外雾底。
     if (d.id === 'fog' && w.fogRamp > 0) {
       const a = w.fogRamp;
-      // 烘焙软洞贴图：256² 一次性的擦除强度图（r=0~0.5 全 1，0.5→1 线性到 0）
-      if (!this._fogHoleSprite) {
+      const FOG_TEX = 512;     // 烘焙源尺寸
+      const FOG_SPAN = 2400;   // 运行时目标尺寸（世界单位，盖住 400 洞 + 大片雾底）
+      if (!this._fogRingSprite) {
         const cv = document.createElement('canvas');
-        cv.width = cv.height = 256;
+        cv.width = cv.height = FOG_TEX;
         const c2 = cv.getContext('2d');
-        const g = c2.createRadialGradient(128, 128, 8, 128, 128, 128);
-        g.addColorStop(0, 'rgba(0,0,0,1)');
-        g.addColorStop(0.5, 'rgba(0,0,0,1)');   // 0.5 × 400 = 200：视野内全透
-        g.addColorStop(0.995, 'rgba(0,0,0,0)'); // 400 处恰好擦净
-        g.addColorStop(1, 'rgba(0,0,0,0)');
+        const g = c2.createRadialGradient(256, 256, 4, 256, 256, 256);
+        const R = 256;                          // 源半径 ↔ 世界 1200（FOG_SPAN/2）
+        g.addColorStop(0, 'rgba(233,235,241,0)');
+        g.addColorStop(200 / (FOG_SPAN / 2), 'rgba(233,235,241,0)');   // 200 世界单位内全透
+        g.addColorStop(Math.min(0.995, 400 / (FOG_SPAN / 2)), `rgba(233,235,241,0.97)`); // 400 处雾满
+        g.addColorStop(1, 'rgba(233,235,241,0.97)');  // pad：贴图外圈全是雾
         c2.fillStyle = g;
-        c2.fillRect(0, 0, 256, 256);
-        this._fogHoleSprite = cv;
+        c2.fillRect(0, 0, FOG_TEX, FOG_TEX);
+        this._fogRingSprite = cv;
       }
-      // 离屏雾层：尺寸跟随世界视口（变化时重建）
-      if (!this._fogLayer || this._fogLayer.width !== Math.ceil(vw) || this._fogLayer.height !== Math.ceil(vh)) {
-        this._fogLayer = document.createElement('canvas');
-        this._fogLayer.width = Math.ceil(vw);
-        this._fogLayer.height = Math.ceil(vh);
-        this._fogLayerCtx = null;
+      // 环带贴图（globalAlpha 控制渐入；中心透明不遮视野）
+      ctx.save();
+      ctx.globalAlpha = a;
+      const tx = player.x - vx0 - FOG_SPAN / 2, ty = player.y - vy0 - FOG_SPAN / 2;
+      ctx.drawImage(this._fogRingSprite, tx, ty, FOG_SPAN, FOG_SPAN);
+      // 兜底：超大视口（>2400，比如 4K 全屏）时贴图盖不满的四边补纯雾底
+      //（普通屏幕不会触发；带与贴图不重叠，无接缝）
+      ctx.fillStyle = 'rgba(233,235,241,0.97)';
+      const bx0 = player.x - FOG_SPAN / 2, by0 = player.y - FOG_SPAN / 2;
+      const bx1 = player.x + FOG_SPAN / 2, by1 = player.y + FOG_SPAN / 2;
+      if (by0 > vy0) ctx.fillRect(vx0, vy0, vw, Math.min(vh, by0 - vy0));                       // 上
+      if (by1 < vy0 + vh) ctx.fillRect(vx0, by1, vw, vy0 + vh - by1);                           // 下
+      const my0 = Math.max(vy0, by0), my1 = Math.min(vy0 + vh, by1);
+      if (my1 > my0) {
+        if (bx0 > vx0) ctx.fillRect(vx0, my0, Math.min(vw, bx0 - vx0), my1 - my0);              // 左
+        if (bx1 < vx0 + vw) ctx.fillRect(bx1, my0, vx0 + vw - bx1, my1 - my0);                  // 右
       }
-      const fl = this._fogLayerCtx ??= this._fogLayer.getContext('2d');
-      fl.clearRect(0, 0, this._fogLayer.width, this._fogLayer.height);
-      // 雾底：纯色（永不闪烁的部分）
-      fl.fillStyle = `rgba(233,235,241,${0.97 * a})`;
-      fl.fillRect(0, 0, this._fogLayer.width, this._fogLayer.height);
-      // 跟随玩家擦出视野圈（世界坐标 400 半径 = 贴图缩放 800²）
-      fl.globalCompositeOperation = 'destination-out';
-      fl.drawImage(this._fogHoleSprite, player.x - vx0 - 400, player.y - vy0 - 400, 800, 800);
-      fl.globalCompositeOperation = 'source-over';
-      ctx.drawImage(this._fogLayer, vx0, vy0, vw, vh);
+      ctx.restore();
       // 雾里加一点流动的白色噪点感（8 团慢飘雾,批量两次 fill）
       ctx.save();
       ctx.globalAlpha = 0.06 * a;
