@@ -133,34 +133,13 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
 }
 
 .hud-hp { display: flex; align-items: center; gap: 10px; max-width: 520px; }
+/* 第一百三十八轮：血条本体改 Canvas 绘制，DOM 壳只做占位（不可见），
+   保住武器栏/属性栏的布局位置。 */
 .hud-hp-bar {
-  position: relative;
   flex: 1; height: 16px;
-  background: rgba(0,0,0,.55);
-  border: 1px solid var(--line);
-  border-radius: 99px; overflow: hidden;
+  visibility: hidden;
 }
-#hud-hp-fill {
-  height: 100%; width: 100%;
-  background: linear-gradient(90deg, #ff5f6d, #ff9a5f);
-  transition: width .12s linear;
-}
-/* 第一百零九轮：护盾条 —— 盖在生命条上面（不显示数值）。
-   100% 护盾长度 = 100% 生命条长度（护盾/生命上限）。
-   蓝 色，半透明让底下的血色透出来；有盾才显示（width 0 即隐形）。 */
-#hud-shield-fill {
-  position: absolute; inset: 0;
-  width: 0%;
-  background: linear-gradient(90deg, rgba(90,170,255,.82), rgba(150,215,255,.82));
-  box-shadow: inset 0 0 6px rgba(190,230,255,.55);
-  border-radius: 99px;
-  transition: width .12s linear;
-  pointer-events: none;
-}
-#hud-hp-text {
-  font-size: 13px; font-weight: 700; color: var(--text-dim);
-  font-variant-numeric: tabular-nums; min-width: 78px;
-}
+#hud-hp-ghost { width: 78px; height: 15px; visibility: hidden; }
 
 .hud-weapons { display: flex; gap: 6px; flex-wrap: wrap; }
 .hud-weapon {
@@ -178,30 +157,27 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
   font-size: 8px; color: var(--gold); font-weight: 800;
 }
 .hud-weapon .w-glyph { font-size: 18px; line-height: 1; }
-.hud-weapon.tier-1 { border-color: #6b7280; }
-.hud-weapon.tier-2 { border-color: #5fd3e8; }
-.hud-weapon.tier-3 { border-color: #b794f6; }
-.hud-weapon.tier-4 { border-color: #ffc857; box-shadow: 0 0 10px rgba(255,200,87,.35); }
+.hud-weapon.tier-1 { border-color: #6b7280; background: linear-gradient(180deg, rgba(130,138,152,.30), rgba(33,37,52,.88)); }
+.hud-weapon.tier-2 { border-color: #5fd3e8; background: linear-gradient(180deg, rgba(95,211,232,.26), rgba(26,42,52,.88)); }
+.hud-weapon.tier-3 { border-color: #b794f6; background: linear-gradient(180deg, rgba(183,148,246,.28), rgba(40,30,58,.88)); }
+.hud-weapon.tier-4 {
+  border-color: #ffc857; box-shadow: 0 0 10px rgba(255,200,87,.35);
+  background: linear-gradient(180deg, rgba(255,200,87,.30), rgba(56,40,14,.9));
+}
 
 .hud-stats {
   display: flex; gap: 10px; flex-wrap: wrap;
-  font-size: 11px; color: var(--text-dim);
-}
-.hud-stat b { color: var(--text); font-weight: 700; }
-
-.hud-xp {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  height: 5px; background: rgba(0,0,0,.6);
-}
-.hud-xp-bar { height: 100%; }
-#hud-xp-fill {
-  height: 100%; width: 0%;
-  background: linear-gradient(90deg, var(--green), var(--cyan));
-}
-#hud-level {
-  position: absolute; right: 14px; bottom: 9px;
   font-size: 11px; font-weight: 700; color: var(--text-dim);
+  letter-spacing: 0.3px;
 }
+/* 第一百三十八轮：机甲/魔法面板数据感 —— 关键词加粗、数值亮金高亮 */
+.hud-stat b {
+  color: #ffd23a; font-weight: 800;
+  text-shadow: 0 0 6px rgba(255,210,58,.35);
+}
+
+/* 第一百三十八轮：经验条/Lv 改纯 Canvas 绘制（renderer._drawHudBars），
+   DOM 样式退役。 */
 
 .hud-toast {
   position: absolute; top: 84px; left: 50%;

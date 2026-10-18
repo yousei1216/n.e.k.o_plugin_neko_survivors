@@ -67,14 +67,15 @@ export const SPRITE_FILE_ALIAS = {
     ap_round: 'armor_piercer',
     // 第一百三十四轮：Boss 专属掉落红品 —— 用户直接用中文名放的素材，
     // 别名映射到用户文件名，不改文件、不改数据 id。
-    dried_fish: '小鱼干',
-    lobster_pillow: '龙虾抱枕',
-    smart_wand: '智慧型魔棒',
-    dr_m_notes: 'M博士心得',
-    lucky_cat_paw: '幸运猫脚',
-    black_cape: '黑色披风',
-    cat_taffy: '猫娘奶糖',
-    overload_chip: '超载芯片',
+    // '!' 前缀 = 完整文件名（素材不带 item_ 前缀，见 url() 注释）。
+    dried_fish: '!小鱼干',
+    lobster_pillow: '!龙虾抱枕',
+    smart_wand: '!智慧型魔棒',
+    dr_m_notes: '!M博士心得',
+    lucky_cat_paw: '!幸运猫脚',
+    black_cape: '!黑色披风',
+    cat_taffy: '!猫娘奶糖',
+    overload_chip: '!超载芯片',
   },
 };
 
@@ -100,8 +101,18 @@ export class SpriteStore {
     if (!k) return null;
     if (!id || /[\\/]|\.\./.test(id)) return null;
     // 第一百二十轮：文件名别名（如 ap_round → armor_piercer）
-    const file = SPRITE_FILE_ALIAS[kind]?.[id] ?? id;
-    return `${ROOT}/${k.dir}/${k.prefix}${file}${k.ext || '.png'}`;
+    // 第一百三十八轮：别名以 '!' 开头 = **完整文件名**，不再拼 kind 前缀。
+    // 用户给的红品素材是裸中文名（小鱼干.png），不带 item_ 前缀 ——
+    // 旧逻辑拼出 item_小鱼干.png 404，图标一直回落成文字（用户实测
+    // "上面写的字，而不是图片"）。浏览器对中文路径自动百分号编码，
+    // NEKO 静态服务按 UTF-8 解码，实测可取。
+    const aliased = SPRITE_FILE_ALIAS[kind]?.[id];
+    if (aliased != null) {
+      return aliased.startsWith('!')
+        ? `${ROOT}/${k.dir}/${aliased.slice(1)}${k.ext || '.png'}`
+        : `${ROOT}/${k.dir}/${k.prefix}${aliased}${k.ext || '.png'}`;
+    }
+    return `${ROOT}/${k.dir}/${k.prefix}${id}${k.ext || '.png'}`;
   }
 
   /**

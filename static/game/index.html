@@ -32,18 +32,18 @@
     </div>
 
     <div class="hud-bottom">
-      <div class="hud-hp">
-        <div class="hud-hp-bar"><div id="hud-hp-fill"></div><div id="hud-shield-fill"></div></div>
-        <div id="hud-hp-text">10 / 10</div>
+      <!-- 第一百三十八轮：血条/护盾/数字改纯 Canvas（renderer._drawHudBars）。
+           容器壳保留占位，防止武器栏/属性栏布局位移。 -->
+      <div class="hud-hp" aria-hidden="true">
+        <div class="hud-hp-bar"></div>
+        <div id="hud-hp-ghost"></div>
       </div>
       <div id="hud-weapons" class="hud-weapons"></div>
       <div id="hud-stats" class="hud-stats"></div>
     </div>
 
-    <div id="hud-xp" class="hud-xp">
-      <div class="hud-xp-bar"><div id="hud-xp-fill"></div></div>
-      <div id="hud-level">Lv.1</div>
-    </div>
+    <!-- 第一百三十八轮：经验条与 Lv 改为纯 Canvas 绘制（renderer._drawXpBar），
+         DOM 版退役 —— 视觉大重构：渐变光带/猫爪节点/呼吸充能/高光滑点/Lv 弹跳。 -->
 
     <div id="hud-toast" class="hud-toast"></div>
   </div>

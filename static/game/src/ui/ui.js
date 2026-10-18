@@ -79,13 +79,10 @@ export class UI {
       timerLabel: document.getElementById('hud-timer-label'),
       materials: document.getElementById('hud-materials'),
       difficulty: document.getElementById('hud-difficulty'),
-      hpFill: document.getElementById('hud-hp-fill'),
-      hpText: document.getElementById('hud-hp-text'),
-      shieldFill: document.getElementById('hud-shield-fill'),
+      // 第一百三十八轮：血条/护盾/经验条/Lv 改由 renderer._drawHudBars
+      // 纯 Canvas 绘制，这些 DOM 引用退役（容器壳保留占位防布局位移）。
       weapons: document.getElementById('hud-weapons'),
       stats: document.getElementById('hud-stats'),
-      xpFill: document.getElementById('hud-xp-fill'),
-      level: document.getElementById('hud-level'),
       toast: document.getElementById('hud-toast'),
       overlay: document.getElementById('overlay'),
     };
@@ -169,39 +166,12 @@ export class UI {
       this._lastHud.mat = p.materials;
     }
 
-    // 生命
-    const hpPct = Math.max(0, p.hp / p.maxHp);
-    e.hpFill.style.width = `${hpPct * 100}%`;
-    const hpText = `${Math.ceil(p.hp)} / ${Math.round(p.maxHp)}`;
-    if (this._lastHud.hp !== hpText) {
-      e.hpText.textContent = hpText;
-      this._lastHud.hp = hpText;
-    }
+    // 生命：改由 renderer._drawHudBars 纯 Canvas 绘制（第一百三十八轮）。
 
-    // 第一百零九轮：护盾条 —— 盖在生命条上面的蓝色条（不显示数值）。
-    // 用户："增加一个护盾生命值条（不用显示数值）盖在生命条上面，
-    // 100%护盾长度=100%生命长度。护盾蓝色条。用于获得护盾升级和治愈
-    // 悠怡的护盾能力显示。" 比例 = 当前护盾 / 生命上限（封顶 100%，
-    // 传说慰藉 150% 上限的护盾也只画满格）。
-    if (e.shieldFill) {
-      const shieldPct = Math.min(1, Math.max(0, p.shield / p.maxHp));
-      const w = `${(shieldPct * 100).toFixed(1)}%`;
-      if (this._lastHud.shield !== w) {
-        e.shieldFill.style.width = w;
-        this._lastHud.shield = w;
-      }
-    }
+    // 第一百零九轮：护盾条 —— 同上退役（Canvas 侧带流光与平滑扣除）。
 
-    // 经验
-    e.xpFill.style.width = `${Math.min(100, (p.xp / p.xpNeeded) * 100)}%`;
-    const lvText = `Lv.${p.level}`;
-    if (this._lastHud.lv !== lvText) {
-      e.level.textContent = lvText;
-      this._lastHud.lv = lvText;
-    }
-
-    // 武器
-    this._renderHudWeapons(p);
+    // 第一百三十八轮：经验条/Lv 改由 renderer._drawHudBars 纯 Canvas 绘制，
+    // DOM 版退役（原来这里每帧改 xpFill.style.width 和 level.textContent）。
 
     // 关键属性
     this._renderHudStats(p);

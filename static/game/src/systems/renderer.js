@@ -319,6 +319,11 @@ export class Renderer {
 
     // ---- 屏幕空间叠加 ----
     this._drawScreenOverlay(ctx, world, player, W, H);
+
+    // ---- 第一百三十八轮：底部 HUD 条（纯 Canvas）----
+    // 血条（底座/渐变/延迟伤害残影/护盾流光/描边数字）+ 经验条
+    // （渐变光带/猫爪节点/呼吸充能/高光滑点/Lv 弹跳）。DOM 版退役。
+    this._drawHudBars(ctx, player, W, H);
   }
 
   // =========================================================
@@ -3894,6 +3899,353 @@ export class Renderer {
   /** 公告横幅：底部中央（第一百一十四轮，原顶部与回合倒计时重叠），
    * 一行天气名（大）+ 一行提示（正常），挂 10 秒左右；
    * 与左侧 HUD 血条堆、右侧小地图（x0 = W-130）都不重叠。 */
+  // =========================================================
+  // 底部 HUD 条（第一百三十八轮，纯 Canvas）
+  // =========================================================
+  //
+  // 血条 + 经验条视觉大重构（用户逐条设计）：
+  //   血条 —— 哥特底座 / 黑描边 / 深红→亮粉渐变 / **延迟伤害残影**
+  //   （受伤瞬间扣血，残影 0.5s 平滑跟上，打击感）/ 护盾冰蓝光带
+  //   （流光 + 平滑扣除）/ 数字黑描边 + 外发光。
+  //   经验条 —— 加粗 12px / 暗紫底内发光 / 粉红→亮青渐变光带 + 外发光 /
+  //   25/50/75% 金色猫爪节点 / >90% 呼吸充能 / 拾取高光白点滑动 /
+  //   Lv 金色渐变大字 + 黑描边 + 升级弹跳。
+  //
+  // 性能：渐变/爪印/流光贴图全部惰性烘焙缓存；每帧只有 2 个 fillRect、
+  // 3 次 drawImage（爪）+ 少量文本描边填充，无逐帧渐变大对象分配。
+  _drawHudBars(ctx, player, W, H) {
+    // ---- 时间与惰性状态 ----
+    const now = performance.now() / 1000;
+    if (this._hudLastNow == null) this._hudLastNow = now;
+    const dt = Math.min(0.1, Math.max(0, now - this._hudLastNow));
+    this._hudLastNow = now;
+    const S = this._hud ??= {};
+
+    // ================ 血条 ================
+    {
+      const HP_H = 16;
+      const hpW = Math.min(520, W - 32) - 88;   // 预留右侧数字 78px + 间距
+      const hpX = 16;
+      const hpY = H - 14 - HP_H;                // .hud-bottom padding-bottom 14
+      const r = 8;
+      const hpRatio = Math.max(0, Math.min(1, player.hp / player.maxHp));
+
+      // ---- 延迟伤害残影（Lerp Bar）----
+      // 掉血：残影停在原位 0.5s 内平滑跟上；回血：瞬间跟齐（不拖泥带水）。
+      if (S.hpDisp == null || hpRatio > S.hpDisp) S.hpDisp = hpRatio;
+      else S.hpDisp = Math.max(hpRatio, S.hpDisp - dt / 0.5 * Math.max(0.05, S.hpDisp - hpRatio));
+      const dispRatio = S.hpDisp;
+
+      // ---- 护盾平滑 ----
+      const shieldRatio = Math.max(0, Math.min(1, player.shield / player.maxHp));
+      if (S.shieldDisp == null) S.shieldDisp = shieldRatio;
+      else {
+        const k = 1 - Math.exp(-dt * 10);       // 双向平滑（扣除/回复都动画）
+        S.shieldDisp += (shieldRatio - S.shieldDisp) * k;
+        if (Math.abs(S.shieldDisp - shieldRatio) < 0.001) S.shieldDisp = shieldRatio;
+      }
+
+      // ---- 底座：微倾斜的深灰哥特面板（黑描边 + 刻痕纹理）----
+      const pad = 4, skew = 7;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(hpX - pad + skew, hpY - pad);
+      ctx.lineTo(hpX + hpW + pad - skew, hpY - pad);
+      ctx.lineTo(hpX + hpW + pad, hpY + HP_H + pad);
+      ctx.lineTo(hpX - pad, hpY + HP_H + pad);
+      ctx.closePath();
+      // 金属底渐变（上亮下暗的冷灰）——缓存
+      const plateKey = `plate${hpW}`;
+      if (S[plateKey] == null) {
+        const g = ctx.createLinearGradient(0, hpY - pad, 0, hpY + HP_H + pad);
+        g.addColorStop(0, '#3a3a44');
+        g.addColorStop(0.5, '#23232b');
+        g.addColorStop(1, '#141419');
+        S[plateKey] = g;
+      }
+      ctx.fillStyle = S[plateKey];
+      ctx.fill();
+      // 哥特刻痕：斜向细线（pattern 平铺，首帧烘焙）
+      if (!S.hudHatch) {
+        const tcv = document.createElement('canvas');
+        tcv.width = tcv.height = 8;
+        const t2 = tcv.getContext('2d');
+        t2.strokeStyle = 'rgba(255,255,255,0.045)';
+        t2.lineWidth = 1;
+        t2.beginPath(); t2.moveTo(-2, 10); t2.lineTo(10, -2);
+        t2.moveTo(-2, 4); t2.lineTo(4, -2); t2.stroke();
+        S.hudHatch = ctx.createPattern(tcv, 'repeat');
+      }
+      ctx.fillStyle = S.hudHatch;
+      ctx.fill();
+      // 细黑描边
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // 底座顶部金属高光
+      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hpX - pad + skew + 3, hpY - pad + 1.5);
+      ctx.lineTo(hpX + hpW + pad - skew - 3, hpY - pad + 1.5);
+      ctx.stroke();
+      ctx.restore();
+
+      // ---- 圆角矩形 helper ----
+      const rr = (x, y, w, h, rad) => {
+        const rr2 = Math.min(rad, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr2, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr2);
+        ctx.arcTo(x + w, y + h, x, y + h, rr2);
+        ctx.arcTo(x, y + h, x, y, rr2);
+        ctx.arcTo(x, y, x + w, y, rr2);
+        ctx.closePath();
+      };
+
+      const inX = hpX + 2, inW = hpW - 4, inY = hpY + 2, inH = HP_H - 4;
+
+      // ---- 延迟伤害残影（亮橙白，在血色之下先画）----
+      if (dispRatio > hpRatio + 0.001) {
+        ctx.save();
+        rr(inX, inY, inW, inH, 6); ctx.clip();
+        const gW = S[`dmg${inW}`] ??= (() => {
+          const g = ctx.createLinearGradient(inX, 0, inX + inW, 0);
+          g.addColorStop(0, '#ffe9c9'); g.addColorStop(1, '#ff9a3a');
+          return g;
+        })();
+        ctx.fillStyle = gW;
+        ctx.fillRect(inX + inW * hpRatio, inY, inW * (dispRatio - hpRatio), inH);
+        ctx.restore();
+      }
+
+      // ---- 血量填充：深红 → 亮红 → 亮粉 渐变 ----
+      if (hpRatio > 0) {
+        const gKey = `hpFill${inW}`;
+        if (S[gKey] == null) {
+          const g = ctx.createLinearGradient(inX, 0, inX + inW, 0);
+          g.addColorStop(0, '#8f1220');
+          g.addColorStop(0.55, '#e0263c');
+          g.addColorStop(1, '#ff7d9c');
+          S[gKey] = g;
+        }
+        ctx.save();
+        rr(inX, inY, inW, inH, 6); ctx.clip();
+        ctx.fillStyle = S[gKey];
+        ctx.fillRect(inX, inY, inW * hpRatio, inH);
+        // 血条内顶部高光（玻璃感）
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fillRect(inX, inY, inW * hpRatio, 2);
+        ctx.restore();
+      }
+
+      // ---- 护盾：冰蓝光带覆盖 + 流光 + 平滑扣除 ----
+      if (S.shieldDisp > 0.003) {
+        const sw = inW * Math.min(1, S.shieldDisp);
+        ctx.save();
+        rr(inX, inY, inW, inH, 6); ctx.clip();
+        ctx.fillStyle = 'rgba(120,200,255,0.58)';
+        ctx.fillRect(inX, inY, sw, inH);
+        // 流光：斜向亮带贴图平移（首帧烘焙 96×32，两张拼接无缝循环）
+        if (!S.shieldStreak) {
+          const scv = document.createElement('canvas');
+          scv.width = 96; scv.height = 32;
+          const s2 = scv.getContext('2d');
+          const sg = s2.createLinearGradient(0, 0, 96, 0);
+          sg.addColorStop(0, 'rgba(220,242,255,0)');
+          sg.addColorStop(0.5, 'rgba(220,242,255,0.55)');
+          sg.addColorStop(1, 'rgba(220,242,255,0)');
+          s2.fillStyle = sg;
+          s2.fillRect(0, 0, 96, 32);
+          S.shieldStreak = scv;
+        }
+        const shift = (now * 46) % 192;
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(S.shieldStreak, inX + shift - 192, inY, 96, inH);
+        ctx.drawImage(S.shieldStreak, inX + shift - 96, inY, 96, inH);
+        ctx.drawImage(S.shieldStreak, inX + shift, inY, 96, inH);
+        ctx.globalAlpha = 1;
+        // 盾顶冷高光
+        ctx.fillStyle = 'rgba(210,238,255,0.5)';
+        ctx.fillRect(inX, inY, sw, 1.5);
+        ctx.restore();
+      }
+
+      // ---- 血条槽内描边（黑，增强对比）----
+      rr(inX - 0.5, inY - 0.5, inW + 1, inH + 1, 7);
+      ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // ---- 数字：黑描边 + 淡金外发光 ----
+      const hpText = `${Math.ceil(player.hp)} / ${Math.round(player.maxHp)}`;
+      const txX = hpX + hpW + 10, txY = hpY + HP_H / 2;
+      ctx.save();
+      ctx.font = '800 15px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(255,214,140,0.55)';
+      ctx.shadowBlur = 5;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(5,3,8,0.95)';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(hpText, txX, txY);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff4e2';
+      ctx.fillText(hpText, txX, txY);
+      ctx.restore();
+    }
+
+    // ================ 经验条 ================
+    {
+      const BAR_H = 12;
+      const y0 = H - BAR_H;
+      const ratio = Math.max(0, Math.min(1, player.xp / player.xpNeeded));
+
+      // ---- 动画推进 ----
+      if (S.lastRatio == null) { S.lastRatio = ratio; S.lastLevel = player.level; }
+      // 拾取反馈：经验增加 → 高光白点从旧位置滑向新位置
+      if (ratio > S.lastRatio + 0.0001) {
+        S.xpSwipe = { from: S.lastRatio, to: ratio, t: 0 };
+      } else if (player.level > S.lastLevel || ratio < S.lastRatio - 0.2) {
+        // 升级：白点滑到头 + Lv 弹跳
+        S.xpSwipe = { from: Math.max(S.lastRatio, 0.9), to: 1, t: 0 };
+        S.lvBounce = 0.42;
+      }
+      S.lastRatio = ratio; S.lastLevel = player.level;
+      const swipe = S.xpSwipe;
+      if (swipe) {
+        swipe.t += dt / 0.28;
+        if (swipe.t >= 1) S.xpSwipe = null;
+      }
+      if (S.lvBounce > 0) S.lvBounce = Math.max(0, S.lvBounce - dt);
+
+      // ---- 底条：半透明暗紫 + 内发光 ----
+      const bgKey = `xpBg${W}`;
+      if (S[bgKey] == null) {
+        const g = ctx.createLinearGradient(0, y0, 0, H);
+        g.addColorStop(0, 'rgba(52,38,84,0.88)');
+        g.addColorStop(1, 'rgba(24,16,40,0.92)');
+        S[bgKey] = g;
+      }
+      ctx.fillStyle = S[bgKey];
+      ctx.fillRect(0, y0, W, BAR_H);
+      // 内发光：顶部冷光线 + 内侧紫描边
+      ctx.fillStyle = 'rgba(196,160,255,0.16)';
+      ctx.fillRect(0, y0, W, 1);
+      ctx.strokeStyle = 'rgba(150,110,220,0.28)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0.5, y0 + 0.5, W - 1, BAR_H - 1);
+
+      // ---- 填充：粉红 → 亮青 渐变光带（+ 呼吸充能 >90%）----
+      const gKey = `xpFill${W}`;
+      if (S[gKey] == null) {
+        const g = ctx.createLinearGradient(0, y0, W, y0);
+        g.addColorStop(0, '#ff5fa8');
+        g.addColorStop(0.55, '#d873ef');
+        g.addColorStop(1, '#38e8ff');
+        S[gKey] = g;
+      }
+      const nearFull = ratio > 0.9;
+      const pulse = nearFull ? 0.5 + 0.5 * Math.sin(now * 5.2) : 0;
+      if (ratio > 0) {
+        ctx.save();
+        ctx.fillStyle = S[gKey];
+        if (nearFull) ctx.globalAlpha = 0.82 + 0.18 * pulse;
+        ctx.shadowColor = nearFull ? `rgba(255,140,220,${0.5 + 0.5 * pulse})` : 'rgba(216,115,239,0.4)';
+        ctx.shadowBlur = nearFull ? 8 + 12 * pulse : 5;
+        ctx.fillRect(0, y0 + 1, W * ratio, BAR_H - 2);
+        // 光带顶部高光
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.fillRect(0, y0 + 1, W * ratio, 1.5);
+        ctx.restore();
+      }
+
+      // ---- 金色猫爪节点（25% / 50% / 75%）----
+      if (!S.pawSprite) {
+        const pcv = document.createElement('canvas');
+        pcv.width = pcv.height = 48;
+        const p2 = pcv.getContext('2d');
+        p2.fillStyle = '#ffd23a';
+        p2.strokeStyle = 'rgba(120,72,10,0.9)';
+        p2.lineWidth = 2;
+        // 主垫
+        p2.beginPath();
+        p2.ellipse(24, 30, 11, 8.5, 0, 0, Math.PI * 2);
+        p2.fill(); p2.stroke();
+        // 三趾
+        for (const [px, py, pr] of [[13, 17, 4.6], [24, 13.5, 4.9], [35, 17, 4.6]]) {
+          p2.beginPath();
+          p2.ellipse(px, py, pr, pr + 0.6, 0, 0, Math.PI * 2);
+          p2.fill(); p2.stroke();
+        }
+        S.pawSprite = pcv;
+      }
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,210,58,0.8)';
+      ctx.shadowBlur = 4;
+      for (const p of [0.25, 0.5, 0.75]) {
+        ctx.drawImage(S.pawSprite, W * p - 9, y0 + BAR_H / 2 - 9, 18, 18);
+      }
+      ctx.restore();
+
+      // ---- 拾取高光白点（快速滑向新位置 + 拖尾）----
+      if (swipe) {
+        const k = 1 - Math.pow(1 - Math.min(1, swipe.t), 3);   // ease-out-cubic
+        const px = (swipe.from + (swipe.to - swipe.from) * k) * W;
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,255,255,0.95)';
+        ctx.shadowBlur = 10;
+        // 拖尾（身后三个递减亮点）
+        for (let i = 1; i <= 3; i++) {
+          const tk = Math.max(0, swipe.t - i * 0.07);
+          const txx = (swipe.from + (swipe.to - swipe.from) * (1 - Math.pow(1 - tk, 3))) * W;
+          ctx.globalAlpha = 0.5 - i * 0.13;
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(txx, y0 + BAR_H / 2, 4.5 - i * 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(px, y0 + BAR_H / 2, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // ---- Lv 文本：金色渐变大字 + 粗黑描边 + 升级弹跳 ----
+      const bounce = S.lvBounce > 0
+        ? 1 + 0.55 * Math.sin((1 - S.lvBounce / 0.42) * Math.PI)
+        : 1;
+      const lvSize = Math.round(21 * bounce);
+      const lvText = `Lv.${player.level}`;
+      ctx.save();
+      ctx.font = `800 ${lvSize}px "Segoe UI", "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'alphabetic';
+      const lvY = H - BAR_H - 7;
+      if (S.lvGradY !== lvY || !S.lvGrad) {
+        const g = ctx.createLinearGradient(0, lvY - lvSize, 0, lvY);
+        g.addColorStop(0, '#fff3c4');
+        g.addColorStop(0.55, '#ffd23a');
+        g.addColorStop(1, '#f59e0b');
+        S.lvGrad = g; S.lvGradY = lvY;
+      }
+      ctx.shadowColor = 'rgba(255,200,80,0.5)';
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = 'rgba(10,6,18,0.95)';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(lvText, W - 14, lvY);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = S.lvGrad;
+      ctx.fillText(lvText, W - 14, lvY);
+      ctx.restore();
+    }
+  }
+
   _drawWeatherBanner(ctx, world, W, H) {
     const w = world.weather;
     if (!w || !w.active || w.announceT <= 0) return;
