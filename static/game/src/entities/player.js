@@ -387,6 +387,26 @@ export class Player extends Entity {
     const guard = this.charRt?.rollLuckyGuard?.() ?? 1;
     if (guard !== 1) final *= guard;
 
+    // ---- 第一百三十二轮：波次真实伤害附加 ----
+    // （第一百三十三轮按用户要求修订：**不穿护盾**）
+    //
+    // 用户原话："额外真伤不要穿透护盾。护盾目前只有升级获得的那一点和
+    // 悠怡洛丽塔可以获得，如果穿透了升级选护盾就没意义了。"
+    //
+    // 所以真伤在乘区链（护甲/承伤/最终加成/欧皇守护）**之后**原样并入
+    // final —— 不吃护甲、不吃承伤类加成的定性保留，但作为普通伤害的
+    // 一部分交给护盾正常吸收：盾够厚，真伤也先扣盾。
+    //
+    // 无敌帧语义天然满足："每次有效受击只结算 1 次" —— invuln > 0 时
+    // 本函数第一行就 return 0，闪避/天气 miss 也走不到这里。
+    // trueBonus 由调用方（接触/自爆/敌弹）按当前波次与攻击者档位算好；
+    // 不传 = 无附加（天气伤害、芙兰战激光、芙兰 flandreHit 都不传）。
+    //
+    // 猫的步伐（悠怡锁血）不受影响：下面的致死判定用的是 toHp
+    // （= 护盾吸收后真正会扣到血上的部分，含真伤溢出），
+    // tryLethalSave 照常触发、照常锁 1 血。
+    if (opts.trueBonus > 0) final += opts.trueBonus;
+
     // ---- 护盾先吃伤害（第十二轮）----
     //
     // 用户要求把「猫娘的慰藉」升级的高品质档从"只是回满血"改成给护盾：
@@ -425,20 +445,6 @@ export class Player extends Entity {
       }
     }
 
-    // ---- 第一百三十二轮：波次真实伤害附加 ----
-    //
-    // 位置在护盾结算**之后**：真伤"无视护甲，直接扣 HP"（用户原话）——
-    // 所以它不吃护甲乘区、不吃承伤加成、也**不被护盾挡**（护盾是"额外
-    // 血量"，堆盾也是被制裁的防御向发育之一）。护盾把 normal 部分吃完
-    // 后，真伤照旧从血条上扣。锁血判定用 toHp —— 真伤算进"真正会扣到
-    // 血上的部分"，悠怡的猫的步伐依然能救，但救的是含真伤的账。
-    //
-    // 无敌帧语义天然满足："每次有效受击只结算 1 次" —— invuln > 0 时
-    // 本函数第一行就 return 0，闪避/天气 miss 也走不到这里。
-    // trueBonus 由调用方（接触/自爆/敌弹）按当前波次与攻击者档位算好；
-    // 不传 = 无附加（天气伤害、芙兰战激光、芙兰 flandreHit 都不传）。
-    if (opts.trueBonus > 0) toHp += opts.trueBonus;
-
     // ---- 第十六轮：悠怡「猫的步伐」锁血 ----
     //
     // ⚠️ 位置很讲究：必须在**护盾结算之后**、`hp -=` 之前。
@@ -463,8 +469,8 @@ export class Player extends Entity {
     }
 
     this.hp -= toHp;
-    // 承伤统计如实含真伤（不然"承受伤害"会比实际掉的血虚低）
-    this.damageTaken += final + (opts.trueBonus ?? 0);
+    // 承伤统计：final 已含真伤附加（如实体计入）
+    this.damageTaken += final;
     // 无敌帧：太短会被多个敌人叠加瞬间秒杀，太长则失去受击反馈。
     // 第四十四轮：0.5 → 0.8（用户原话："那从0.5秒改到0.8秒吧。"）
     // 第九十六轮：分档 —— 弹幕 0.6s，其余 0.8s（见文件头常量注释）。
@@ -482,14 +488,14 @@ export class Player extends Entity {
     // 那种"一直有盾"的角色会白嫖（虽然她不是开发猫猫，但规则要一致）。
     if (toHp > 0) this.charRt?.onHurt?.();
 
-    this.onHurt?.(final + (opts.trueBonus ?? 0), sourceX, sourceY);
+    this.onHurt?.(final, sourceX, sourceY);
 
     if (this.hp <= 0) {
       this.hp = 0;
       this.dead = true;
       this.onDeath?.();
     }
-    return final + (opts.trueBonus ?? 0);
+    return final;
   }
 
   /**
