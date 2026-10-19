@@ -97,25 +97,22 @@ export function drawCrescent(ctx, x, y, angle, r, k, tint = '#59f2ff') {
   }
   ctx.stroke();
 
-  // ④ 头部破空：最凸点（下尖侧、弦前缘+WdOut）向前的放射白线
+  // ④ 头部火星（第一百五十二轮：删掉"三根白线+小圆点"的放射 —— 用户：
+  // "像鸡爪/穿模的 Debug 符号，极其突兀"。火花保留但只画**发光圆点**：
+  // 径向渐变光斑，没有任何线段/多边形线框）
   if (k > 0.25) {
     const tipX = bx + WdOut + 2;
-    ctx.strokeStyle = `rgba(255,255,255,${0.7 * k})`;
-    ctx.lineWidth = 1.2;
-    for (let i = -1; i <= 1; i++) {
-      const a = i * 0.42;                        // ±24° 扇形
-      const len = (7 + Math.abs(i) * -2 + 9) * k;
+    for (const [dx, dy, rr] of [[10, -4, 2.6], [13, 3, 1.8]]) {
+      const gx = tipX + dx * k, gy = dy * k;
+      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, rr * 2.6);
+      g.addColorStop(0, `rgba(255,255,255,${0.9 * k})`);
+      g.addColorStop(0.45, `rgba(160,240,255,${0.5 * k})`);
+      g.addColorStop(1, 'rgba(120,220,255,0)');
+      ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.moveTo(tipX, 0);
-      ctx.lineTo(tipX + Math.cos(a) * len, Math.sin(a) * len);
-      ctx.stroke();
+      ctx.arc(gx, gy, rr * 2.6, 0, TAU);
+      ctx.fill();
     }
-    // 火星粒子：两粒沿飞行方向溅出
-    ctx.fillStyle = `rgba(255,255,255,${0.8 * k})`;
-    ctx.beginPath();
-    ctx.arc(tipX + 10 * k, -4 * k, 1.6 * k, 0, TAU);
-    ctx.arc(tipX + 13 * k, 3 * k, 1.2 * k, 0, TAU);
-    ctx.fill();
   }
 
   ctx.restore();
