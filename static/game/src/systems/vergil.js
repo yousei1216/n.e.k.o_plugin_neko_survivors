@@ -25,7 +25,13 @@ import {
 } from './dmc-blades.js';
 
 // ---- 数值 ----
-export const VERGIL_MAX_HP = 50000;   // 141 轮再改：正式 Boss 血量 5 万
+export const VERGIL_MAX_HP = 66666;   // 第一百五十四轮再改：正式 Boss 血量 66666
+// ---- 第一百五十四轮：P3 里程碑锁血 ----
+// 用户原话："三阶段追加一个判定：每损失超过2000血无敌0.5秒。这样三阶段
+// 22222可以无敌几次多活几秒，不至于玩家发育太好一个次元斩结束自己死了。"
+// P3 起始血 66666×0.33 ≈ 22200 → 约 11 次 × 0.5s ≈ 5.5s 额外容错。
+const P3_MILESTONE_STEP = 2000;       // 每损失 2000 血触发一次
+const P3_MILESTONE_INVULN = 0.5;      // 无敌 0.5 秒
 export const HIT_FRAC = 0.05;        // 每击 5% 玩家最大生命的固定真伤
 export const HIT_CD = 0.2;           // 受击内置 CD（防一帧多刀秒杀）
 export const ULT_CD = 10;            // P3 大招冷却（真实秒，收刀起算）
@@ -371,6 +377,19 @@ export class VergilFight {
     if (this.phase === 1 && this.boss.hp <= VERGIL_MAX_HP * 0.66) this._enterPhase(2);
     else if (this.phase === 2 && this.boss.hp <= VERGIL_MAX_HP * 0.33) this._enterPhase(3);
 
+    // ---- 第一百五十四轮：P3 里程碑锁血 ----
+    // "每损失超过2000血无敌0.5秒" —— 复用 invulnTimer 通道（getter
+    // invulnerable 自动生效：takeDamage 全 blocked + 渲染层青色护盾），
+    // 与转阶段 5s 锁血同一视觉语言。Math.max 不缩短已有的 5s 锁血；
+    // 里程碑计数从进 P3 时的血量起算（P2 末的输出不占档）。
+    if (this.phase === 3
+      && (this._p3NextMilestone ?? Infinity) !== Infinity
+      && this._p3HpBase - this.boss.hp >= this._p3NextMilestone) {
+      this._p3NextMilestone += P3_MILESTONE_STEP;
+      this.boss.bossPhase.invulnTimer = Math.max(
+        this.boss.bossPhase.invulnTimer, P3_MILESTONE_INVULN);
+    }
+
     // ---- 玩家死亡 → 结算 ----
     if (p.dead) { this.finish('death'); return; }
     // ---- Boss 被打死 → 胜利演出 ----
@@ -630,6 +649,10 @@ export class VergilFight {
       this.bgmFade = 5;
       this.ultCd = 0;
       this._p3Pending = true;   // 锁血+淡出都归零时由 update 触发大招
+      // 第一百五十四轮：P3 里程碑锁血基线 —— 从进 P3 这一刻的血量起算，
+      // 每损失满 2000 给 0.5s 无敌（判定在 update 的阶段切换检查之后）
+      this._p3HpBase = this.boss.hp;
+      this._p3NextMilestone = P3_MILESTONE_STEP;
       // 第一百四十八轮：蓄力入定 —— 全场极慢速（boss 本体走 dtReal 不受影响）
       this.timeScale = 0.2;
       this.chargeT = 5;

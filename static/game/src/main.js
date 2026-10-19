@@ -1375,6 +1375,16 @@ export class Game {
         this.player.addWeapon('meow_cannon');
         this.player.addWeapon('meow_cannon');
         this.player.charMul = { ...this.player.charMul, damage: 5 };
+        // 第一百五十四轮：测试悠怡 DPS 还是太低（用户："测试的悠怡反而
+        // dps太低，给她几个伤害道具和生命回复道具方便我测试3阶段，不然
+        // 测试的悠怡甚至打不过5万血的大排档椅子"）—— 血条涨到 66666 后
+        // 更打不动了。塞一组测试装：伤害件（獠牙×3 无诅咒 + 血之契约带
+        // 5% 吸血）+ 回复件（奶糖 regen2/半血治疗翻倍 + 热牛奶×3），
+        // 站得住才有得测三阶段。
+        for (const id of ['sharp_fang', 'sharp_fang', 'sharp_fang', 'blood_pact',
+          'cat_taffy', 'warm_milk', 'warm_milk', 'warm_milk']) {
+          this.player.addItem(id);
+        }
       } catch { /* */ }
       this.meta.retries = 0;
     }
