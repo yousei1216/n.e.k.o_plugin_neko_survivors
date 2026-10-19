@@ -38,7 +38,7 @@ import { neko, EVENT } from './neko-integration.js';
 import { pluginBridge } from './plugin-bridge.js';
 // 第四十九轮：隐藏挑战 Boss 芙兰朵露（素材与弹幕规格来自 touhou-flandre 拆包）
 import { FlandreFight, flandreUnlockOk, ARENA } from './systems/flandre.js';
-import { VergilFight, VERGIL_MAX_HP } from './systems/vergil.js';
+import { VergilFight, VERGIL_MAX_HP, ARENA as VARENA } from './systems/vergil.js';
 
 export const STATE = {
   TITLE: 'title',
@@ -1407,10 +1407,18 @@ export class Game {
     // waveElapsed 传 0：残留的 bossTimeRatio 不参与任何判定（同芙兰双保险）
     this.world.update(dt, p, 0);
     // 玩家软性圈在竞技场里（与芙兰同规格）
-    const minX = ARENA.cx - ARENA.hw, maxX = ARENA.cx + ARENA.hw;
-    const minY = ARENA.cy - ARENA.hh, maxY = ARENA.cy + ARENA.hh;
+    // 第一百五十一轮：改用**维吉尔自己的 ARENA**（560×500）—— 之前误用
+    // 芙兰的（520×470），场地底部 30px 永远够不着（用户："下面底部也
+    // 到不了"）；并补上芙兰有而这里漏抄的**镜头锁** —— 没有它相机会跟着
+    // 玩家跑出方形场地，视口大半被场外黑幕吞掉（用户："游戏下面是黑色
+    // 的，上面看不到"）。
+    const minX = VARENA.cx - VARENA.hw, maxX = VARENA.cx + VARENA.hw;
+    const minY = VARENA.cy - VARENA.hh, maxY = VARENA.cy + VARENA.hh;
     p.x = clamp(p.x, minX, maxX);
     p.y = clamp(p.y, minY, maxY);
+    // 镜头锁到舞台中心（芙兰同款；shake 偏移仍由 camera 自身叠加）
+    this.camera.x = VARENA.cx;
+    this.camera.y = VARENA.cy;
     // AI / 技能 / 命中判定：真实秒（大招里刀光节奏不吃慢动作）
     fight.update(dtReal);
   }

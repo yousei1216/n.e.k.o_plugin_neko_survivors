@@ -195,8 +195,13 @@ export class VergilFight {
     this._parrySfxT = 0.08;
     try {
       if (typeof Audio === 'undefined') return;
+      // 第一百五十一轮：tpl 路径改用 vergil_atk.ogg —— 之前写的中文名
+      // 攻击1.ogg 从未部署（assets/sfx 里只有英文名），404 的 Audio 被缓存
+      // 进 _seEls['vergil_atk'] 后，之后所有 _se('vergil_atk') 都在 clone
+      // 这个坏模板 → 攻击声全灭（用户："所有的攻击1.ogg和次元斩.ogg都
+      // 不生效了"）。与 _se 完全同源，顺带消除缓存 key 冲突。
       let tpl = this._seEls.get('vergil_atk');
-      if (!tpl) { tpl = new Audio('assets/sfx/攻击1.ogg'); tpl.preload = 'auto'; this._seEls.set('vergil_atk', tpl); }
+      if (!tpl) { tpl = new Audio('assets/sfx/vergil_atk.ogg'); tpl.preload = 'auto'; this._seEls.set('vergil_atk', tpl); }
       const v = tpl.cloneNode();
       v.volume = 0.3 * (audio.enabled ? 1 : 0);
       v.muted = !audio.enabled;
@@ -267,6 +272,14 @@ export class VergilFight {
       }
       return;                            // 演出期间不跑 AI/技能
     }
+
+    // ---- 第一百五十一轮：boss 锚点钳制在场地内 —— sphere 的后撤每次把
+    // 椅子朝远离玩家方向推 90px 且无边界（用户："boss 甚至可以在顶部
+    // 彻底消失"）。每帧归位，瞬移/收刀位移同样受约束。
+    this.bx = Math.max(ARENA.cx - ARENA.hw + 90, Math.min(ARENA.cx + ARENA.hw - 90, this.bx));
+    this.by = Math.max(ARENA.cy - ARENA.hh + 90, Math.min(ARENA.cy + ARENA.hh - 90, this.by));
+    this.boss.x = this.bx;
+    this.boss.y = this.by;
 
     // ---- 90 秒限时：没打死就收刀离场，什么都不给 ----
     //（win 状态停表 —— 胜利演出 1.4 秒内别让 timeout 抢先结算）
@@ -1026,6 +1039,11 @@ export class VergilFight {
    */
   renderArena(ctx, camera) {
     const { cx, cy, hw, hh } = ARENA;
+    // ---- 场地边框（第一百五十一轮）—— 玩家钳制的边界可视化，淡淡一圈
+    // 青色描边，让人知道"墙在哪"，黑幕从这条线外开始 ----
+    ctx.strokeStyle = 'rgba(89,242,255,0.28)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - hw, cy - hh, hw * 2, hh * 2);
     // ---- 全屏压暗底，方形场地挖洞（evenodd）----
     ctx.save();
     ctx.beginPath();
@@ -1038,8 +1056,7 @@ export class VergilFight {
     ctx.restore();
 
     // ---- 场地内的大排档背景图 ----
-    const img = this.arenaImg;
-    if (!img.complete || !img.naturalWidth) return;
+    const img = this.arenaImg;    if (!img.complete || !img.naturalWidth) return;
     // 淡入曲线：0-3s 全黑看不到；3-6s 0→1；之后常驻
     const t = this.state === 'intro' ? this.introT : 99;
     if (t < INTRO_BLACK_END) return;
