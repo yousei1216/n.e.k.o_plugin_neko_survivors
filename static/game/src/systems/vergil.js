@@ -210,22 +210,35 @@ export class VergilFight {
     }
 
     // ---- 90 秒限时：没打死就收刀离场，什么都不给 ----
-    this.timeLeft -= dtReal;
-    if (this.timeLeft <= 0) { this.finish('timeout'); return; }
+    //（win 状态停表 —— 胜利演出 1.4 秒内别让 timeout 抢先结算）
+    if (this.state !== 'win') {
+      this.timeLeft -= dtReal;
+      if (this.timeLeft <= 0) { this.finish('timeout'); return; }
+    }
 
     // ---- P3 转阶段演出：BGM 5 秒淡出；锁血结束那一刻放大招 + 音量瞬回 ----
+    //（第一百四十五轮：不再要求 state==='pause' —— stateT 与锁血倒计时的
+    // 浮点累计有细微差，pause 可能提前一帧切走，检测条件从此永假，
+    // BGM 音量永远停在 0（用户实测"直接没有bgm了"）。改用 _p3Pending
+    // 旗标，wander/cast 任何状态下锁血+淡出都归零就立刻触发）
     if (this.bgmFade > 0) {
       this.bgmFade = Math.max(0, this.bgmFade - dtReal);
       try { if (this._bgm) this._bgm.volume = 0.85 * (this.bgmFade / 5); } catch { /* */ }
     }
-    if (this.phase === 3 && !this._p3UltFired
-        && this.state === 'pause' && this.pauseDur >= 5
+    if (this.phase === 3 && this._p3Pending
         && this.boss.bossPhase.invulnTimer <= 0 && this.bgmFade <= 0) {
       // 锁血（5 秒）结束的那一刻：音量瞬间恢复 100%、直接从 2 分钟开始播
+      this._p3Pending = false;
       this._p3UltFired = true;
       this.ultBgmLocked = true;          // 之后大招不再碰 BGM 任何设置
       try {
-        if (this._bgm) { this._bgm.volume = 0.85; this._bgm.currentTime = BGM_START_AT; }
+        if (this._bgm) {
+          this._bgm.volume = 0.85;
+          // 先确保在播再 seek —— 未加载的媒体元素 currentTime 赋值会被静默忽略
+          if (this._bgm.paused) this._bgm.play().catch(() => { /* */ });
+          this._bgm.currentTime = BGM_START_AT;
+          this._p3Seeked = true;         // 回归断言用：seek 指令已发出
+        }
       } catch { /* */ }
       this._startUlt();
     }
@@ -237,7 +250,10 @@ export class VergilFight {
     // ---- 玩家死亡 → 结算 ----
     if (p.dead) { this.finish('death'); return; }
     // ---- Boss 被打死 → 胜利演出 ----
-    if (this.boss.dead || this.boss.hp <= 0) { this._win(); return; }
+    // 第一百四十五轮：win 状态下不再重复进这里 —— 此前每帧在 _win() 后
+    // return，状态机的 win 分支（1.4 秒后 finish）永远执行不到，
+    // 游戏直接卡住（用户实测"死掉之后游戏直接卡住了，没有结算"）。
+    if (this.state !== 'win' && (this.boss.dead || this.boss.hp <= 0)) { this._win(); return; }
 
     // ---- AI 状态机 ----
     this.stateT += dtReal;
@@ -417,6 +433,7 @@ export class VergilFight {
       this.pauseDur = 5;
       this.bgmFade = 5;
       this.ultCd = 0;
+      this._p3Pending = true;   // 锁血+淡出都归零时由 update 触发大招
     }
   }
 
