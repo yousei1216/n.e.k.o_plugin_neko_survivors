@@ -3473,6 +3473,9 @@ export class Renderer {
         } else if (world.vergilFight && boss === world.vergilFight.boss) {
           // 第一百四十一轮：维吉尔走普通哥特主题（黑红 + 66%/33% 阶段刻度）。
           // lock 动态读阶段锁血（141 轮追加：切 2/3 阶段锁血 5 秒 → 🔒 闪烁）
+          // 第一百四十二轮：入场演出期间整条不画 —— 用户反馈 2："boss血条
+          // 出现太早而且跟着屏幕黑屏……排档背对.png消失之后开启这些"
+          if (world.vergilFight.state === 'intro') continue;
           this._drawFancyBossBar(ctx, boss, {
             x: bx, y: by, w: bw, theme: 'boss',
             t: Date.now() / 1000,

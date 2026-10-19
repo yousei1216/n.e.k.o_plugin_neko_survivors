@@ -62,7 +62,11 @@ export class VergilFight {
     this.boss.flandreHidden = true;              // 渲染层隐身（演出层自绘椅子）
     // 焊死普通 Boss 的阶段推进机器 + 清掉登场无敌（同芙兰，见 flandre.js）——
     // 不清的话玩家全程打不动他（义眼实机抓到的"免疫"）。
-    this.boss.bossPhase.invulnTimer = 0;
+    // 第一百四十二轮：入场演出期间 hitbox 关闭（复用阶段锁通道，
+    // invulnTimer>0 时 takeDamage 全 blocked）—— 用户反馈 2："boss在开始
+    // 战斗前就受到伤害了，改成在大排档boss出现才开启hitbox"。
+    // intro 结束（背对剪影消失、本尊现身那一刻）再清零开打。
+    this.boss.bossPhase.invulnTimer = 999;
     this.boss.bossPhase.gatesUsed = { 2: true, 3: true };
     this.boss.bossPhase.update = () => 0;
     w.enemies.add(this.boss);
@@ -198,6 +202,8 @@ export class VergilFight {
         this.stateT = 0;
         this.chairVisible = true;
         p.noAttack = false;              // 演出结束恢复攻击
+        // hitbox 与血条此刻开启（用户反馈 2）
+        this.boss.bossPhase.invulnTimer = 0;
       }
       return;                            // 演出期间不跑 AI/技能
     }

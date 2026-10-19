@@ -1355,9 +1355,13 @@ export class Game {
     if (opts.test) {
       this.setDifficulty('nightmare');
       this.startRun('yui');
-      // 测试局专属输出武器（每秒约 1000，仅测试局可见，不进本体任何池 ——
-      // 用户："测试的角色没伤害，偷偷给她一个每秒能打1000左右的远程武器"）
-      try { this.player.addWeapon('vergil_test_gun'); } catch { /* */ }
+      // 测试局输出：3 把喵喵炮（用户反馈 3："测试武器无法攻击……把他移除
+      // 了换3个喵喵炮给测试yui"）
+      try {
+        this.player.addWeapon('meow_cannon');
+        this.player.addWeapon('meow_cannon');
+        this.player.addWeapon('meow_cannon');
+      } catch { /* */ }
       this.meta.retries = 0;
     }
     this._vergilFought = true;                // 本局触发标志（第 10 波不重复进）
@@ -1384,6 +1388,9 @@ export class Game {
     // 大招全场慢动作：世界与玩家都吃 timeScale（用户硬性要求）
     const dt = dtReal * fight.timeScale;
     audio.beginFrame();
+    // 第一百四十二轮：HUD 刷新（含顶部 90 秒倒计时）—— 此前 VERGIL 分支
+    // 不调 updateHud，计时器冻结在进战前的 30（用户反馈 1）
+    this.ui.updateHud(this);
     this.weather.update(dt, this.world, p);
     p.update(dt, this.input, this.camera, this.world);
     // waveElapsed 传 0：残留的 bossTimeRatio 不参与任何判定（同芙兰双保险）
