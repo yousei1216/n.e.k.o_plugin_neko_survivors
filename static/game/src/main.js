@@ -411,7 +411,11 @@ export class Game {
       // outcome 'beat' 时置 meta.flandreUnlocked（localStorage 永久）。
       onFlandreTest: this.meta.flandreUnlocked ? () => this._debugStartFlandre() : null,
       // 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮 + ?vergil=1 直达）
-      onVergilLab: () => this._enterVergilLab(),
+      // 第一百五十五轮：测试按钮下线（用户："测试完毕，很不错，把测试
+      // 大排档椅子的按钮隐藏，ui布局看一下不难看就行"）—— 传 null 隐藏
+      // （同芙兰直通按钮的约定，ui.showTitle 对 falsy 整个不渲染按钮）。
+      // 测试入口保留 ?vergil=1 直达；_enterVergilLab 本体保留不删。
+      onVergilLab: null,
       // 第六十五轮的 onSeCheck（音效自检）随标题页按钮一并下线（第一百二十二轮）
       audioEnabled: audio.enabled,
     });
