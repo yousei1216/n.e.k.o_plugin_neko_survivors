@@ -4194,7 +4194,16 @@ export class Renderer {
       // 环带贴图（globalAlpha 控制渐入；中心透明不遮视野）
       ctx.save();
       ctx.globalAlpha = a;
-      const tx = player.x - vx0 - FOG_SPAN / 2, ty = player.y - vy0 - FOG_SPAN / 2;
+      // ---- 第一百五十九轮：修"浓雾不跟玩家"----
+      // 用户："浓雾现在固定在某个地方不动了……玩家往左他也会往左一点点，
+      // 往右同理，但是就一点点就不动了。"
+      // 根因：本层在世界坐标系里（render 入口 translate(W/2-cx, H/2-cy)，
+      // 见川雾云的绘制口径），而旧公式 tx = player.x - vx0 是**屏幕系**
+      // 写法 —— 在世界系里等于把相机扣了两次，雾圈位置退化成
+      // (player.x - camera.cx) + 常数，只跟着"玩家与镜头的差值"小幅
+      // 挪动，镜头追平就钉死在世界原点附近，玩家走远就露出一大块无雾区。
+      // 修复：世界系里直接以玩家为雾圈中心（与川雾云同口径）。
+      const tx = player.x - FOG_SPAN / 2, ty = player.y - FOG_SPAN / 2;
       ctx.drawImage(this._fogRingSprite, tx, ty, FOG_SPAN, FOG_SPAN);
       // 兜底：超大视口（>2400，比如 4K 全屏）时贴图盖不满的四边补纯雾底
       //（普通屏幕不会触发；带与贴图不重叠，无接缝）

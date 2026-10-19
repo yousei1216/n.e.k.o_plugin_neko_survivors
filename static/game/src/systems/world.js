@@ -507,7 +507,11 @@ export class World {
     // 保证"这关全是XX类"不取决于原波次配置里恰好有没有那一类。
     if (this.specialWave) {
       const pool = SPECIAL_WAVE_POOLS[this.specialWave];
-      if (pool && pool.ids.length > 0) {
+      // ---- 第一百六十轮：?. 容错 ----
+      // chaos/slack/payday/egg 四类**没有 ids 字段**（不改刷怪构成，只挂
+      // 波次模组）—— 旧写法 pool.ids.length 在这四类上直接 TypeError，
+      // 每帧刷怪都炸，游戏卡死（用户实测"进入发薪日游戏卡住不动了"）。
+      if (pool?.ids?.length > 0) {
         let r = this.rng.next() * pool.ids.length;
         for (const id of pool.ids) {
           r -= 1;
@@ -580,6 +584,18 @@ export class World {
     e.world = this;
     // 召唤出来的敌人不带出生动画延迟太长
     e.spawnAnimation = 0.2;
+    // ---- 第一百六十轮：噩梦专属基础血线 ----
+    // 用户："噩梦难度的蒜蓉粉丝开背虾血量改到第十波见到他的时候大概
+    // 35000左右的血量吧。（基础血线你算一下改了）"
+    // 第 10 波（waveIndex 9）噩梦实际血量 = 基础 × bossHpCurve(9)≈4.260
+    // × 噩梦 enemyHp 2.8 ≈ 基础 × 11.927 —— 35000 → 基础 2935。
+    // 只覆盖噩梦（def.hp 是全难度基础线，直接改会把简单/中等/困难
+    // 的虾也抬高 40%）。变异体等其他乘区照常叠在覆盖后的血量上。
+    if (def.hpNightmare != null && this.difficulty?.id === 'nightmare') {
+      const mul = def.hpNightmare / (def.hp ?? 10);
+      e.maxHp = Math.round(e.maxHp * mul);
+      e.hp = e.maxHp;
+    }
     // ---- 第一百五十三轮：法环"深夜模式"变异体 ----
     // 用户："某些小怪（5%~10%概率）出生时会变成'变异体'，血量、伤害、
     // 移速大幅提升……击杀奖励是普通怪的 3 倍，甚至必定掉落一个回血包。"

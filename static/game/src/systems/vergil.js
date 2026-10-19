@@ -27,12 +27,15 @@ import {
 
 // ---- 数值 ----
 export const VERGIL_MAX_HP = 66666;   // 第一百五十四轮再改：正式 Boss 血量 66666
-// ---- 第一百五十四轮：P3 里程碑锁血 ----
-// 用户原话："三阶段追加一个判定：每损失超过2000血无敌0.5秒。这样三阶段
-// 22222可以无敌几次多活几秒，不至于玩家发育太好一个次元斩结束自己死了。"
-// P3 起始血 66666×0.33 ≈ 22200 → 约 11 次 × 0.5s ≈ 5.5s 额外容错。
-const P3_MILESTONE_STEP = 2000;       // 每损失 2000 血触发一次
-const P3_MILESTONE_INVULN = 0.5;      // 无敌 0.5 秒
+// ---- 第一百六十轮：常驻锁血 ----
+// 用户原话："大排档椅子血量66666还是容易死。让他的受到2000伤害无敌0.5秒
+// 常驻。然后第三阶段改为受到2000伤害0.8秒试试。这样玩家再肥他也可以坚持
+// 30秒左右了，本身大排档椅子伤害就低，总不能还没表演完就死了。"
+// 全程每累计受到 2000 伤害 → 无敌（P1/P2 0.5s、P3 0.8s）；154 轮的
+// P3 专属阶梯（_p3HpBase/_p3NextMilestone）退役。
+const LOCK_DMG_STEP = 2000;           // 每累计受到 2000 伤害触发一次
+const LOCK_INVULN = 0.5;              // P1/P2 无敌 0.5 秒
+const P3_LOCK_INVULN = 0.8;           // P3 无敌 0.8 秒
 export const HIT_FRAC = 0.05;        // 每击 5% 玩家最大生命的固定真伤
 export const HIT_CD = 0.2;           // 受击内置 CD（防一帧多刀秒杀）
 export const ULT_CD = 10;            // P3 大招冷却（真实秒，收刀起算）
@@ -91,6 +94,9 @@ export class VergilFight {
 
     // AI 状态
     this.phase = 1;
+    // 常驻锁血计数（第一百六十轮）：_hpLast 上一帧血量、_dmgAccum 累计伤
+    this._hpLast = this.boss.hp;
+    this._dmgAccum = 0;
     this.spdMul = 1;                 // 技能频率/速度倍率：P2 1.1、P3 1.3
     this.state = 'intro';            // intro(入场演出) | wander(站桩) | cast | ult | pause | win
     this.stateT = 0;
@@ -392,17 +398,23 @@ export class VergilFight {
     if (this.phase === 1 && this.boss.hp <= VERGIL_MAX_HP * 0.66) this._enterPhase(2);
     else if (this.phase === 2 && this.boss.hp <= VERGIL_MAX_HP * 0.33) this._enterPhase(3);
 
-    // ---- 第一百五十四轮：P3 里程碑锁血 ----
-    // "每损失超过2000血无敌0.5秒" —— 复用 invulnTimer 通道（getter
-    // invulnerable 自动生效：takeDamage 全 blocked + 渲染层青色护盾），
-    // 与转阶段 5s 锁血同一视觉语言。Math.max 不缩短已有的 5s 锁血；
-    // 里程碑计数从进 P3 时的血量起算（P2 末的输出不占档）。
-    if (this.phase === 3
-      && (this._p3NextMilestone ?? Infinity) !== Infinity
-      && this._p3HpBase - this.boss.hp >= this._p3NextMilestone) {
-      this._p3NextMilestone += P3_MILESTONE_STEP;
-      this.boss.bossPhase.invulnTimer = Math.max(
-        this.boss.bossPhase.invulnTimer, P3_MILESTONE_INVULN);
+    // ---- 第一百六十轮：常驻锁血（替代 154 轮的 P3 专属里程碑）----
+    // 每累计受到 2000 伤害 → invulnTimer = max(现有, 0.5s；P3 0.8s)。
+    // 复用 invulnTimer 通道（getter invulnerable 自动生效：takeDamage 全
+    // blocked + 渲染层青色护盾），与转阶段 5s 锁血同一视觉语言，Math.max
+    // 不缩短已有的 5s 锁血。while 处理单帧大量伤害（一发大招吃掉 4000+
+    // 也按两档锁）。
+    {
+      const drop = this._hpLast - this.boss.hp;
+      if (drop > 0) {
+        this._dmgAccum += drop;
+        while (this._dmgAccum >= LOCK_DMG_STEP) {
+          this._dmgAccum -= LOCK_DMG_STEP;
+          const dur = this.phase >= 3 ? P3_LOCK_INVULN : LOCK_INVULN;
+          this.boss.bossPhase.invulnTimer = Math.max(this.boss.bossPhase.invulnTimer, dur);
+        }
+      }
+      this._hpLast = this.boss.hp;
     }
 
     // ---- 玩家死亡 → 结算 ----
@@ -664,10 +676,8 @@ export class VergilFight {
       this.bgmFade = 5;
       this.ultCd = 0;
       this._p3Pending = true;   // 锁血+淡出都归零时由 update 触发大招
-      // 第一百五十四轮：P3 里程碑锁血基线 —— 从进 P3 这一刻的血量起算，
-      // 每损失满 2000 给 0.5s 无敌（判定在 update 的阶段切换检查之后）
-      this._p3HpBase = this.boss.hp;
-      this._p3NextMilestone = P3_MILESTONE_STEP;
+      // 第一百六十轮：常驻锁血不需要 P3 基线了（全程按"累计受伤 2000"算，
+      // _dmgAccum 跨阶段连续累计，转阶段不清零）
       // 第一百四十八轮：蓄力入定 —— 全场极慢速（boss 本体走 dtReal 不受影响）
       this.timeScale = 0.2;
       this.chargeT = 5;

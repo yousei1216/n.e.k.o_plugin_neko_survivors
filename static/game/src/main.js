@@ -837,6 +837,16 @@ export class Game {
       this.playerUlt = { t: 0, blades: [], launched: 0, acc: 0 };
       this.world.playerUlt = this.playerUlt;
       this.ui.toast('阎魔刀 · 次元斩！', 'good', 2500);
+      // ---- 第一百六十轮：次元斩音效（玩家侧）----
+      // 用户："玩家的阎魔刀触发的时候也触发一次次元斩.ogg音效吧。不要bgm
+      // 但是音效要有。不过玩家触发的音量改到70%省的吵。"
+      // （boss 侧同一段音效走 vergil.js 的 _se 模板；这里玩家侧单独播，
+      // 音量 70%。每回合限一次的触发，不需要缓存实例。）
+      try {
+        const se = new Audio('assets/sfx/vergil_ult.ogg');
+        se.volume = 0.7;
+        se.play().catch(() => { /* 自动播放策略兜底：失败静音不炸主循环 */ });
+      } catch { /* */ }
     }
 
     // 更新玩家

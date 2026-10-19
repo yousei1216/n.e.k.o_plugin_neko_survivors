@@ -395,6 +395,10 @@ export const ENEMIES = [
     // 因为"第十关的 boss"指这一关会出现的两个 Boss（50% 随机）。
     // 第十八轮 ⑨：speed 74 → 120（移速地板，见文件头的 ENEMY_SPEED_FLOOR）。
     hp: 2100, speed: 120, damage: 24, radius: 44,   // 第十九轮②：20 × 1.2
+    // 第一百六十轮：噩梦专属基础血线 —— 用户："噩梦难度的蒜蓉粉丝开背虾
+    // 血量改到第十波见到他的时候大概35000左右的血量吧。（基础血线你算一下
+    // 改了）" 2935 × bossHpCurve(9)≈4.260 × 噩梦 2.8 ≈ 35005。
+    hpNightmare: 2935,
     color: '#ff8a5c', shape: 'shrimp', behavior: 'meleeBoss', armor: 12,
     xp: 60 * BOSS_LOOT_MUL, materials: 60 * BOSS_LOOT_MUL,
     boss: true, bossName: '蒜蓉粉丝开背虾',

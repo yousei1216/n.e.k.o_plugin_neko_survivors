@@ -472,6 +472,10 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
 .rs-icon { width: 20px; height: 20px; flex: none; }
 .result-stat.tone-gold .rs-icon { color: #cfa055; filter: drop-shadow(0 0 4px rgba(207,160,85,.4)); }
 .result-stat.tone-violet .rs-icon { color: #b794f6; filter: drop-shadow(0 0 4px rgba(183,148,246,.4)); }
+
+/* 第一百六十轮：升级选项卡片的 SVG 图标（跟随选项色的 currentColor 描边） */
+.card .avatar .up-icon { display: block; margin: auto; }
+.card .avatar { display: grid; place-items: center; }
 .result-stat .rs-txt { min-width: 0; }
 .result-stat .k { font-size: 10px; letter-spacing: .06em; color: var(--text-dim); opacity: .8; }
 .result-stat .v { font-size: 20px; font-weight: 800; line-height: 1.15; }

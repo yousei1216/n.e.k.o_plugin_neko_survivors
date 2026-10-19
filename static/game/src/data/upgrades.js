@@ -169,44 +169,44 @@ function scaleUpgrade(base, rarityId) {
 export const UPGRADES = [
   // ---------- 基础属性 ----------
   {
-    id: 'up_maxhp', name: '强健体魄', glyph: '心', color: '#ff5f6d',
+    id: 'up_maxhp', name: '强健体魄', glyph: '心', icon: 'i-heart', color: '#ff5f6d',
     mods: { maxHp: 6 }, maxLevel: 99, weight: 10,
     desc: '最大生命 +6。',
   },
   {
-    id: 'up_damage', name: '锋利', glyph: '伤', color: '#ff9f68',
+    id: 'up_damage', name: '锋利', glyph: '伤', icon: 'i-damage', color: '#ff9f68',
     pct: { damage: 8 }, maxLevel: 99, weight: 10,
     desc: '伤害 +8%。',
   },
   {
-    id: 'up_attackspeed', name: '敏捷', glyph: '速', color: '#7dd87d',
+    id: 'up_attackspeed', name: '敏捷', glyph: '速', icon: 'i-atkspeed', color: '#7dd87d',
     pct: { attackSpeed: 8 }, maxLevel: 99, weight: 10,
     desc: '攻击速度 +8%。',
   },
   {
-    id: 'up_movespeed', name: '轻快脚步', glyph: '步', color: '#5fd3e8',
+    id: 'up_movespeed', name: '轻快脚步', glyph: '步', icon: 'i-speed', color: '#5fd3e8',
     pct: { moveSpeed: 6 }, maxLevel: 99, weight: 9,
     desc: '移动速度 +6%。',
   },
   {
-    id: 'up_armor', name: '硬化', glyph: '甲', color: '#8fd9f0',
+    id: 'up_armor', name: '硬化', glyph: '甲', icon: 'i-armor', color: '#8fd9f0',
     // 第十九轮：+2 → +3。护甲减伤阈值同期从 15 翻倍到 30（50% 减伤点），
     // 同样的甲换到的减伤近乎减半 —— 升级还给 +2 就成了没人选的陷阱选项。
     mods: { armor: 3 }, maxLevel: 99, weight: 8,
     desc: '护甲 +3。',
   },
   {
-    id: 'up_regen', name: '恢复', glyph: '愈', color: '#6ee7a8',
+    id: 'up_regen', name: '恢复', glyph: '愈', icon: 'i-plus', color: '#6ee7a8',
     mods: { hpRegen: 0.5 }, maxLevel: 99, weight: 8,
     desc: '每秒回复 +0.5。',
   },
   {
-    id: 'up_pickup', name: '扩大拾取', glyph: '拾', color: '#8fd9f0',
+    id: 'up_pickup', name: '扩大拾取', glyph: '拾', icon: 'i-magnet', color: '#8fd9f0',
     mods: { pickupRange: 30 }, maxLevel: 12, weight: 6,
     desc: '拾取范围 +30。',
   },
   {
-    id: 'up_harvest', name: '收获', glyph: '收', color: '#ffc857',
+    id: 'up_harvest', name: '收获', glyph: '收', icon: 'i-gem', color: '#ffc857',
     mods: { harvesting: 2 }, maxLevel: 20, weight: 6,
     desc: '收获 +2（每波结束额外材料）。',
   },
@@ -216,32 +216,32 @@ export const UPGRADES = [
     // 用户第四轮："将暴击提升的基础属性降低到 3%，
     // 不然太容易到 100% 了。这样就算是金色暴击也只有 12% 提升不会太离谱。"
     // → 基础 3%，传说（×4）正好 12%
-    id: 'up_crit', name: '致命一击', glyph: '暴', color: '#ffc857',
+    id: 'up_crit', name: '致命一击', glyph: '暴', icon: 'i-crit', color: '#ffc857',
     pct: { critChance: 3 }, maxLevel: 12, weight: 7,
     desc: '暴击率 +3%。',
   },
   {
-    id: 'up_critdmg', name: '重击', glyph: '重', color: '#ffb300',
+    id: 'up_critdmg', name: '重击', glyph: '重', icon: 'i-critdmg', color: '#ffb300',
     pct: { critDamage: 15 }, maxLevel: 12, weight: 6,
     desc: '暴击伤害 +15%。',
   },
   {
-    id: 'up_lifesteal', name: '汲取', glyph: '吸', color: '#c62828',
+    id: 'up_lifesteal', name: '汲取', glyph: '吸', icon: 'i-drop', color: '#c62828',
     pct: { lifesteal: 3 }, maxLevel: 10, weight: 6,
     desc: '吸血 +3%。',
   },
   {
-    id: 'up_dodge', name: '灵巧', glyph: '闪', color: '#e8ecf6',
+    id: 'up_dodge', name: '灵巧', glyph: '闪', icon: 'i-dodge', color: '#e8ecf6',
     pct: { dodge: 4 }, maxLevel: 10, weight: 6,
     desc: '闪避 +4%。',
   },
   {
-    id: 'up_luck', name: '好运', glyph: '运', color: '#ffe08a',
+    id: 'up_luck', name: '好运', glyph: '运', icon: 'i-paw', color: '#ffe08a',
     pct: { luck: 12 }, maxLevel: 15, weight: 6,
     desc: '幸运 +12%。',
   },
   {
-    id: 'up_range', name: '远视', glyph: '远', color: '#5fd3e8',
+    id: 'up_range', name: '远视', glyph: '远', icon: 'i-range', color: '#5fd3e8',
     pct: { range: 8 }, maxLevel: 10, weight: 5,
     // 第三十四轮：提示从"远程射程"改成"全射程" —— 第三十二轮起近战也吃
     // 这个属性（普通近战五折、360 度 150%），炮台的索敌距离同样吃，
@@ -252,39 +252,39 @@ export const UPGRADES = [
 
   // ---------- 专精 ----------
   {
-    id: 'up_melee', name: '近战专精', glyph: '近', color: '#c9d6e8',
+    id: 'up_melee', name: '近战专精', glyph: '近', icon: 'i-sword', color: '#c9d6e8',
     pct: { meleeDamage: 12 }, maxLevel: 15, weight: 7,
     desc: '近战伤害 +12%。',
   },
   {
-    id: 'up_ranged', name: '远程专精', glyph: '远2', color: '#8fd9f0',
+    id: 'up_ranged', name: '远程专精', glyph: '远2', icon: 'i-arrow', color: '#8fd9f0',
     pct: { rangedDamage: 12 }, maxLevel: 15, weight: 7,
     desc: '远程伤害 +12%。',
   },
   {
-    id: 'up_elem', name: '元素专精', glyph: '元', color: '#b794f6',
+    id: 'up_elem', name: '元素专精', glyph: '元', icon: 'i-orb', color: '#b794f6',
     pct: { elemDamage: 12 }, maxLevel: 15, weight: 7,
     desc: '元素伤害 +12%。',
   },
 
   // ---------- 强力但有代价 ----------
   {
-    id: 'up_glass', name: '破釜沉舟', glyph: '破', color: '#ff4d4d',
+    id: 'up_glass', name: '破釜沉舟', glyph: '破', icon: 'i-burst', color: '#ff4d4d',
     pct: { damage: 18, attackSpeed: 10, maxHp: -0.10 }, maxLevel: 5, weight: 4,
     desc: '伤害 +18%，攻速 +10%，最大生命 -10%。',
   },
   {
-    id: 'up_fortress', name: '铁壁', glyph: '壁', color: '#8b93b0',
+    id: 'up_fortress', name: '铁壁', glyph: '壁', icon: 'i-armor', color: '#8b93b0',
     mods: { armor: 6 }, pct: { moveSpeed: -6 }, maxLevel: 8, weight: 4,
     desc: '护甲 +6，移速 -6%。',
   },
   {
-    id: 'up_greed', name: '贪得无厌', glyph: '贪', color: '#ffb300',
+    id: 'up_greed', name: '贪得无厌', glyph: '贪', icon: 'i-coin', color: '#ffb300',
     mods: { harvesting: 8 }, pct: { damage: -6 }, maxLevel: 5, weight: 4,
     desc: '收获 +8，伤害 -6%。',
   },
   {
-    id: 'up_berserk', name: '狂暴', glyph: '狂', color: '#ff4d4d',
+    id: 'up_berserk', name: '狂暴', glyph: '狂', icon: 'i-rage', color: '#ff4d4d',
     pct: { attackSpeed: 22, dodge: -6 }, maxLevel: 5, weight: 4,
     desc: '攻速 +22%，闪避 -6%。',
   },
@@ -307,7 +307,7 @@ export const UPGRADES = [
   //      所以这里显式按稀有度查表，不走乘算。
   //      （普通档用户没提，给 0 = 只回满血，保持它作为"保底治疗"的定位。）
   {
-    id: 'up_heal_now', name: '猫娘的慰藉', glyph: '疗', color: '#6ee7a8',
+    id: 'up_heal_now', name: '猫娘的慰藉', glyph: '疗', icon: 'i-plus', color: '#6ee7a8',
     heal: 999, shieldPct: { common: 0, rare: 0.5, epic: 1.0, legendary: 1.5 },
     maxLevel: 99, weight: 5,
     desc: '立即回复全部生命。高品质额外获得护盾。',

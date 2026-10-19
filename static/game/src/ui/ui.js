@@ -593,7 +593,15 @@ export class UI {
         <div class="card${isPlain ? '' : ' card--rare'}" data-up="${u.id}"
              style="${isPlain ? '' : `border-color:${rc};box-shadow:0 0 0 1px ${rc}55,0 0 18px ${rc}33`}">
           <div class="card-head">
-            <div class="avatar" style="background:${u.color}22;border-color:${rc};color:${u.color}">${u.glyph}</div>
+            <div class="avatar" style="background:${u.color}22;border-color:${rc};color:${u.color}">${
+              // 第一百六十轮：升级选项图标 —— 用户："各个选项还是字呢，你能做
+              // 点对应的简单图标吗？就像你暂停界面画的那10个属性图标一样。"
+              // 有 icon 字段走 SVG 线条图标（与暂停十图标同一套 symbol 库），
+              // 没有的回落原 glyph 字。
+              u.icon
+                ? `<svg class="up-icon" viewBox="0 0 24 24" width="26" height="26"><use href="#${u.icon}"/></svg>`
+                : u.glyph
+            }</div>
             <div>
               <div class="card-name">${u.name}</div>
               <div class="card-role">升级选项</div>
