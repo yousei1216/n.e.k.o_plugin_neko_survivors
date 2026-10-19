@@ -385,6 +385,164 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
 }
 .hint { font-size: 12px; color: var(--text-dim); }
 
+/* ============================================================
+   第一百六十轮：主界面视觉大重构（神秘 × 魔法 × 猫娘）
+   只作用于 .title-* 前缀类，其它界面（选人/商店/结算）不动。
+   ============================================================ */
+.title-scene {
+  position: relative;
+  width: 100%;
+  display: flex; align-items: center; justify-content: center;
+  min-height: min(92vh, 760px);
+}
+/* 全屏容器要盖住 canvas 的星空（overlay 本身已居中，这里放宽） */
+#overlay .title-scene { flex: 1; }
+
+/* ---- 上升魔法光点（DOM 粒子，参数由 ui.js 内联给出）---- */
+.title-stars { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
+.title-stars i {
+  position: absolute; bottom: -12px;
+  border-radius: 50%;
+  opacity: 0;
+  animation-name: titleRise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  box-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
+}
+.title-stars .t-pink   { color: #ff7bac; background: #ffc2dd; }
+.title-stars .t-cyan   { color: #5fd3e8; background: #c2f0fb; }
+.title-stars .t-violet { color: #b794f6; background: #e2d3ff; }
+@keyframes titleRise {
+  0%   { transform: translateY(0); opacity: 0; }
+  8%   { opacity: .85; }
+  85%  { opacity: .5; }
+  100% { transform: translateY(-108vh); opacity: 0; }
+}
+
+/* ---- 暗角：极暗紫红，压住四边把焦点让给面板 ---- */
+.title-vignette {
+  position: fixed; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 105% at 50% 46%,
+    rgba(0,0,0,0) 52%, rgba(30,3,26,.34) 78%, rgba(46,4,38,.62) 100%);
+}
+
+/* ---- 面板：毛玻璃 + 哥特细边框微光 + 四角发光小猫爪 ---- */
+.title-panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(34,22,64,.60), rgba(16,10,34,.66)),
+    radial-gradient(120% 90% at 50% 0%, rgba(90,50,150,.28), rgba(0,0,0,0) 60%);
+  border: 1px solid rgba(255,150,200,.34);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 24px 80px rgba(0,0,0,.6),
+    0 0 0 1px rgba(255,170,215,.10),
+    0 0 26px rgba(183,148,246,.16),
+    inset 0 0 34px rgba(122,66,180,.14),
+    inset 0 1px 0 rgba(255,255,255,.09);
+}
+/* 哥特内衬细线（双框质感） */
+.title-panel::after {
+  content: ''; position: absolute; inset: 6px;
+  border: 1px solid rgba(255,170,215,.13);
+  border-radius: 12px; pointer-events: none;
+}
+/* 四角发光小猫爪（复用 index.html 的 #i-paw symbol） */
+.title-panel .corner-paw {
+  position: absolute; width: 20px; height: 20px;
+  color: #ff9dcb; opacity: .75;
+  filter: drop-shadow(0 0 5px rgba(255,123,172,.75));
+  pointer-events: none;
+}
+.title-panel .corner-paw:nth-of-type(1) { top: 7px; left: 7px; transform: rotate(-18deg); }
+.title-panel .corner-paw:nth-of-type(2) { top: 7px; right: 7px; transform: rotate(18deg) scaleX(-1); }
+.title-panel .corner-paw:nth-of-type(3) { bottom: 7px; left: 7px; transform: rotate(15deg) scaleY(-1); }
+.title-panel .corner-paw:nth-of-type(4) { bottom: 7px; right: 7px; transform: rotate(-15deg) scale(-1); }
+
+/* ---- 猫耳标题：粗黑描边（下层重影字）+ 粉紫外发光（上层渐变字）---- */
+.title-head {
+  display: flex; align-items: flex-start; justify-content: center;
+  gap: 14px; margin-bottom: 6px;
+}
+.title-head h1 {
+  position: relative; margin: 0;
+  font-size: 46px; font-weight: 900; letter-spacing: .06em;
+  /* 上层：渐变填充 + 粉紫外发光（text-shadow 对 clip 渐变字无效，用发光垫底层） */
+  background: linear-gradient(180deg, #ffd9ec 0%, var(--pink) 42%, var(--purple) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter:
+    drop-shadow(0 0 12px rgba(255,123,172,.55))
+    drop-shadow(0 0 34px rgba(183,148,246,.35));
+}
+/* 下层重影：粗黑描边（attr 复制同一文案，stroke 只作用于这层） */
+.title-head h1::before {
+  content: attr(data-text);
+  position: absolute; inset: 0; z-index: -1;
+  -webkit-text-stroke: 8px rgba(8,3,18,.92);
+  text-stroke: 8px rgba(8,3,18,.92);
+  -webkit-text-fill-color: rgba(8,3,18,.92);
+  filter: blur(.4px);
+}
+/* 两侧小猫耳：外层深色描边 + 内层粉色绒 + 发光 */
+.title-head .ear {
+  position: relative; width: 34px; height: 30px; margin-top: -6px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, #6b3f9e, #2a1244);
+  filter: drop-shadow(0 0 8px rgba(255,123,172,.45));
+}
+.title-head .ear::after {
+  content: ''; position: absolute; left: 50%; bottom: 3px;
+  width: 16px; height: 14px; transform: translateX(-50%);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, #ff9dcb, #d95f8c);
+}
+.title-head .ear.left  { transform: rotate(-14deg); }
+.title-head .ear.right { transform: rotate(14deg); }
+
+/* ---- 主按钮：独占一行、更大、悬停发光放大 ---- */
+.btn-row-main { margin-top: 16px; }
+.btn-start {
+  width: 100%;
+  font-size: 17px; font-weight: 900; letter-spacing: .22em;
+  padding: 14px 20px;
+  text-shadow: 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .12s ease, box-shadow .15s ease, filter .15s ease;
+}
+.btn-start:hover:not(:disabled) {
+  transform: scale(1.045) translateY(-1px);
+  filter: brightness(1.1);
+  box-shadow:
+    0 0 34px rgba(255,123,172,.6),
+    0 0 70px rgba(183,148,246,.35),
+    inset 0 1px 0 rgba(255,255,255,.45);
+}
+/* ---- 次要按钮：深色半透明细边框，悬停亮起 ---- */
+.title-panel .btn:not(.primary) {
+  background: rgba(18,12,36,.55);
+  border-color: rgba(190,160,230,.22);
+  color: var(--text-dim);
+}
+.title-panel .btn:not(.primary):hover:not(:disabled) {
+  background: rgba(52,36,88,.72);
+  border-color: rgba(255,150,200,.55);
+  color: var(--text);
+  box-shadow: 0 0 14px rgba(255,123,172,.28);
+}
+
+/* ---- 操作提示沉底：更小、更暗 ---- */
+.title-panel .keys { margin-top: 20px; gap: 6px 14px; }
+.title-panel .key { font-size: 11px; opacity: .5; }
+
+/* ---- 版本 + 种子：屏幕右下角极暗位 ---- */
+.title-meta {
+  position: fixed; right: 14px; bottom: 10px;
+  font-size: 11px; letter-spacing: .5px;
+  color: var(--text-dim); opacity: .32;
+  pointer-events: none;
+}
+
 /* -------- 武器栏（商店内） -------- */
 .weapon-tray { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 16px; }
 .weapon-slot {

@@ -150,57 +150,77 @@ export class Renderer {
   }
 
   // =========================================================
-  // 标题界面背景：缓慢移动的星空 + 猫爪印
+  // 标题界面背景：径向深蓝紫星空 + 上升魔法光点 + 暗角
+  // （第一百六十轮视觉重构 —— 用户："主界面现在太像网页Demo了……神秘、
+  //   高级、带有魔法与猫娘的结合感""把背景里那些生硬的几何猫爪删掉，
+  //   改成类似星空的动态深色背景（比如深蓝色到紫色的径向渐变）""增加
+  //   粒子特效：背景里有缓缓向上升起的粉色/蓝色光点""屏幕边缘加一圈
+  //   极暗的紫红色 Vignette"——旧版线性灰渐变 + 7 个椭圆拼的几何爪印
+  //   全部退役。）
   // =========================================================
   renderIdleBackground() {
     const ctx = this.ctx;
     const W = this.width, H = this.height;
     const t = performance.now() / 1000;
 
-    const grad = ctx.createLinearGradient(0, 0, W, H);
-    grad.addColorStop(0, '#12141c');
-    grad.addColorStop(0.5, '#1a1520');
-    grad.addColorStop(1, '#12141c');
+    // ---- 径向星空底：中心暗紫蓝，向外沉入近黑 ----
+    const grad = ctx.createRadialGradient(
+      W * 0.5, H * 0.36, 30,
+      W * 0.5, H * 0.52, Math.max(W, H) * 0.78,
+    );
+    grad.addColorStop(0, '#271c52');
+    grad.addColorStop(0.55, '#181034');
+    grad.addColorStop(1, '#0a0716');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // 漂浮的光点
+    // ---- 远景静态星（闪烁）：小而密，走 alpha 呼吸 ----
     ctx.save();
+    ctx.fillStyle = '#cfd8ff';
     for (let i = 0; i < 46; i++) {
+      const seed = i * 97.13;
+      const x = (seed * 5.31) % W;
+      const y = (seed * 3.77) % H;
+      const tw = 0.12 + 0.5 * Math.abs(Math.sin(t * 0.7 + i * 1.71));
+      ctx.globalAlpha = tw * 0.7;
+      ctx.beginPath();
+      ctx.arc(x, y, 0.7 + (i % 3) * 0.4, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // ---- 上升魔法光点（粉/蓝/紫，双层圆光晕，向上漂 + 轻微横摆）----
+    // 与芙兰战的魔法粒子同一色系，主界面和战斗的氛围连起来。
+    ctx.save();
+    for (let i = 0; i < 40; i++) {
       const seed = i * 137.508;
-      const x = ((seed * 7.3 + t * (8 + (i % 5) * 4)) % (W + 80)) - 40;
-      const y = ((seed * 3.7 + Math.sin(t * 0.4 + i) * 30) % H + H) % H;
-      const r = 1 + (i % 3);
-      ctx.globalAlpha = 0.12 + (i % 5) * 0.06;
+      const speed = 9 + (i % 5) * 7;                       // 各自不同的上升速度
+      const x = (((seed * 7.3 + Math.sin(t * 0.35 + i) * 42) % (W + 60)) + W + 60) % (W + 60) - 30;
+      const y = (((seed * 3.7 - t * speed) % (H + 90)) + H + 90) % (H + 90) - 45;
+      const r = 1.1 + (i % 3);
+      const glow = 0.10 + (i % 5) * 0.05;
       ctx.fillStyle = i % 3 === 0 ? '#ff7bac' : i % 3 === 1 ? '#5fd3e8' : '#b794f6';
+      // 外圈光晕（大而淡）+ 内核（小而亮）
+      ctx.globalAlpha = glow * 0.55;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 3.2, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = Math.min(0.85, glow + 0.35);
       ctx.beginPath();
       ctx.arc(x, y, r, 0, TAU);
       ctx.fill();
     }
     ctx.restore();
 
-    // 淡淡的猫爪印
-    ctx.save();
-    ctx.globalAlpha = 0.05;
-    ctx.fillStyle = '#ff7bac';
-    for (let i = 0; i < 7; i++) {
-      const x = (i * 211 + Math.sin(t * 0.3 + i) * 20) % W;
-      const y = (i * 137 + t * 6) % (H + 100) - 50;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(i * 0.7);
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 16, 13, 0, 0, TAU);
-      ctx.fill();
-      for (let j = 0; j < 4; j++) {
-        const a = -Math.PI * 0.75 + j * 0.5;
-        ctx.beginPath();
-        ctx.ellipse(Math.cos(a) * 22, Math.sin(a) * 22 - 6, 6, 8, a, 0, TAU);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    ctx.restore();
+    // ---- 暗角：边缘极暗的紫红色，把视觉焦点压向中间 ----
+    const vig = ctx.createRadialGradient(
+      W * 0.5, H * 0.5, Math.min(W, H) * 0.42,
+      W * 0.5, H * 0.5, Math.max(W, H) * 0.74,
+    );
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(42,4,36,0.55)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
   }
 
   // =========================================================

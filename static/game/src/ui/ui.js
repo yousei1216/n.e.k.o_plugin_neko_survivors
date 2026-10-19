@@ -406,48 +406,82 @@ export class UI {
       </button>`).join('');
 
     const root = this._mount(`
-      <div class="screen narrow">
-        <h1>猫娘姐妹</h1>
-        <div class="sub">
-          猫娘计划版土豆兄弟 · NEKO Sisters<br>
-          在 20 波围攻中活下来，收集材料，把武器合成到传说品质。
-        </div>
+      <!-- 第一百六十轮：主界面视觉大重构（用户："主界面现在太像网页Demo了，
+           缺乏游戏氛围感……神秘、高级、带有魔法与猫娘的结合感"）
+           结构：title-scene（全屏容器）
+             ├ title-vignette   CSS 暗角（紫红极暗，压焦点）
+             ├ title-stars      上升魔法光点（DOM 粒子，CSS 动画）
+             └ title-panel      毛玻璃哥特面板（四角发光小猫爪 + 猫耳标题）
+               （版本号 + 种子码沉到屏幕右下角 .title-meta）-->
+      <div class="title-scene">
+        <div class="title-stars" aria-hidden="true"></div>
+        <div class="title-vignette" aria-hidden="true"></div>
+        <div class="screen narrow title-panel">
+          <svg class="corner-paw" aria-hidden="true"><use href="#i-paw"/></svg>
+          <svg class="corner-paw" aria-hidden="true"><use href="#i-paw"/></svg>
+          <svg class="corner-paw" aria-hidden="true"><use href="#i-paw"/></svg>
+          <svg class="corner-paw" aria-hidden="true"><use href="#i-paw"/></svg>
+          <div class="title-head">
+            <span class="ear left" aria-hidden="true"></span>
+            <h1 data-text="猫娘姐妹">猫娘姐妹</h1>
+            <span class="ear right" aria-hidden="true"></span>
+          </div>
+          <div class="sub">
+            猫娘计划版土豆兄弟 · NEKO Sisters<br>
+            在 20 波围攻中活下来，收集材料，把武器合成到传说品质。
+          </div>
 
-        <div class="diff-block">
-          <div class="diff-label">难度</div>
-          <div class="diff-row">${diffBtns}</div>
-          <div class="diff-desc" style="color:${d.color}">${d.desc}</div>
-        </div>
+          <div class="diff-block">
+            <div class="diff-label">难度</div>
+            <div class="diff-row">${diffBtns}</div>
+            <div class="diff-desc" style="color:${d.color}">${d.desc}</div>
+          </div>
 
-        <div class="keys">
-          <span class="key"><b>WASD</b> / 方向键 移动</span>
-          <span class="key"><b>武器自动开火</b></span>
-          <!-- 第一百一十八轮：左键瞄准说明 —— 用户："在主界面加个'按住
-               左键攻击想要攻击的方向的说明'。" -->
-          <span class="key"><b>按住左键</b> 所有武器瞄准鼠标方向，松开恢复自动索敌</span>
-          <span class="key"><b>ESC</b> 暂停</span>
-          <span class="key"><b>M</b> 静音</span>
+          <div class="btn-row btn-row-main">
+            <button class="btn primary btn-start" data-act="start">开始新游戏</button>
+          </div>
+          <div class="btn-row">
+            ${hasSave ? '<button class="btn" data-act="continue">继续游戏</button>' : ''}
+            <button class="btn small" data-act="audio">${audioEnabled ? '🔊 音效开' : '🔇 音效关'}</button>
+            <!-- 第四十九轮补充：临时调试直通按钮（用户要求，方便人工测验芙兰战），正式版可删 -->
+            ${onFlandreTest ? '<button class="btn small" data-act="flandre-test" style="border-color:#ff4060;color:#ff4060">🐱 直接挑战芙兰！</button>' : ''}
+            <!-- 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮，用户要看效果） -->
+            ${onVergilLab ? '<button class="btn small" data-act="vergil-lab" style="border-color:#59f2ff;color:#59f2ff">⚔ 挑战：大排档椅子·维吉尔</button>' : ''}
+            <button class="btn small danger" data-act="exit">关闭游戏</button>
+            <!-- 第一百二十二轮：音效自检按钮下线（用户："把音效自检按钮
+                 隐藏或者去掉"—— 诊断使命完成，audio.seSelfTest 保留在
+                 audio.js 里以备将来排查，只是不再有入口） -->
+          </div>
+
+          <!-- 操作提示沉底：不抢主按钮风头（用户："排版太挤了……放到面板的
+               最下方，字号稍微缩小，颜色调暗一点"） -->
+          <div class="keys">
+            <span class="key"><b>WASD</b> / 方向键 移动</span>
+            <span class="key"><b>武器自动开火</b></span>
+            <span class="key"><b>按住左键</b> 所有武器瞄准鼠标方向，松开恢复自动索敌</span>
+            <span class="key"><b>ESC</b> 暂停</span>
+            <span class="key"><b>M</b> 静音</span>
+          </div>
         </div>
-        <div class="btn-row">
-          <button class="btn primary" data-act="start">开始新游戏</button>
-          ${hasSave ? '<button class="btn" data-act="continue">继续游戏</button>' : ''}
-          <button class="btn small" data-act="audio">${audioEnabled ? '🔊 音效开' : '🔇 音效关'}</button>
-          <!-- 第四十九轮补充：临时调试直通按钮（用户要求，方便人工测验芙兰战），正式版可删 -->
-          ${onFlandreTest ? '<button class="btn small" data-act="flandre-test" style="border-color:#ff4060;color:#ff4060">🐱 直接挑战芙兰！</button>' : ''}
-          <!-- 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮，用户要看效果） -->
-          ${onVergilLab ? '<button class="btn small" data-act="vergil-lab" style="border-color:#59f2ff;color:#59f2ff">⚔ 挑战：大排档椅子·维吉尔</button>' : ''}
-          <button class="btn small danger" data-act="exit">关闭游戏</button>
-          <!-- 第一百二十二轮：音效自检按钮下线（用户："把音效自检按钮
-               隐藏或者去掉"—— 诊断使命完成，audio.seSelfTest 保留在
-               audio.js 里以备将来排查，只是不再有入口） -->
-        </div>
-        <div class="hint" style="margin-top:14px">种子：${seed}</div>
-        <!-- 第一百五十七轮：标题页版本号 —— 用户："加了之后我就知道是
-             不是自己的问题而不是你做错了。"（插件市场旧版导致噩梦过 10 波
-             见不到维吉尔的排查事故）。版本唯一来源 src/version.js -->
-        <div style="margin-top:6px;font-size:12px;opacity:0.45;letter-spacing:0.5px">v${GAME_VERSION}</div>
+        <!-- 版本号 + 种子码：屏幕右下角极暗位（用户："移到屏幕最右下角的
+             极暗位置，不要放在视觉中心"）。版本唯一来源 src/version.js -->
+        <div class="title-meta">v${GAME_VERSION} · 种子 ${seed}</div>
       </div>
     `);
+    // 上升魔法光点：36 个随机参数的 DOM 粒子，动画交给 CSS（性能友好）
+    {
+      const stars = root.querySelector('.title-stars');
+      let html = '';
+      for (let i = 0; i < 36; i++) {
+        const left = (i * 97.13) % 100;
+        const size = 2 + ((i * 31) % 4);
+        const dur = 9 + ((i * 53) % 14);
+        const delay = -((i * 29) % 18);
+        const tone = i % 3 === 0 ? 'pink' : i % 3 === 1 ? 'cyan' : 'violet';
+        html += `<i class="t-${tone}" style="left:${left.toFixed(1)}%;width:${size}px;height:${size}px;animation-duration:${dur}s;animation-delay:${delay}s"></i>`;
+      }
+      stars.innerHTML = html;
+    }
     root.querySelector('[data-act="start"]').onclick = onStart;
     // 第四十九轮补充：临时调试直通按钮
     const flTest = root.querySelector('[data-act="flandre-test"]');
