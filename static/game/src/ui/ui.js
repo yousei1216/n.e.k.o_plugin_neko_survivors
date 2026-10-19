@@ -552,7 +552,9 @@ export class UI {
             <div class="avatar" data-sprite="character:${c.id}" style="background:${c.color}22;border-color:${c.color};color:${c.color}">${c.glyph}</div>
             <div>
               <div class="card-name">${c.name}</div>
-              <div class="card-role">${c.role}</div>
+              <!-- 第一百六十轮：定位 = 带底色圆角小标签（用户："做成一个带
+                   底色的圆角小标签，不要只是一行小字"） -->
+              <div class="card-role" style="background:${c.color}22;border-color:${c.color}55;color:${c.color}">${c.role}</div>
             </div>
           </div>
           <div class="card-desc">${c.desc}</div>

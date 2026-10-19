@@ -319,7 +319,8 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
 /* -------- 角色选择 -------- */
 .char-grid, .item-grid {
   display: grid; gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  /* 第一百六十轮：卡片稍加宽（190→212），配合字号微调消灭滚动条 */
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
 }
 .card {
   background: var(--panel-2);
@@ -327,11 +328,25 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
   border-radius: 12px;
   padding: 14px;
   cursor: pointer;
-  transition: transform .1s ease, border-color .12s ease, background .12s ease;
+  transition: transform .1s ease, border-color .12s ease, background .12s ease, opacity .12s ease, box-shadow .12s ease;
   position: relative;
 }
 .card:hover { border-color: var(--pink-dim); background: #313750; transform: translateY(-2px); }
-.card.selected { border-color: var(--pink); box-shadow: 0 0 0 2px rgba(255,123,172,.25) inset; }
+/* ---- 第一百六十轮：强化选中对比（用户："选中的卡片放大 1.05 倍 + 提高
+      背景亮度 + 粉紫发光边框；未选中降低透明度形成强烈对比"）---- */
+.card.selected {
+  border-color: rgba(255, 150, 200, .85);
+  background: #3a3054;
+  transform: scale(1.05);
+  z-index: 1;
+  box-shadow:
+    0 0 0 2px rgba(255, 123, 172, .45),
+    0 0 22px rgba(255, 123, 172, .35),
+    0 0 44px rgba(183, 148, 246, .22),
+    inset 0 0 18px rgba(255, 123, 172, .12);
+}
+.char-grid .card:not(.selected) { opacity: .74; }
+.char-grid .card:not(.selected):hover { opacity: 1; }
 .card .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .card .avatar {
   width: 42px; height: 42px; border-radius: 10px; flex: 0 0 42px;
@@ -340,12 +355,28 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
   border: 1px solid var(--line);
 }
 .card .card-name { font-size: 15px; font-weight: 800; }
-.card .card-role { font-size: 11px; color: var(--text-dim); }
-.card .card-desc { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+.card .card-role {
+  /* 第一百六十轮：定位做成带底色圆角小标签（用户："做成一个带底色的
+     圆角小标签，不要只是一行小字"）—— 底色由 ui.js 按角色色内联注入 */
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  margin-top: 2px;
+}
+.card .card-desc { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
 .card .card-stats { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
-.card .stat-line { display: flex; justify-content: space-between; font-size: 11.5px; }
-.card .stat-line .v.up { color: var(--green); font-weight: 700; }
-.card .stat-line .v.down { color: var(--red); font-weight: 700; }
+.card .stat-line { display: flex; justify-content: space-between; font-size: 11px; }
+.card .stat-line .v {
+  /* 第一百六十轮：优缺点一眼可见（用户："正负属性数值使用更粗的字体，
+     或加上微光"） */
+  font-weight: 800;
+  text-shadow: 0 0 6px currentColor;
+}
+.card .stat-line .v.up { color: var(--green); }
+.card .stat-line .v.down { color: var(--red); }
 
 /* -------- 商店 / 升级 -------- */
 .shop-head {
@@ -465,25 +496,33 @@ body.flandre-hud .hud-materials { margin-top: 88px; }
   display: flex; align-items: flex-start; justify-content: center;
   gap: 14px; margin-bottom: 6px;
 }
+/* ---- 猫耳标题：粗黑描边 + 亮白/粉渐变字芯 + 粉色外发光 ----
+   层序要点（第一百六十轮二调实证）：background-clip:text 的渐变画在元素
+   背景层（最底），若描边放在 ::before 会把渐变字芯整个盖黑 —— 像素检测
+   亮色占比 0%。所以反过来：本体扛 6px 纯黑 stroke（fill 透明 = 空心黑框
+   字），渐变 clip 放到 z-index:1 的 ::before 上层 —— 字芯露出、边缘留
+   黑描边。用户："主标题颜色太暗，完全看不清。填充改成亮白色/粉色渐变，
+   加上 4px 的纯黑粗描边（strokeText），再加粉色外发光。"（6px stroke
+   居中于字形边缘 = 视觉外扩约 3px；8px 对 46px 中文密笔画会粘连成块。） */
 .title-head h1 {
   position: relative; margin: 0;
   font-size: 46px; font-weight: 900; letter-spacing: .06em;
-  /* 上层：渐变填充 + 粉紫外发光（text-shadow 对 clip 渐变字无效，用发光垫底层） */
-  background: linear-gradient(180deg, #ffd9ec 0%, var(--pink) 42%, var(--purple) 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: transparent;
+  -webkit-text-stroke: 6px rgba(0, 0, 0, .95);
+  text-stroke: 6px rgba(0, 0, 0, .95);
   filter:
-    drop-shadow(0 0 12px rgba(255,123,172,.55))
-    drop-shadow(0 0 34px rgba(183,148,246,.35));
+    drop-shadow(0 0 10px rgba(255, 158, 203, .75))
+    drop-shadow(0 0 30px rgba(255, 123, 172, .45));
 }
-/* 下层重影：粗黑描边（attr 复制同一文案，stroke 只作用于这层） */
 .title-head h1::before {
   content: attr(data-text);
-  position: absolute; inset: 0; z-index: -1;
-  -webkit-text-stroke: 8px rgba(8,3,18,.92);
-  text-stroke: 8px rgba(8,3,18,.92);
-  -webkit-text-fill-color: rgba(8,3,18,.92);
-  filter: blur(.4px);
+  position: absolute; left: 0; top: 0; width: 100%;
+  z-index: 1;
+  background: linear-gradient(180deg, #ffffff 0%, #ffe3f0 30%, #ffb3d4 58%, #ff8ac0 82%, #e08af0 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0;
+  text-stroke: 0;
 }
 /* 两侧小猫耳：外层深色描边 + 内层粉色绒 + 发光 */
 .title-head .ear {
@@ -1134,32 +1173,24 @@ input[type="range"].fx-slider::-moz-range-thumb {
 
    max-height 取 132px ≈ 4 行文案（技能描述通常 2 行）+ 两个小标题。
    超出就出现细滚动条；不足 132px 时是自然高度，不会留一片空白。 */
+/* 第一百六十轮：坚决消灭滚动条（用户："所有角色卡片里的描述、能力、技能
+   文本，不能出现滚动条……玩家需要一眼看完角色的核心机制"）
+   —— 去掉 max-height/overflow（内容自然撑开卡片），配合卡片加宽、
+   字号 -0.5px、行高收紧，全部文案一眼收纳。 */
 .char-skill-box {
   margin-top: 10px;
-  padding: 8px 9px;
+  padding: 7px 9px;
   border-radius: 9px;
   background: rgba(255, 255, 255, .035);
   border: 1px solid rgba(255, 255, 255, .09);
-  max-height: 132px;
-  overflow-y: auto;
-  /* 细滚动条：默认的 17px 宽在这么小的框里太抢眼 */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, .28) transparent;
 }
-.char-skill-box::-webkit-scrollbar { width: 6px; }
-.char-skill-box::-webkit-scrollbar-track { background: transparent; }
-.char-skill-box::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, .28);
-  border-radius: 3px;
-}
-.char-skill-box::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .45); }
 
 .skill-row {
   display: flex;
   align-items: center;
   gap: 6px;
   /* 第二个 skill-row（技能那一行）上方留出和上一段文案的间距 */
-  margin-top: 7px;
+  margin-top: 6px;
 }
 .skill-row:first-child { margin-top: 0; }
 
@@ -1181,8 +1212,8 @@ input[type="range"].fx-slider::-moz-range-thumb {
   color: #e8ecf6;
 }
 .skill-text {
-  font-size: 10.5px;
-  line-height: 1.5;
+  font-size: 10px;
+  line-height: 1.42;
   color: #a7b0c4;
   margin-top: 3px;
 }
