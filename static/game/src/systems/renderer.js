@@ -273,6 +273,8 @@ export class Renderer {
       if (!camera.isVisible(e.x, e.y, 60)) continue;
       this._drawEnemy(ctx, e);
     }
+    // ---- 第一百五十三轮：变异体黑红飘散粒子（敌人之上、子弹之下）----
+    this._tickMutantParticles(ctx);
 
     // ---- 敌人子弹 ----
     for (const b of world.enemyBullets.items) {
@@ -996,7 +998,14 @@ export class Renderer {
       ctx.stroke();
     }
 
-    const col = e.hurtFlash > 0 ? '#ffffff' : e.color;
+    const col = e.hurtFlash > 0 ? '#ffffff' : (e.mutant ? '#9c2231' : e.color);
+    // 第一百五十三轮：变异体红色轮廓光 —— 用户："给变异小怪的边缘加一圈
+    // 红色的发光描边（ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 10;），
+    // 像大树守卫那样浑身透着红光"。在形状/贴图绘制前挂 shadow，画完清掉。
+    if (e.mutant) {
+      ctx.shadowColor = '#ff0000';
+      ctx.shadowBlur = 10;
+    }
 
     // ---- 第一百三十一轮：过载减伤触发闪光 ----
     // 每触发一层"过载减伤"（0.5s 掉血 ≥10% maxHp）闪一次金红护盾光圈。
@@ -1086,13 +1095,19 @@ export class Renderer {
     // 第十九轮：地图宝箱（isChest）不再蹭 enemy 贴图通道 —— 按奖励/品阶选
     // 专属贴图：chest_heal（奖励是医疗包）/ chest_2（华丽）/ chest_1（普通）。
     // 宝箱怪（treasure_mimic）是真敌人，仍走 enemy 贴图，不受影响。
+    // 贴图优先（第七轮）—— 第一百五十三轮：**变异体换暗红染色版贴图**：
+    // multiply 保住原立绘的明暗细节、只把色相压成干涸血液的暗红，
+    // 再叠一层半透明血红（source-atop）加强"浸血"观感 —— 两步都做在
+    // 离屏画布上并按贴图缓存（_mutantCanvas），主画布零污染。
     const enemyImg = e.isChest
       ? sprites.get('chest',
           e.reward?.kind === 'heal' ? 'chest_heal' : (e.tier === 2 ? 'chest_2' : 'chest_1'))
       // 第四十九轮：芙兰朵露 Extra Phantom 要切"抱腿坐姿"贴图 ——
       // 实例上允许 spriteId 覆盖 def.id，其它敌人不受影响。
       : sprites.get('enemy', e.spriteId || e.def?.id);
-    if (enemyImg) {
+    const drawImg = e.mutant && enemyImg && !e.isChest
+      ? this._mutantCanvas(enemyImg) : enemyImg;
+    if (drawImg) {
       // 受击时轻微"弹一下"，让打击感更明显（对宝箱怪尤其重要，
       // 因为它不还手、只是逃，需要更强的受击反馈）
       const flash = e.hurtFlash > 0 ? Math.min(1, e.hurtFlash * 3) : 0;
@@ -1102,9 +1117,9 @@ export class Renderer {
       const s = r * 2.6 * pop;
       let dx; let dy; let dw; let dh;
       if (e.isChest) {
-        const k = s / Math.max(enemyImg.naturalWidth, enemyImg.naturalHeight);
-        dw = enemyImg.naturalWidth * k;
-        dh = enemyImg.naturalHeight * k;
+        const k = s / Math.max(drawImg.naturalWidth, drawImg.naturalHeight);
+        dw = drawImg.naturalWidth * k;
+        dh = drawImg.naturalHeight * k;
         dx = -dw / 2;
         dy = -dh / 2;
       } else {
@@ -1112,7 +1127,8 @@ export class Renderer {
         dx = -s / 2;
         dy = -s * 0.60;
       }
-      ctx.drawImage(enemyImg, dx, dy, dw, dh);
+      ctx.drawImage(drawImg, dx, dy, dw, dh);
+      ctx.shadowBlur = 0;    // rim light 只罩贴图这一下（变异体，第一百五十三轮）
 
       if (flash > 0) {
         // 用**离屏剪影**叠色，而不是在主画布上 source-atop。
@@ -1302,6 +1318,7 @@ export class Renderer {
       }
     }
     }   // ← 结束「无贴图时走几何形状」的 else
+    if (e.mutant) ctx.shadowBlur = 0;   // rim light 只罩本体（几何兜底路径）
 
     // 眼睛：朝向玩家
     //
@@ -1482,8 +1499,106 @@ export class Renderer {
       const y = e.y - r - 10;
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillRect(e.x - w / 2, y, w, h);
-      ctx.fillStyle = e.elite ? '#ffc857' : '#ff5f6d';
+      ctx.fillStyle = e.mutant ? '#ff4d5e' : e.elite ? '#ffc857' : '#ff5f6d';
       ctx.fillRect(e.x - w / 2, y, w * e.hpPercent, h);
+    }
+
+    // ---- 第一百五十三轮：变异体狂暴标记 ----
+    // 用户："在变异小怪头顶加一个极其醒目的红色标志"。用发光的"危"字：
+    // 红字 + 红色 shadow 光晕 + sin 闪烁，restore 后的世界坐标画（不受
+    // facePlayer 镜像影响，汉字永远不会反）。
+    if (e.mutant) {
+      // 飘散的黑红粒子：火星（红）+ 黑烟，身上随机点冒出、缓缓向上飘。
+      // 粒子数组存在 renderer 上（纯视觉，不影响任何判定）。
+      this._mutantParts ??= [];
+      if (this._mutantParts.length < 240 && Math.random() < 0.3) {
+        const a = Math.random() * TAU;
+        const rr = Math.random() * r * 0.8;
+        this._mutantParts.push({
+          x: e.x + Math.cos(a) * rr, y: e.y + Math.sin(a) * rr * 0.7,
+          vx: (Math.random() - 0.5) * 14, vy: -(16 + Math.random() * 26),
+          t: 0, life: 0.7 + Math.random() * 0.7,
+          red: Math.random() < 0.6, sz: 1.2 + Math.random() * 1.8,
+        });
+      }
+      const blink = 0.6 + Math.sin(e.age * 7) * 0.4;
+      ctx.save();
+      ctx.font = `bold ${Math.max(13, Math.round(r * 0.95))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.shadowColor = '#ff0000';
+      ctx.shadowBlur = 9;
+      ctx.fillStyle = `rgba(255,32,48,${blink})`;
+      ctx.fillText('危', e.x, e.y - r - 22);
+      ctx.restore();
+    }
+  }
+
+  /**
+   * 第一百五十三轮：变异体的黑红飘散粒子更新+绘制（世界层，敌人之后）。
+   * dt 固定 1/60（渲染层惯例，同 drawShards）——纯视觉不接游戏时间。
+   */
+  _tickMutantParticles(ctx) {
+    const list = this._mutantParts;
+    if (!list || !list.length) return;
+    const dt = 1 / 60;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      p.t += dt;
+      if (p.t >= p.life) { list.splice(i, 1); continue; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy *= (1 - 0.6 * dt);            // 上升减速，飘
+      const k = 1 - p.t / p.life;
+      if (p.red) {
+        // 暗红火星：亮核 + 柔和红晕
+        ctx.fillStyle = `rgba(255,64,52,${0.75 * k})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.sz * k + 0.4, 0, TAU);
+        ctx.fill();
+      } else {
+        // 黑烟：半透明暗团，越老越大越淡
+        ctx.fillStyle = `rgba(16,12,18,${0.5 * k})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.sz * (1 + p.t * 2.2), 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  /**
+   * 第一百五十三轮：变异体暗红染色离屏 —— multiply 把立绘色相压成
+   * 干涸血液的暗红（保留明暗细节），再叠半透明血红加强"浸血"感。
+   * 两步都在离屏上做，主画布零污染（与 _flashCanvas 同一防"白方块"
+   * 思路）。按贴图实例缓存，一个 def 只染一次。
+   */
+  _mutantCanvas(img) {
+    if (!img || !img.naturalWidth) return null;
+    let c = this._mutantCache?.get(img);
+    if (c) return c;
+    try {
+      c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const x = c.getContext('2d');
+      if (!x) return null;
+      x.drawImage(img, 0, 0);
+      // ① multiply 暗红：色相整体染成血红，明暗关系保留
+      x.globalCompositeOperation = 'multiply';
+      x.fillStyle = '#a03040';
+      x.fillRect(0, 0, c.width, c.height);
+      // multiply 对透明像素在部分浏览器会写入不透明色 —— source-atop
+      // 收一遍 alpha：只保留原贴图形状内的像素
+      x.globalCompositeOperation = 'destination-in';
+      x.drawImage(img, 0, 0);
+      // ② 半透明血色浸染
+      x.globalCompositeOperation = 'source-atop';
+      x.fillStyle = 'rgba(110,8,20,0.42)';
+      x.fillRect(0, 0, c.width, c.height);
+      (this._mutantCache ??= new Map()).set(img, c);
+      return c;
+    } catch {
+      return null;
     }
   }
 

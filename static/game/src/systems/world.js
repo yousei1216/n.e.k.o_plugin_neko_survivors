@@ -562,7 +562,7 @@ export class World {
     return findFreeSpot(this.terrain, pick, 26, 24);
   }
 
-  spawnEnemyById(id, x, y) {
+  spawnEnemyById(id, x, y, mutate = false) {
     const def = getEnemy(id);
     if (!def) return null;
     const e = new Enemy(def, x, y, this.waveScaling ?? { hp: 1, damage: 1, speed: 1, xp: 1, materials: 1 }, this.rng);
@@ -571,6 +571,22 @@ export class World {
     e.world = this;
     // 召唤出来的敌人不带出生动画延迟太长
     e.spawnAnimation = 0.2;
+    // ---- 第一百五十三轮：法环"深夜模式"变异体 ----
+    // 用户："某些小怪（5%~10%概率）出生时会变成'变异体'，血量、伤害、
+    // 移速大幅提升……击杀奖励是普通怪的 3 倍，甚至必定掉落一个回血包。"
+    // 数值（用户硬性规格）：HP ×2.5 / 移速 ×1.2 / 伤害 ×1.5 / 奖励 ×3。
+    // 接触伤害走 this.damage、弹幕走 dmgScale（两个独立乘区，见 128 行
+    // 与各 _firePattern 注释），所以两个都 ×1.5 才是完整的"伤害 ×1.5"。
+    if (mutate && !def.boss) {
+      e.mutant = true;
+      e.maxHp = Math.round(e.maxHp * 2.5);
+      e.hp = e.maxHp;
+      e.speed *= 1.2;
+      e.damage *= 1.5;
+      e.dmgScale *= 1.5;
+      e.xpValue = Math.round(e.xpValue * 3);
+      e.materialValue = Math.round(e.materialValue * 3);
+    }
     this.enemies.add(e);
     this.totalSpawned++;
     return e;
@@ -581,7 +597,42 @@ export class World {
     const pos = this._spawnPosition(player);
     // 找不到空地就不刷（见 _spawnPosition 的说明）
     if (!pos) return null;
-    return this.spawnEnemyById(entry.id, pos.x, pos.y);
+    // ---- 第一百五十三轮：变异掷骰（每波刷怪时）----
+    // 用户："每次生成都有 10% 的几率变成变异体（Boss 除外，1-5 回合不
+    // 生成变异怪。无限模式概率变成 20%）"。currentWave 是 0 起算
+    //（_beginWave(0) = 第 1 波，见 main 1001 行），所以"1-5 回合不出"
+    // = currentWave >= 5 才开始掷。endless 由 main._beginWave 每波同步。
+    const mutChance = this.endless ? 0.20 : 0.10;
+    const mutate = this.currentWave >= 5 && this.rng.next() < mutChance;
+    const e = this.spawnEnemyById(entry.id, pos.x, pos.y, mutate);
+    // 行为异常在变异**之后**结算（用户："变异怪不吃这概率，先结算变异怪
+    // 后结算这个"）
+    if (e && !e.mutant) this._rollQuirk(e);
+    return e;
+  }
+
+  /**
+   * 第一百五十三轮：行为异常（"怪菌"）—— 20% 的波次小怪 AI 出故障。
+   * 用户原话："怪物（boss除外）有20%产生行为异常现象（外形不变……）。
+   * 近战怪随机套远程怪ai行为，远程怪随机套近战怪ai行为，摸鱼（直接挂机
+   * 不动，挨打的时候50%概率恢复正常ai，50%概率用宝箱怪ai，就是会不停
+   * 逃离玩家。）"
+   * 奶妈/宝箱怪/自爆这类**机制怪**不掷 —— 它们的行为就是身份，换了直接
+   * 坏掉机制（奶妈追着你砍、自爆怪不炸都算 bug 不是"异常"）。
+   */
+  _rollQuirk(e) {
+    if (!e || e.boss) return;
+    const b = e.def?.behavior;
+    if (b === 'flee' || b === 'healer' || b === 'exploder' || b === 'boss'
+      || b === 'meleeBoss' || e.isChest) return;
+    if (!(this.rng.next() < 0.20)) return;
+    if (e.melee) {
+      // 近战怪：随机套远程 AI，或摸鱼
+      e.aiOverride = this.rng.next() < 0.5 ? 'ranged' : 'idle';
+    } else {
+      // 远程怪：随机套近战 AI，或摸鱼
+      e.aiOverride = this.rng.next() < 0.5 ? 'melee' : 'idle';
+    }
   }
 
   _spawnElite(player) {
@@ -1080,7 +1131,11 @@ export class World {
     // 生命掉落（稀有）。
     // 第二十轮：掉落率对半砍（用户原话："把敌人的医疗包掉落率对半砍"）——
     // Boss 1 → 0.5、精英 0.5 → 0.25、小怪 0.03 → 0.015；幸运加成照旧乘在上面。
-    const healChance = (enemy.boss ? 0.5 : enemy.elite ? 0.25 : 0.015) * luckMul;
+    // 回血包：变异体**必定**掉（第一百五十三轮，用户："击杀变异体后……
+    // 甚至必定掉落一个回血包"），并且不受上限拦 —— 变异本身稀有，
+    // 玩家打赢这个"小精英"理应拿满奖励。
+    const healChance = enemy.mutant ? 1
+      : (enemy.boss ? 0.5 : enemy.elite ? 0.25 : 0.015) * luckMul;
     if (this.rng.next() < healChance) {
       // 第十九轮：地图医疗包上限（用户原话："把地图上的可存在医疗包上限
       // 改到30。如果玩家发育比较好不掉血，地图上最后会全是医疗包。满地图
@@ -1089,10 +1144,13 @@ export class World {
       const healAlive = this.pickups.items.filter(
         (p) => !p.dead && p.type === PICKUP_TYPE.HEAL,
       ).length;
-      if (healAlive < HEAL_PICKUP_MAX) {
+      if (enemy.mutant || healAlive < HEAL_PICKUP_MAX) {
         // 第二十轮：默认回血翻倍 2 → 4（用户原话："医疗包默认的回血翻倍"）。
         // Boss 的 999 是"回满"哨兵值，不跟着翻倍。
-        this.pickups.add(new Pickup(PICKUP_TYPE.HEAL, enemy.x, enemy.y, enemy.boss ? 999 : 4));
+        // 变异体的血包给 6（第一百五十三轮）：比小怪的 4 多一口，
+        // 配合"必定掉落"构成击杀奖励的一部分。
+        this.pickups.add(new Pickup(PICKUP_TYPE.HEAL, enemy.x, enemy.y,
+          enemy.boss ? 999 : enemy.mutant ? 6 : 4));
       }
     }
   }

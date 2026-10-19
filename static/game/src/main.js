@@ -553,6 +553,9 @@ export class Game {
 
     this.waveIndex = index;
     this.world.startWave(index);
+    // 第一百五十三轮：无限模式标志同步给 world —— 变异体概率判定用
+    //（普通 10% / 无限 20%）。每波同步一次，读档/当场开启都自然生效。
+    this.world.endless = this.endlessEnabled;
     // 第二十一轮：特殊波次提示（冲锋/弹幕/肉盾；11 波起 20%×3 类）
     if (this.world.specialWave) {
       const pool = SPECIAL_WAVE_POOLS[this.world.specialWave];

@@ -137,6 +137,12 @@ export class Enemy extends Entity {
     this.shape = def.shape ?? 'circle';
     this.behavior = def.behavior ?? 'chase';
     this.elite = !!def.elite;
+    // 第一百五十三轮：行为异常（"怪菌"）—— 波次刷怪时由 world._rollQuirk
+    // 掷骰写入：null=正常 | 'melee'=套近战AI | 'ranged'=套远程AI |
+    // 'idle'=摸鱼挂机 | 'flee'=摸鱼被打后学宝箱怪逃跑。update 的行为
+    // 分派优先读它；变异体（mutant）不参与掷骰。
+    this.aiOverride = null;
+    this.mutant = false;
 
     // 状态
     this.facing = 0;
@@ -244,11 +250,16 @@ export class Enemy extends Entity {
     // 用户第四轮："怪物是默认游荡在地图里，'看到'玩家（距离稍近）
     // 或者受到攻击时主动远离玩家，在一段时间后重新回归随机游荡模式
     // 而不要一开始出现就远离玩家。"
+    // 第一百五十三轮：这四个字段改为**全员初始化** —— 行为异常
+    // （aiOverride='flee'）会让普通小怪也走 _flee，而 alert() 里
+    // Math.max(this.fleeTimer, seconds) 遇到 undefined 会算出 NaN，
+    // NaN > 0 恒假 → 逃逸 AI 完全失效（怪原地呆住）。宝箱怪专属的
+    // 加减速计时器仍留在下面的 def 判定里。
+    this.wanderAngle = this.rng.next() * TAU;
+    this.wanderTimer = 0;
+    this.fleeTimer = 0;      // >0 表示正在逃跑
+    this.alerted = false;    // 是否已经"看到"玩家（进入过逃跑状态）
     if (this.def.behavior === 'flee') {
-      this.wanderAngle = this.rng.next() * TAU;
-      this.wanderTimer = 0;
-      this.fleeTimer = 0;      // >0 表示正在逃跑
-      this.alerted = false;    // 是否已经"看到"玩家（进入过逃跑状态）
       // ---- 第十四轮 ⑦：挨打加速 ----
       // 用户原话："给宝箱怪加一个挨打加移动速度的 buff，效果为：受到攻击时
       // +20% 移动速度 3 秒，然后速度变为 90% 5 秒。之后可以再次触发该效果。"
@@ -369,6 +380,13 @@ export class Enemy extends Entity {
     this.hp -= dmg;
     this.hurtFlash = 0.12;
 
+    // ---- 第一百五十三轮：摸鱼怪被打醒 ----
+    // 用户："摸鱼（直接挂机不动，挨打的时候50%概率恢复正常ai，50%概率
+    // 用宝箱怪ai，就是会不停逃离玩家。）"——每次挨打独立掷骰。
+    if (this.aiOverride === 'idle') {
+      this.aiOverride = this.rng.next() < 0.5 ? null : 'flee';
+    }
+
     // ---- 第一百三十一轮：过载层记账（用**实际掉血**触发）----
     // 减伤生效后掉血变慢，层数增长自然放缓 —— 机制自我平衡。
     // 触发新层 → 金红闪光计时器（渲染层读 overloadFlash 画护盾特效）。
@@ -487,7 +505,19 @@ export class Enemy extends Entity {
     const frameStartY = this.y;
 
     // ---- 行为分派 ----
-    switch (this.behavior) {
+    // 第一百五十三轮：行为异常优先 —— aiOverride 是"怪菌"给这只怪套上的
+    // 别人 AI（'melee'/'ranged'）或故障态（'idle' 摸鱼挂机）。_flee 是
+    // 现成的宝箱怪逃跑逻辑，摸鱼被打后 50% 切过去（见 takeDamage）。
+    switch (this.aiOverride === 'idle' ? '_idle' : (this.aiOverride ?? this.behavior)) {
+      // 摸鱼：原地发呆什么都不做。后面的击退/边界/地形/接触伤害照常跑 ——
+      // 它还是一只怪，只是"脑子坏了"，撞到玩家照样烫。
+      case '_idle':     break;
+      // 异常互换：近战怪被塞了远程 AI（保持距离+放弹），远程怪被塞了近战
+      // AI（闷头贴脸）。_shooter/_chase 的 def 字段全部有 ?? 缺省，
+      // 跨类型套用不需要额外配置。'flee'（摸鱼被打后学宝箱怪逃跑）复用
+      // 下面原有的 case 'flee' 分支，不在此重复。
+      case 'melee':     this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
+      case 'ranged':    this._shooter(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
       case 'chase':     this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
       case 'tank':      this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
       case 'zigzag':    this._zigzag(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
