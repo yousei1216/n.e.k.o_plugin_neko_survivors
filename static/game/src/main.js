@@ -1355,12 +1355,14 @@ export class Game {
     if (opts.test) {
       this.setDifficulty('nightmare');
       this.startRun('yui');
-      // 测试局输出：3 把喵喵炮（用户反馈 3："测试武器无法攻击……把他移除
-      // 了换3个喵喵炮给测试yui"）
+      // 测试局输出：3 把喵喵炮 + 最终伤害 ×5（用户反馈 2：裸 3 炮 70 秒
+      // 打不到 66% 血量门槛，见不到转阶段和大招 —— charMul 是角色专属
+      // 最终乘算注入口，测试局专属，本体无感知）
       try {
         this.player.addWeapon('meow_cannon');
         this.player.addWeapon('meow_cannon');
         this.player.addWeapon('meow_cannon');
+        this.player.charMul = { ...this.player.charMul, damage: 5 };
       } catch { /* */ }
       this.meta.retries = 0;
     }

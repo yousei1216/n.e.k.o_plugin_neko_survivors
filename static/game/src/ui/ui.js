@@ -141,8 +141,10 @@ export class UI {
       timerBox.classList.toggle('flandre', !!fight && !!disp);
     }
     if (e.timerLabel) {
-      e.timerLabel.textContent = disp ? disp.label : '';
-      e.timerLabel.style.display = disp ? '' : 'none';
+      // 第一百四十三轮：空 label（维吉尔战去"斩"字）不占位
+      const showLabel = !!disp && !!disp.label;
+      e.timerLabel.textContent = showLabel ? disp.label : '';
+      e.timerLabel.style.display = showLabel ? '' : 'none';
     }
     if (disp) {
       const left = Math.max(0, Math.ceil(disp.left));

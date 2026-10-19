@@ -82,7 +82,6 @@ export class VergilFight {
     this.bgmFade = 0;                // >0 时 BGM 音量线性淡出（P3 转阶段 5s）
     this.ultBgmLocked = false;       // P3 大招后 BGM 完全交给演出（大招不再碰）
     this.castGap = 1.0;              // 不攻击空档 ≤1s（随时在砍人）
-    this.skillIdx = 0;               // 四技能轮转指针
     this.ultCd = 0;                  // P3 大招冷却（只在 P3 倒数）
     this.ultCount = 0;
     this.bx = 0; this.by = -260;     // 椅子锚点（世界坐标）
@@ -157,9 +156,11 @@ export class VergilFight {
   /**
    * HUD 顶部倒计时（纯显示，同芙兰战 getDisplayTimer 通道）——
    * 90 秒限时倒数。此前波次计时冻结在 30（用户反馈 2）。
+   * 第一百四十三轮：不带文字标签 —— 用户反馈 1："要不去掉斩字"
+   *（大字下方再顶一行小字会把血条压得更低）。
    */
   getDisplayTimer() {
-    return { label: '斩', left: Math.max(0, this.timeLeft), total: FIGHT_TIME };
+    return { label: '', left: Math.max(0, this.timeLeft), total: FIGHT_TIME };
   }
 
   /** 结算入口（胜利 / 失败都走这里，幂等） */
@@ -426,13 +427,14 @@ export class VergilFight {
   }
 
   _pickSkill() {
-    // P3：大招冷却好了就先放大招；否则四技能轮转
+    // P3：大招冷却好了就先放大招；否则四技能**纯随机**（第一百四十三轮，
+    // 用户："让他不要规规矩矩循环，而是纯随机。比如他乐意的话可以球形
+    // 次元斩5连休息休息一秒后再来一个5连"—— 允许连续同一技能）
     if (this.phase === 3) {
       this.ultCd -= (this.castGap / this.spd());
       if (this.ultCd <= 0) { this._startUlt(); return; }
     }
-    const name = SKILL_ORDER[this.skillIdx % SKILL_ORDER.length];
-    this.skillIdx++;
+    const name = SKILL_ORDER[(Math.random() * SKILL_ORDER.length) | 0];
     this.state = 'cast';
     this.stateT = 0;
     this.skill = { name, st: 0, fired: 0 };

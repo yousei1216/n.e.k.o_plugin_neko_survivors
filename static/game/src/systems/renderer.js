@@ -3454,7 +3454,10 @@ export class Renderer {
       // 第九十九轮：芙兰战期间血条整体下移一点 —— 顶中的分段倒计时
       //（？？？/符卡/ExtraPhantom）和血条不再打架。用户："目前会盖住
       // 芙兰的血条一点，把芙兰的血条往下移动一点点。让两个要素分开。"
-      const barTop = 62 + (world.flandreFight ? 18 : 0);
+      // 第一百四十三轮：维吉尔战同通道下移 —— 顶部 90 秒大字压着血条
+      //（用户反馈 1："盖住血条了……被挡住就再下移点"；维吉尔没有文字
+      // 标签，下移量比芙兰少一点即可）
+      const barTop = 62 + (world.flandreFight ? 18 : world.vergilFight ? 12 : 0);
       ctx.save();
       for (let i = 0; i < bosses.length; i++) {
         const boss = bosses[i];
