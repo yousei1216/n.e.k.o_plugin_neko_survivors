@@ -65,10 +65,10 @@ export class WeatherSystem {
   get def() { return WEATHER_MAP[this.id]; }
   get active() { return this.phase === 'active'; }
 
-  /** Boss 波 / 芙兰战 —— 天气绝对不出现（用户铁律） */
+  /** Boss 波 / 芙兰战 / 维吉尔战 —— 天气绝对不出现（用户铁律） */
   static blocked(world) {
     const cfg = world.waveConfig;
-    return !!(world.flandreFight
+    return !!(world.flandreFight || world.vergilFight
       || cfg?.isBoss || cfg?.boss || (cfg?.bosses?.length ?? 0) > 0);
   }
 

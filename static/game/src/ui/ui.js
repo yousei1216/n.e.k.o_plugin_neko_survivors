@@ -128,12 +128,17 @@ export class UI {
     // 第九十七轮：同位置另挂一个**纯显示**的芙兰战分段倒计时 ——
     // 序章弹幕 ？？？30s / 符卡 n/4 各 30s / EP 1/3、2/3 20s、3/3 30s，
     // 数据来自 flandreFight.getDisplayTimer()，战斗结束自动隐藏。
+    // 第一百四十一轮：维吉尔战同通道 —— 90 秒限时倒数（用户反馈 2：
+    // "计时器全程锁定30秒显示，而不是90秒变动"）。
     const fight = game.world?.flandreFight;
-    const disp = fight ? (fight.getDisplayTimer?.() ?? null) : null;
+    const vfight = game.world?.vergilFight;
+    const disp = fight
+      ? (fight.getDisplayTimer?.() ?? null)
+      : (vfight ? (vfight.getDisplayTimer?.() ?? null) : null);
     const timerBox = e.timerText && e.timerText.closest('.hud-timer');
     if (timerBox) {
-      timerBox.classList.toggle('hidden', !!fight && !disp);
-      timerBox.classList.toggle('flandre', !!disp);
+      timerBox.classList.toggle('hidden', !!(fight || vfight) && !disp);
+      timerBox.classList.toggle('flandre', !!fight && !!disp);
     }
     if (e.timerLabel) {
       e.timerLabel.textContent = disp ? disp.label : '';

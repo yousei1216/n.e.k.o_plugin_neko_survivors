@@ -1355,8 +1355,9 @@ export class Game {
     if (opts.test) {
       this.setDifficulty('nightmare');
       this.startRun('yui');
-      // 测试局发两把远程武器（同芙兰调试局理由：肉眼可见的输出）
-      try { this.player.addWeapon('meow_cannon'); this.player.addWeapon('star_wand'); } catch { /* */ }
+      // 测试局专属输出武器（每秒约 1000，仅测试局可见，不进本体任何池 ——
+      // 用户："测试的角色没伤害，偷偷给她一个每秒能打1000左右的远程武器"）
+      try { this.player.addWeapon('vergil_test_gun'); } catch { /* */ }
       this.meta.retries = 0;
     }
     this._vergilFought = true;                // 本局触发标志（第 10 波不重复进）

@@ -150,6 +150,14 @@ export class VergilFight {
 
   spd() { return this.spdMul; }
 
+  /**
+   * HUD 顶部倒计时（纯显示，同芙兰战 getDisplayTimer 通道）——
+   * 90 秒限时倒数。此前波次计时冻结在 30（用户反馈 2）。
+   */
+  getDisplayTimer() {
+    return { label: '斩', left: Math.max(0, this.timeLeft), total: FIGHT_TIME };
+  }
+
   /** 结算入口（胜利 / 失败都走这里，幂等） */
   finish(outcome) {
     if (this.over) return;
@@ -655,10 +663,26 @@ export class VergilFight {
 
   /**
    * 场地背景层（世界坐标系，画在游戏背景之上、一切实体之下 ——
-   * renderer 在背景缓存之后单独调用）。大排档椅子背景图 cover 填满
-   * ARENA 方形（芙兰同款位置），透明度随入场演出 3→6 秒从 0→1。
+   * renderer 在背景缓存之后单独调用）。
+   * 1) ARENA 方形内画大排档椅子背景图（芙兰同款位置），透明度随入场
+   *    演出 3→6 秒从 0→1；
+   * 2) 全屏压暗底 + 场地挖洞 —— 用户反馈 1："背景没有全黑"。维吉尔战
+   *    期间场地外一律近黑，只留方形场地亮着（贴图保持原亮度）。
    */
   renderArena(ctx, camera) {
+    const { cx, cy, hw, hh } = ARENA;
+    // ---- 全屏压暗底，方形场地挖洞（evenodd）----
+    ctx.save();
+    ctx.beginPath();
+    const vw = camera.viewW ?? 1600, vh = camera.viewH ?? 900;
+    ctx.rect(camera.cx - vw / 2 - 8, camera.cy - vh / 2 - 8, vw + 16, vh + 16);
+    ctx.rect(cx - hw, cy - hh, hw * 2, hh * 2);
+    ctx.clip('evenodd');
+    ctx.fillStyle = 'rgba(4,4,10,0.9)';
+    ctx.fill();
+    ctx.restore();
+
+    // ---- 场地内的大排档背景图 ----
     const img = this.arenaImg;
     if (!img.complete || !img.naturalWidth) return;
     // 淡入曲线：0-3s 全黑看不到；3-6s 0→1；之后常驻
@@ -667,7 +691,6 @@ export class VergilFight {
     const alpha = this.state === 'intro'
       ? Math.min(1, (t - INTRO_BLACK_END) / (INTRO_SCENE_END - INTRO_BLACK_END))
       : 1;
-    const { cx, cy, hw, hh } = ARENA;
     ctx.save();
     ctx.globalAlpha = alpha;
     // clip 方形场地（芙兰同款）

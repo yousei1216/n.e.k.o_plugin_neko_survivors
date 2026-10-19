@@ -242,7 +242,26 @@ export const WEAPONS = [
   },
 ];
 
-export const WEAPON_MAP = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
+/**
+ * 第一百四十一轮：测试专属武器（用户要求："测试的角色没伤害，偷偷给她一个
+ * 每秒能打1000左右的远程武器好测试伤害，这个武器不要出现在游戏本体即可。"）
+ *
+ * 只进 WEAPON_MAP（getWeapon/addWeapon 找得到），**不进 WEAPONS 主池** ——
+ * 商店抽取（weaponsByTier 按 tier 过滤主池）、合成配方、流派覆盖断言、
+ * 掉落逻辑全都天然看不到它。唯一入口：main.js 维吉尔测试局发装。
+ */
+export const TEST_WEAPONS = [
+  {
+    id: 'vergil_test_gun', name: '测试·次元侦测炮', tier: 99, kind: 'ranged',
+    behavior: 'straight', color: '#59f2ff', glyph: '测',
+    damage: 250, cooldown: 0.25, range: 520, speed: 820, pierce: 3,
+    desc: '（仅测试局）每秒约 1000 输出的直线穿透炮，用来验证 Boss 血量曲线。',
+  },
+];
+
+export const WEAPON_MAP = Object.fromEntries(
+  [...WEAPONS, ...TEST_WEAPONS].map((w) => [w.id, w]),
+);
 export const getWeapon = (id) => WEAPON_MAP[id];
 
 /**
