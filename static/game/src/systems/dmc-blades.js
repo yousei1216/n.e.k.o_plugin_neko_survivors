@@ -9,8 +9,8 @@
 
 const TAU = Math.PI * 2;
 
-/** mulberry32 —— 折线刀光的确定性伪随机（每帧重画形状一致） */
-function mulberry32(seed) {
+/** mulberry32 —— 折线刀光的确定性伪随机（每帧重画形状一致）。第一百四十八轮起导出共用 */
+export function mulberry32(seed) {
   let a = seed >>> 0;
   return function () {
     a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -138,12 +138,15 @@ export function drawZigzagBlade(ctx, x1, y1, x2, y2, seed, k, segs = 7, tint = '
   const ux = dx / len, uy = dy / len;
   const px = -uy, py = ux;
 
-  // 折点序列：主轴等分 + 垂直随机偏移（两端偏移收 0 → 渐隐）
+  // 第一百四十九轮：撕裂空间的折线感 —— 每 ~50px 一个极小的垂直随机偏移
+  //（±5px，闪电/玻璃裂痕质感；两端偏移收 0 → 渐隐）。段数按长度自适应，
+  // 满屏刀光（len 1500+）会有 30+ 个折点，细碎高频抖动。
+  const n = Math.max(segs, Math.round(len / 50));
   const pts = [];
-  for (let i = 0; i <= segs; i++) {
-    const t = i / segs;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
     const edge = Math.sin(t * Math.PI);                 // 中段偏移大、两端为 0
-    const off = (rnd() - 0.5) * 2 * 34 * edge;
+    const off = (rnd() - 0.5) * 2 * 5 * edge;
     pts.push([x1 + dx * t + px * off, y1 + dy * t + py * off]);
   }
 
@@ -156,13 +159,45 @@ export function drawZigzagBlade(ctx, x1, y1, x2, y2, seed, k, segs = 7, tint = '
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
   };
-  // 外晕（宽淡）→ 白主体 → 白芯
-  ctx.strokeStyle = hexA(tint, 0.2 * k);
-  ctx.lineWidth = 7 * k + 1;
+  // ---- 多层渲染（用户规格：发光的能量刃，不是白线）----
+  // 底层光晕：10~15px 半透明青色，大面积泛光
+  ctx.strokeStyle = `rgba(0,255,255,${0.3 * k})`;
+  ctx.lineWidth = 10 + 5 * k;
   trace(); ctx.stroke();
-  ctx.strokeStyle = `rgba(255,255,255,${0.85 * k})`;
-  ctx.lineWidth = 2.4 * k + 0.5;
+  // 中层能量：4~6px 亮蓝青
+  ctx.strokeStyle = `rgba(100,200,255,${0.8 * k})`;
+  ctx.lineWidth = 4 + 2 * k;
   trace(); ctx.stroke();
+  // 核心高光：1.5px 纯白刀锋（tint 调用方决定锋色 —— 阎魔刀金、次元斩白）
+  ctx.strokeStyle = hexA(tint === '#a0e6ff' ? '#ffffff' : tint, Math.min(1, k * 1.15));
+  ctx.lineWidth = 1.5;
+  trace(); ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 刀锋火花：白色细长小粒子，寿命极短（~0.2s），沿速度方向拉出细线。
+ * 生成在斩击线两端与路径上（调用方 push {x,y,vx,vy,t,life,ang}）。
+ */
+export function drawBladeSpark(ctx, s) {
+  const k = Math.max(0, 1 - s.t / s.life);
+  const L = 5 + 7 * k;                          // 越老越短
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = `rgba(255,255,255,${0.9 * k})`;
+  ctx.lineWidth = 1.3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(s.x, s.y);
+  ctx.lineTo(s.x - Math.cos(s.ang) * L, s.y - Math.sin(s.ang) * L);
+  ctx.stroke();
+  // 青色小尾晕
+  ctx.strokeStyle = `rgba(120,220,255,${0.4 * k})`;
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.moveTo(s.x, s.y);
+  ctx.lineTo(s.x - Math.cos(s.ang) * L * 0.6, s.y - Math.sin(s.ang) * L * 0.6);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -370,4 +405,211 @@ export function distToSegment(px, py, x1, y1, x2, y2) {
   let t = ((px - x1) * dx + (py - y1) * dy) / l2;
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (x1 + dx * t), py - (y1 + dy * t));
+}
+
+// =========================================================
+// 第一百四十六轮：幻影剑（Mirage Edge）+ 格挡领域特效
+// =========================================================
+// 参考图（图1.png）：高亮发光的流体能量剑 —— 亮青核心 + 柔和蓝色外晕、
+// 轮廓带随机微小偏移（火焰感/不稳定能量感）。用户规格：
+//  · 多层 lighter 描边：20px 深蓝 α0.1 → 10px 亮蓝 α0.4 → 3px 纯白 α1
+//  · 内部能量折线从剑柄向剑尖蔓延
+//  · 十字护手 + 剑柄残影；悬浮呼吸缩放；飞行拖尾（调用方画）
+
+/**
+ * 幻影剑本体（世界坐标系，angle = 指向方向）。
+ *
+ * @param {number} x,y    剑柄锚点
+ * @param {number} angle  朝向（剑尖方向）
+ * @param {number} alpha  整体透明度（召唤淡入/发射淡出用）
+ * @param {object} [opts] seed 稳定随机；scale 呼吸缩放（调用方算 sin）；
+ *                        trailPts 拖尾点 [{x,y}]（飞行态，调用方先画）
+ */
+export function drawMirageEdge(ctx, x, y, angle, alpha, opts = {}) {
+  const seed = opts.seed ?? 7;
+  const scale = opts.scale ?? 1;
+  const rnd = mulberry32(seed);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // ---- 剑身轮廓：中心线 + 两侧随机微偏移（火焰状不稳定边缘）----
+  // 局部系：剑柄在 (0,0)，剑尖在 (L,0)。
+  const L = 96;
+  const N = 10;                                 // 中心线采样段数
+  const mid = [], up = [], dn = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    // 剑身中线：轻微弯弧（参考图的微弯剑身）+ 尖端收细由宽度控制
+    const bend = Math.sin(t * Math.PI) * 4;
+    const px = t * L;
+    const py = -bend;
+    mid.push([px, py]);
+    // 宽度：剑根宽 → 剑尖收成尖；微偏移集中在中段（火焰舔舐感）
+    const halfW = (1 - t) ** 0.7 * 5.2 + 0.8;
+    const wob = Math.sin(t * 11 + rnd() * 1.6) * 1.3 * Math.sin(t * Math.PI);
+    up.push([px, py - halfW + wob]);
+    dn.push([px, py + halfW + wob]);
+  }
+  const traceMid = () => {
+    ctx.beginPath();
+    ctx.moveTo(mid[0][0], mid[0][1]);
+    for (let i = 1; i <= N; i++) ctx.lineTo(mid[i][0], mid[i][1]);
+  };
+  const traceEdge = () => {
+    ctx.beginPath();
+    ctx.moveTo(up[0][0], up[0][1]);
+    for (let i = 1; i <= N; i++) ctx.lineTo(up[i][0], up[i][1]);
+    ctx.lineTo(mid[N][0], mid[N][1]);           // 剑尖
+    for (let i = N; i >= 0; i--) ctx.lineTo(dn[i][0], dn[i][1]);
+    ctx.closePath();
+  };
+
+  // ---- 多层描边发光（极度关键，用户规格三层）----
+  // 底晕只沿中线铺（闭合轮廓晕 20px 会糊成一团，义眼看成水母的教训）
+  ctx.strokeStyle = `rgba(30,60,200,${0.12 * alpha})`;
+  ctx.lineWidth = 20;
+  traceMid(); ctx.stroke();
+  // 轮廓层：亮蓝
+  ctx.strokeStyle = `rgba(70,140,255,${0.4 * alpha})`;
+  ctx.lineWidth = 7;
+  traceEdge(); ctx.stroke();
+  // 中线淡晕（把轮廓晕连成体）
+  ctx.strokeStyle = `rgba(90,180,255,${0.3 * alpha})`;
+  ctx.lineWidth = 5;
+  traceMid(); ctx.stroke();
+  // 核心层：极亮纯白
+  ctx.strokeStyle = `rgba(255,255,255,${1.0 * alpha})`;
+  ctx.lineWidth = 2.6;
+  traceMid(); ctx.stroke();
+
+  // ---- 内部能量纹理：从剑柄向剑尖蔓延的亮色折线/短线 ----
+  ctx.strokeStyle = `rgba(150,240,255,${0.55 * alpha})`;
+  ctx.lineWidth = 1.4;
+  const veins = 4;
+  for (let v = 0; v < veins; v++) {
+    const t0 = rnd() * 0.25;
+    ctx.beginPath();
+    let px = mid[0][0] + t0 * L, py = (rnd() - 0.5) * 6;
+    ctx.moveTo(px, py);
+    const segs = 3 + (rnd() * 3 | 0);
+    for (let s2 = 0; s2 < segs; s2++) {
+      px += (0.14 + rnd() * 0.2) * L;
+      py += (rnd() - 0.5) * 10;
+      ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+
+  // ---- 护手（十字/斜角）+ 剑柄（带残影）----
+  ctx.globalCompositeOperation = 'source-over';
+  // 剑柄残影（两道渐弱的短柄）
+  for (let g = 2; g >= 0; g--) {
+    ctx.strokeStyle = `rgba(50,90,220,${(0.32 - g * 0.1) * alpha})`;
+    ctx.lineWidth = 5 - g * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(-8 - g * 7, 0);
+    ctx.lineTo(0, 0);
+    ctx.stroke();
+  }
+  // 护手：垂直短棒 + 斜角
+  ctx.strokeStyle = `rgba(40,80,210,${0.9 * alpha})`;
+  ctx.lineWidth = 4.5;
+  ctx.beginPath();
+  ctx.moveTo(2, -11);
+  ctx.lineTo(2, 11);
+  ctx.stroke();
+  ctx.strokeStyle = `rgba(90,170,255,${0.7 * alpha})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-3, -8); ctx.lineTo(7, 8);
+  ctx.moveTo(-3, 8); ctx.lineTo(7, -8);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * 格挡斩击线：子弹被切碎瞬间的一道纯白折线刀光（一闪即逝 0.1s）。
+ * k = 生命 0→1（1 刚触发）。形状由 seed 稳定。
+ */
+export function drawParrySlash(ctx, x, y, seed, k) {
+  const rnd = mulberry32(seed);
+  const a = rnd() * Math.PI;                    // 折线主方向
+  const len = 26 + rnd() * 14;
+  const ux = Math.cos(a), uy = Math.sin(a);
+  const px = -uy, py = ux;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // 主折线（3 折）
+  const pts = [[x - ux * len, y - uy * len]];
+  for (let i = 1; i <= 3; i++) {
+    const t = i / 3;
+    pts.push([x - ux * len + ux * len * 2 * t + px * (rnd() - 0.5) * 14,
+              y - uy * len + uy * len * 2 * t + py * (rnd() - 0.5) * 14]);
+  }
+  const trace = () => {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  };
+  ctx.strokeStyle = `rgba(180,240,255,${0.5 * k})`;
+  ctx.lineWidth = 4 * k + 1;
+  trace(); ctx.stroke();
+  ctx.strokeStyle = `rgba(255,255,255,${k})`;
+  ctx.lineWidth = 1.4 * k + 0.4;
+  trace(); ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 格挡火花：子弹碎裂成的 3-4 个青色微小光点，向四周弹开淡出。
+ * spawn 由 vergilFight 调（容器在它身上）；这里只画单个。
+ */
+export function drawParrySpark(ctx, s) {
+  const k = Math.max(0, 1 - s.t / s.life);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = `rgba(140,240,255,${k})`;
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, 1.6 * k + 0.4, 0, TAU);
+  ctx.fill();
+  // 短拖尾
+  ctx.strokeStyle = `rgba(90,200,255,${0.5 * k})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(s.x, s.y);
+  ctx.lineTo(s.x - s.vx * 0.03, s.y - s.vy * 0.03);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 格挡涟漪：大量子弹同时被斩碎时，椅子周身一圈急速收缩的青色光圈。
+ * k: 0→1 生命（0 刚触发 = 大圈，1 收缩完毕消失）
+ */
+export function drawParryRipple(ctx, x, y, k, baseR = 120) {
+  const r = baseR * (1 - k) + 18;
+  const a = (1 - k) * 0.7;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = `rgba(90,220,255,${a})`;
+  ctx.lineWidth = 3 * (1 - k) + 0.5;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.stroke();
+  ctx.strokeStyle = `rgba(220,250,255,${a * 0.8})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.82, 0, TAU);
+  ctx.stroke();
+  ctx.restore();
 }

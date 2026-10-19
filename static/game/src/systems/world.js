@@ -747,6 +747,15 @@ export class World {
    */
   dealDamage(player, weapon, target, baseDamage, opts = {}) {
     if (!target || target.dead) return 0;
+    // 第一百四十六轮：维吉尔战钩子 —— 格挡领域斩碎远程弹。
+    // 用户规格：P1/P2 游荡（不施法）时自动格挡，子弹不扣血直接销毁；
+    // 近战不触发（近距离拼刀他挡不住 —— melee 不走这里，走下面的正常伤害）。
+    const vf = this.vergilFight;
+    if (vf && target === vf.boss && vf.guarding) {
+      vf.parryAt(opts.fromX ?? target.x, opts.fromY ?? target.y);
+      this.fx.damageText(target.x, target.y - target.radius, '格挡', false, '#8fd9f0');
+      return { dodged: true, dealt: 0, parried: true };
+    }
     const stats = player.stats.values;
     const rt = player.charRt;
 
@@ -808,6 +817,11 @@ export class World {
       if (wx.playerOut !== 1) dmg *= wx.playerOut;
     }
     const res = target.takeDamage(dmg, { pierceArmor: opts.pierceArmor });
+    // 第一百四十六轮：近战计量 —— 累计近战伤害达玩家 maxHp 10% 触发幻影剑
+    //（dealDamage 顶部已处理格挡分支，能走到这里的都是真伤害）
+    if (vf && target === vf.boss && weapon?.def?.kind === 'melee') {
+      vf.noteMelee(res.dealt ?? 0);
+    }
 
     if (res.dodged) {
       this.fx.damageText(target.x, target.y - target.radius, 'MISS', false, '#9aa3bb');

@@ -114,6 +114,16 @@ export class Bullet extends Entity {
       if (this.hitIds.has(e.id)) continue;
       this.hitIds.add(e.id);
 
+      // 第一百四十六轮：维吉尔格挡领域 —— P1/P2 游荡时自动格挡，子弹
+      // 不扣血、直接斩碎（火花/斩线特效和音效在 parryAt 里）。近战不
+      // 走子弹，天然不受格挡影响。
+      const vf = world.vergilFight;
+      if (vf && e === vf.boss && vf.guarding) {
+        vf.parryAt(this.x, this.y);
+        this.dead = true;
+        return;
+      }
+
       // 第一百一十五轮：穿甲弹衰减 —— 伤害 = 基础 × 0.6^（已消耗的
       // 道具穿透数）。第一段永远全额（itemUsed=0）；道具穿透每用掉
       // 一段，下一段 ×0.6。

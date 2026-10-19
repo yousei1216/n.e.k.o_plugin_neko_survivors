@@ -20,6 +20,8 @@ import { audio } from './audio.js';
 import {
   drawCrescent, drawZigzagBlade, drawDashSlash, drawAoeRing, drawRift,
   drawUltVeil, spawnShatter, drawShards, drawEdgeFlash, distToSegment,
+  drawMirageEdge, drawParrySlash, drawParrySpark, drawParryRipple,
+  mulberry32, drawBladeSpark,
 } from './dmc-blades.js';
 
 // ---- 数值 ----
@@ -37,7 +39,16 @@ const INTRO_BLACK_END = 3;
 const INTRO_SCENE_END = 6;
 const INTRO_END = 9;
 
-const SKILL_ORDER = ['triple', 'dash', 'aoe', 'sphere'];
+const SKILL_ORDER = ['triple', 'dash', 'aoe', 'sphere', 'mirage'];
+
+// 幻影剑（Mirage Edge）参数（第一百四十六轮）
+const MIRAGE_COUNT = 6;          // 环绕剑数（5-6 把）
+const MIRAGE_SUMMON = 3.0;       // 环绕旋转时长
+const MIRAGE_GAP = 0.22;         // 依次发射间隔
+const MIRAGE_SPEED = 560;        // 飞行速度
+const MIRAGE_ORBIT = 92;         // 环绕半径
+const MIRAGE_AUTO_CD = 20;       // 自动触发冷却（用户补充：防止纯远程看不到）
+const MIRAGE_MELEE_FRAC = 0.1;   // 累计近战伤害达玩家 maxHp 的 10% 触发
 
 export class VergilFight {
   constructor(main, { onDone }) {
@@ -104,6 +115,30 @@ export class VergilFight {
     this.whiteFlash = 0;
     this.edgeFlash = 0;
     this.hitCd = 0;                  // 玩家受击内置 CD
+
+    // ---- 第一百四十六轮：幻影剑（Mirage Edge）----
+    this.mirage = null;              // 技能态 {st, fired, swords:[{a,seed}], flying:[{x,y,angle,speed,t,life,seed,trail}]}
+    this.mirageAutoCd = MIRAGE_AUTO_CD;  // 自动触发冷却（20s，intro 后起算）
+    this.meleeMeter = 0;             // 累计近战伤害（达玩家 maxHp 10% 触发）
+    this.mirageEmbers = [];          // 环绕剑火星粒子
+
+    // ---- 第一百四十六轮：格挡领域（P1/P2 游荡时斩碎远程子弹）----
+    this.guarding = false;           // 每帧重算：phase<=2 && state==='wander'
+    this.guardT = 0;                 // 本次格挡已持续（破碎特效只在真格挡过时放）
+    this.guardShatterT = 0;          // >0 时画"格挡光圈闪烁破碎"
+    this.parryFx = [];               // 斩击线 {x,y,seed,t,life}
+    this.parrySparks = [];           // 火花 {x,y,vx,vy,t,life}
+    this.parryRipples = [];          // 涟漪 {t, life}
+    this._parryCount = 0;            // 0.3s 窗口内格挡数（≥6 触发涟漪）
+    this._parryWindow = 0;
+    this._parrySfxT = 0;             // 音效节流
+
+    // ---- 第一百四十八轮：P3 蓄力演出（"极度装逼的蓄力状态"）----
+    this.chargeT = 0;                // >0 = 蓄力中，倒计时 5→0（拔刀）
+    this.chargeParts = [];           // 反向汇聚粒子 {sx,sy,k,sp,hue}
+    this.chargeCracks = [];          // 空间裂缝折线 {x,y,seed,t,life}
+    this.chargeBlack = 0;            // >0 = 拔刀前绝对黑屏（0.2s）
+    this.bladeSparks = [];           // 第一百四十九轮：刀锋火花 {x,y,vx,vy,ang,t,life}
     this.chairVisible = false;       // 入场演出期间椅子隐藏（9s 时在原像素点出现）
     this.chairImg = new Image();
     // 演出素材放 assets/boss/（不进 assets/enemies/ —— 那里被贴图清单
@@ -151,6 +186,25 @@ export class VergilFight {
     } catch { /* */ }
   }
 
+  /**
+   * 格挡音效：复用攻击1.ogg，高 playbackRate + 极短截断 —— 清脆的"叮"。
+   * 节流：同帧多颗子弹只出 2 声（_parrySfxT 80ms 窗口）。
+   */
+  _seParry() {
+    if (this._parrySfxT > 0) return;
+    this._parrySfxT = 0.08;
+    try {
+      if (typeof Audio === 'undefined') return;
+      let tpl = this._seEls.get('vergil_atk');
+      if (!tpl) { tpl = new Audio('assets/sfx/攻击1.ogg'); tpl.preload = 'auto'; this._seEls.set('vergil_atk', tpl); }
+      const v = tpl.cloneNode();
+      v.volume = 0.3 * (audio.enabled ? 1 : 0);
+      v.muted = !audio.enabled;
+      v.playbackRate = 3.2;
+      v.play().then(() => { setTimeout(() => { try { v.pause(); } catch { /* */ } }, 70); }).catch(() => { /* */ });
+    } catch { /* */ }
+  }
+
   spd() { return this.spdMul; }
 
   /**
@@ -167,6 +221,11 @@ export class VergilFight {
   finish(outcome) {
     if (this.over) return;
     this.over = true;
+    // 第一百四十八轮：任何结算路径都把全场速度/蓄力态复位（蓄力中被
+    // 打死/超时的话，别让 timeScale=0.2 泄漏回正常波次）
+    this.timeScale = 1;
+    this.chargeT = 0;
+    this.chargeBlack = 0;
     try { this._bgm?.pause(); } catch { /* */ }
     this.onDone?.(outcome);
   }
@@ -216,6 +275,52 @@ export class VergilFight {
       if (this.timeLeft <= 0) { this.finish('timeout'); return; }
     }
 
+    // ---- 第一百四十八轮：P3 蓄力演出推进（5 秒：入定 → 汇聚 → 拔刀）----
+    if (this.chargeT > 0) {
+      this.chargeT = Math.max(0, 5 - this.stateT);
+      this.timeScale = 0.2;                        // 全场极慢速（boss 走 dtReal）
+      // 反向粒子：全屏随机生成、加速向椅子汇聚（第 0.5~4.2 秒持续）
+      if (this.chargeT > 0.8 && this.chargeT < 4.6) {
+        const n = 2 + ((Math.random() * 2) | 0);
+        for (let i = 0; i < n; i++) {
+          const a = Math.random() * TAU;
+          const d = 260 + Math.random() * 340;
+          this.chargeParts.push({
+            sx: this.bx + Math.cos(a) * d, sy: this.by + Math.sin(a) * d,
+            k: 0, sp: 0.55 + Math.random() * 0.5,
+            hue: Math.random() < 0.6 ? 'c' : 'v',   // 青色 / 紫色
+          });
+        }
+      }
+      // 空间裂缝：暗紫折线随机闪烁（第 2~4.5 秒）
+      if (this.chargeT < 3.6 && this.chargeT > 0.5 && Math.random() < 0.22) {
+        this.chargeCracks.push({
+          x: this.bx + (Math.random() - 0.5) * 380,
+          y: this.by + (Math.random() - 0.5) * 300,
+          seed: (Math.random() * 1e9) | 0, t: 0, life: 0.35 + Math.random() * 0.25,
+        });
+      }
+      // 第 5 秒：全部停止并消失 → 绝对黑屏 0.2s（BGM 淡出恰好归零）
+      if (this.chargeT <= 0.2) {
+        this.chargeParts.length = 0;
+        this.chargeCracks.length = 0;
+        this.chargeBlack = 1;
+      } else {
+        this.chargeBlack = 0;
+      }
+      // 粒子推进：k 递增（先慢后快 = 加速吸感），到心即灭
+      for (let i = this.chargeParts.length - 1; i >= 0; i--) {
+        const q = this.chargeParts[i];
+        q.k += (0.35 + 0.65 * q.k) * q.sp * dtReal * 1.4;
+        if (q.k >= 1) this.chargeParts.splice(i, 1);
+      }
+      for (let i = this.chargeCracks.length - 1; i >= 0; i--) {
+        const c = this.chargeCracks[i];
+        c.t += dtReal;
+        if (c.t >= c.life) this.chargeCracks.splice(i, 1);
+      }
+    }
+
     // ---- P3 转阶段演出：BGM 5 秒淡出；锁血结束那一刻放大招 + 音量瞬回 ----
     //（第一百四十五轮：不再要求 state==='pause' —— stateT 与锁血倒计时的
     // 浮点累计有细微差，pause 可能提前一帧切走，检测条件从此永假，
@@ -240,6 +345,12 @@ export class VergilFight {
           this._p3Seeked = true;         // 回归断言用：seek 指令已发出
         }
       } catch { /* */ }
+      // 第一百四十八轮：拔刀瞬间 —— 黑屏结束、白闪爆响、粒子清场
+      this.chargeT = 0;
+      this.chargeBlack = 0;
+      this.chargeParts.length = 0;
+      this.chargeCracks.length = 0;
+      this.whiteFlash = 1;
       this._startUlt();
     }
 
@@ -272,6 +383,78 @@ export class VergilFight {
       if (this.stateT >= this.pauseDur) { this.state = 'wander'; this.stateT = 0; }
     } else if (this.state === 'win') {
       if (this.stateT >= 1.4) this.finish('beat');
+    }
+
+    // ---- 第一百四十六轮：格挡领域状态 ----
+    // P1/P2 且"游荡（不施法）"时自动格挡；出招瞬间光圈闪烁破碎（提示玩家）。
+    // 近战不在此拦（拼刀他挡不住，melee 伤害照常走 dealDamage）。
+    const wasGuard = this.guarding;
+    this.guarding = this.phase <= 2 && this.state === 'wander' && !p.dead;
+    if (this.guarding) this.guardT += dtReal;
+    if (wasGuard && !this.guarding && this.guardT > 0.4) {
+      this.guardShatterT = 0.35;       // 出招了 —— 光圈闪烁破碎
+      this.guardT = 0;
+    } else if (!this.guarding) {
+      this.guardT = 0;
+    }
+    this.guardShatterT = Math.max(0, this.guardShatterT - dtReal);
+
+    // ---- 格挡特效推进 + 涟漪窗口 ----
+    this._parrySfxT = Math.max(0, this._parrySfxT - dtReal);
+    this._parryWindow -= dtReal;
+    if (this._parryWindow <= 0) {
+      this._parryWindow = 0.3;
+      if (this._parryCount >= 6) this.parryRipples.push({ t: 0, life: 0.4 });
+      this._parryCount = 0;
+    }
+    for (let i = this.parryFx.length - 1; i >= 0; i--) {
+      const s = this.parryFx[i];
+      s.t += dtReal;
+      if (s.t >= s.life) this.parryFx.splice(i, 1);
+    }
+    for (let i = this.parrySparks.length - 1; i >= 0; i--) {
+      const s = this.parrySparks[i];
+      s.t += dtReal;
+      s.x += s.vx * dtReal;
+      s.y += s.vy * dtReal;
+      s.vx *= 0.92; s.vy *= 0.92;
+      if (s.t >= s.life) this.parrySparks.splice(i, 1);
+    }
+    for (let i = this.parryRipples.length - 1; i >= 0; i--) {
+      const r = this.parryRipples[i];
+      r.t += dtReal;
+      if (r.t >= r.life) this.parryRipples.splice(i, 1);
+    }
+
+    // ---- 幻影剑：自动触发计时 + 近战计量在 dealDamage 里喂 ----
+    if (this.state !== 'intro') {
+      this.mirageAutoCd -= dtReal;
+      if (this.mirageAutoCd <= 0) {
+        this.mirageAutoCd = MIRAGE_AUTO_CD;
+        this._tryMirage();               // 20 秒一次（用户补充的保底通道）
+      }
+    }
+
+    // ---- 幻影剑技能推进 ----
+    if (this.mirage) this._tickMirage(dtReal);
+
+    // ---- 幻影剑火星（环绕时随机飘散）----
+    if (this.mirage && Math.random() < 0.5) {
+      const sw = this.mirage.swords[(Math.random() * this.mirage.swords.length) | 0];
+      const a = sw.a + this.mirage.orbitA;
+      this.mirageEmbers.push({
+        x: this.bx + Math.cos(a) * MIRAGE_ORBIT,
+        y: this.by + Math.sin(a) * MIRAGE_ORBIT,
+        vx: (Math.random() - 0.5) * 30, vy: -30 - Math.random() * 40,
+        t: 0, life: 0.5 + Math.random() * 0.4,
+      });
+    }
+    for (let i = this.mirageEmbers.length - 1; i >= 0; i--) {
+      const e = this.mirageEmbers[i];
+      e.t += dtReal;
+      e.x += e.vx * dtReal;
+      e.y += e.vy * dtReal;
+      if (e.t >= e.life) this.mirageEmbers.splice(i, 1);
     }
 
     // ---- 直线月牙推进（141 轮改：速度翻倍、不追踪、直直冲出去）----
@@ -434,6 +617,12 @@ export class VergilFight {
       this.bgmFade = 5;
       this.ultCd = 0;
       this._p3Pending = true;   // 锁血+淡出都归零时由 update 触发大招
+      // 第一百四十八轮：蓄力入定 —— 全场极慢速（boss 本体走 dtReal 不受影响）
+      this.timeScale = 0.2;
+      this.chargeT = 5;
+      this.chargeParts.length = 0;
+      this.chargeCracks.length = 0;
+      this.chargeBlack = 0;
     }
   }
 
@@ -451,10 +640,134 @@ export class VergilFight {
       this.ultCd -= (this.castGap / this.spd());
       if (this.ultCd <= 0) { this._startUlt(); return; }
     }
-    const name = SKILL_ORDER[(Math.random() * SKILL_ORDER.length) | 0];
+    let name = SKILL_ORDER[(Math.random() * SKILL_ORDER.length) | 0];
+    // 幻影剑被随机抽到时若已在放/刚放过，换成普通技能（自动/计量触发另有通道）
+    if (name === 'mirage' && !this._tryMirage()) {
+      name = SKILL_ORDER[(Math.random() * 4) | 0];
+    }
+    if (name === 'mirage') {
+      // 幻影剑是独立浮游容器（不走 cast 状态机）—— 只记个名，行为在 _tickMirage
+      this.skill = { name: 'mirage', st: 0, fired: 0 };
+      this.state = 'wander';
+      this.stateT = 0;
+      return;
+    }
     this.state = 'cast';
     this.stateT = 0;
     this.skill = { name, st: 0, fired: 0 };
+  }
+
+  // ---------------------------------------------------------
+  // 第一百四十六轮：幻影剑（Mirage Edge）
+  // ---------------------------------------------------------
+
+  /**
+   * 触发幻影剑。三个入口：
+   *  · _pickSkill 随机抽中；
+   *  · 累计近战伤害达玩家 maxHp 的 10%（world.dealDamage → noteMelee）；
+   *  · 每 20 秒自动一次（用户补充："防止玩家是纯远程完全没近战看不到"）。
+   * @returns {boolean} 是否真的开始施放
+   */
+  _tryMirage() {
+    if (this.mirage || this.over || this.state === 'intro' || this.state === 'win') return false;
+    this.mirage = {
+      st: 0, fired: 0, orbitA: 0,
+      swords: Array.from({ length: MIRAGE_COUNT }, (_, i) => ({
+        a: (i / MIRAGE_COUNT) * TAU, seed: (Math.random() * 1e9) | 0,
+      })),
+      flying: [],
+    };
+    this._se('vergil_atk', 0.6);
+    return true;
+  }
+
+  /** 环绕 3 秒 → 依次朝玩家当前位置发射 → 飞行推进/命中（5% 真伤通道） */
+  _tickMirage(dtReal) {
+    const m = this.mirage;
+    const p = this.main.player;
+    m.st += dtReal;
+    m.orbitA += dtReal * 2.2;
+
+    // 环绕期结束 → 依次发射（每把锁定发射瞬间玩家的位置）
+    if (m.st >= MIRAGE_SUMMON && m.fired < MIRAGE_COUNT) {
+      const should = Math.min(MIRAGE_COUNT, 1 + (((m.st - MIRAGE_SUMMON) / MIRAGE_GAP) | 0));
+      while (m.fired < should) {
+        const sw = m.swords[m.fired];
+        const a = sw.a + m.orbitA;
+        const px = this.bx + Math.cos(a) * MIRAGE_ORBIT;
+        const py = this.by + Math.sin(a) * MIRAGE_ORBIT;
+        m.flying.push({
+          x: px, y: py,
+          angle: Math.atan2(p.y - py, p.x - px),
+          speed: MIRAGE_SPEED, t: 0, life: 3,
+          seed: sw.seed, trail: [], hitCd: 0,
+        });
+        m.fired++;
+        this._se('vergil_atk', 0.45);
+      }
+    }
+
+    // 飞行剑推进
+    for (let i = m.flying.length - 1; i >= 0; i--) {
+      const b = m.flying[i];
+      b.t += dtReal;
+      b.x += Math.cos(b.angle) * b.speed * dtReal;
+      b.y += Math.sin(b.angle) * b.speed * dtReal;
+      b.trail.push({ x: b.x, y: b.y });
+      if (b.trail.length > 16) b.trail.shift();
+      b.hitCd = Math.max(0, b.hitCd - dtReal);
+      // 命中：5% 真伤通道（同刀波），每把剑 0.5s 最多咬一口
+      if (!p.dead && b.hitCd <= 0
+          && Math.hypot(p.x - b.x, p.y - b.y) < 26) {
+        if (this._hitPlayer()) b.hitCd = 0.5;
+      }
+      // 飞出场外/超时 → 收
+      if (b.t >= b.life
+          || Math.abs(b.x - this.bx) > 1600 || Math.abs(b.y - this.by) > 1200) {
+        m.flying.splice(i, 1);
+      }
+    }
+
+    // 全部发完且飞完 → 收技能
+    if (m.fired >= MIRAGE_COUNT && m.flying.length === 0) this.mirage = null;
+  }
+
+  /**
+   * 近战计量：world.dealDamage 喂实际伤害，累计达玩家 maxHp 10% 触发一次。
+   */
+  noteMelee(dealt) {
+    this.meleeMeter += dealt;
+    const maxHp = this.main.player.stats.get('maxHp');
+    if (this.meleeMeter >= maxHp * MIRAGE_MELEE_FRAC) {
+      this.meleeMeter = 0;
+      this._tryMirage();
+    }
+  }
+
+  // ---------------------------------------------------------
+  // 第一百四十六轮：格挡领域（P1/P2 游荡时斩碎远程子弹）
+  // ---------------------------------------------------------
+
+  /**
+   * 斩碎一颗子弹（bullet.checkEnemyHit 在格挡时调用）：
+   * 斩击线 + 火花 + 计数（0.3s 窗口 ≥6 颗触发空间涟漪）+ 音效节流。
+   * @returns {boolean} 是否格挡（false = 未格挡，子弹正常结算）
+   */
+  parryAt(x, y) {
+    if (!this.guarding) return false;
+    this._parryCount++;
+    this.parryFx.push({ x, y, seed: (Math.random() * 1e9) | 0, t: 0, life: 0.1 });
+    const n = 3 + ((Math.random() * 2) | 0);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU;
+      const sp = 60 + Math.random() * 130;
+      this.parrySparks.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        t: 0, life: 0.3 + Math.random() * 0.3,
+      });
+    }
+    this._seParry();
+    return true;
   }
 
   _tickCast(dtReal) {
@@ -558,7 +871,9 @@ export class VergilFight {
       }
       if (sk.st > gap * 5 + 0.4) {
         this._endCast();
-        // 连放结束 → 维吉尔收势休息 1 秒
+        // 连放结束 → 维吉尔收势休息 1 秒 + 收刀音效（第一百四十七轮，
+        // 用户："放了一个收刀.ogg……放在球形次元斩5连结束后……当做收刀音效"）
+        this._se('vergil_shutou', 0.65);
         this.state = 'pause';
         this.stateT = 0;
       }
@@ -615,6 +930,9 @@ export class VergilFight {
         this._ultWaveT -= GAP;
         this._ultWaveN++;
         this.veil = Math.min(1, this.veil + 0.11);
+        // 第一百四十九轮：每波爆发 —— 白闪 0.1s + 重震屏（"咔咔咔"打击感）
+        this.whiteFlash = Math.max(this.whiteFlash, 0.45);
+        cam.shake(9, 0.15);
         const vw = cam.viewW, vh = cam.viewH;
         for (let i = 0; i < 8; i++) {
           const a = Math.random() * TAU;
@@ -626,6 +944,18 @@ export class VergilFight {
             x2: ox + Math.cos(a) * half, y2: oy + Math.sin(a) * half,
             seed: (Math.random() * 1e9) | 0, t: 0, life: 0.2,
           });
+          // 刀锋火花：两端 + 路径中段随机溅出（白色细长，0.2s 寿命）
+          for (let s = 0; s < 4; s++) {
+            const tt = s === 0 ? 0 : s === 1 ? 1 : Math.random();
+            const sx = ox - Math.cos(a) * half + (2 * tt - 1) * Math.cos(a) * half;
+            const sy = oy - Math.sin(a) * half + (2 * tt - 1) * Math.sin(a) * half;
+            const sa = a + Math.PI / 2 + (Math.random() - 0.5) * 2.4;
+            const sp = 160 + Math.random() * 260;
+            this.bladeSparks.push({
+              x: sx, y: sy, vx: Math.cos(sa) * sp, vy: Math.sin(sa) * sp,
+              ang: sa, t: 0, life: 0.16 + Math.random() * 0.08,
+            });
+          }
         }
       }
     }
@@ -731,6 +1061,12 @@ export class VergilFight {
 
   /** 世界层：椅子、刀波、光圈、裂缝、冲刺残影（世界坐标系） */
   renderWorld(ctx, camera) {
+    // 第一百四十七轮：**防御性归位 alpha** —— 玩家特效透明度 0% 时，
+    // _scaledCtx 的 Proxy 会把 globalAlpha=0 写进共享的原 ctx 并残留
+    //（玩家子弹/特效画完 → 椅子继承 0 → "boss 不攻击就透明，攻击的
+    // 时候他的技能特效自己重设 alpha 又出现"，用户实测现象完全吻合）。
+    // 演出层是 boss 本体，永远不接玩家的特效透明度。
+    ctx.globalAlpha = 1;
     // 入场演出：大排档背对剪影（Boss 大小，站在椅子将出现的位置）
     if (this.state === 'intro' && this.silImg.complete && this.silImg.naturalWidth) {
       const t = this.introT;
@@ -761,18 +1097,17 @@ export class VergilFight {
       ctx.fill();
       ctx.translate(this.bx, this.by);
       // 蓄力/大招时轻微浮动
-      const hover = this.state === 'ult' ? -14 : Math.sin(this.t * 2.2) * 3;
+      // 第一百四十八轮：P3 蓄力震颤 —— 高频微抖 ±2px + 离地悬浮 5px
+      const charging = this.chargeT > 0;
+      const hover = this.state === 'ult' ? -14
+        : charging ? -5 + (Math.random() - 0.5) * 4
+        : Math.sin(this.t * 2.2) * 3;
       ctx.translate(0, hover);
+      if (charging) ctx.translate((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
       ctx.rotate(a - Math.PI / 2);              // 图片底部(+y) 指向玩家
       ctx.drawImage(img, -w2 / 2, -h + 6, w2, h);
-      // 底部"头"的青色描边光
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = `rgba(89,242,255,${0.3 + (this.state === 'cast' ? 0.25 : 0)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-w2 / 2, 4);
-      ctx.lineTo(w2 / 2, 4);
-      ctx.stroke();
+      //（第一百四十七轮：删掉图片底部的青色描边横线 —— 用户反馈那像
+      // 一条奇怪的"蓝色长方形"还跟着转向，确实没必要）
       ctx.restore();
     }
 
@@ -840,6 +1175,175 @@ export class VergilFight {
       drawZigzagBlade(ctx, b.x1, b.y1, b.x2, b.y2, b.seed, k);
     }
 
+    // ---- 第一百四十六轮：格挡领域（P1/P2 游荡时）----
+    if (this.guarding) {
+      // 常态微光圈：很淡的一圈青色领域（"他在格挡"的可视化）
+      const ga = 0.10 + Math.sin(this.t * 3.1) * 0.04;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(90,220,255,${ga})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(this.bx, this.by, 64, 0, TAU);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(160,240,255,${ga * 0.7})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(this.bx, this.by, 58, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // 出招瞬间：格挡光圈闪烁破碎（裂成弧段飞散）
+    if (this.guardShatterT > 0) {
+      const k = this.guardShatterT / 0.35;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * TAU + 0.4;
+        const rr = 64 + (1 - k) * 46;
+        const sx = this.bx + Math.cos(a) * rr;
+        const sy = this.by + Math.sin(a) * rr;
+        ctx.strokeStyle = `rgba(140,230,255,${k * 0.9})`;
+        ctx.lineWidth = 2.4 * k;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 9, a - 0.5, a + 0.5);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // ---- 第一百四十六轮：幻影剑（Mirage Edge）----
+    // 环绕剑（召唤期淡入、飞行期剩下的未发剑继续环绕）
+    if (this.mirage) {
+      const m = this.mirage;
+      const alpha = m.st < 0.6 ? m.st / 0.6 : 1;
+      const scale = 1 + Math.sin(this.t * 2.4) * 0.035;   // 呼吸缩放
+      for (let i = m.fired; i < m.swords.length; i++) {
+        const sw = m.swords[i];
+        const a = sw.a + m.orbitA;
+        drawMirageEdge(ctx,
+          this.bx + Math.cos(a) * MIRAGE_ORBIT,
+          this.by + Math.sin(a) * MIRAGE_ORBIT,
+          a + Math.PI / 2,                     // 剑尖朝切线方向（旋转感）
+          alpha, { seed: sw.seed, scale });
+      }
+      // 火星粒子
+      for (const e of this.mirageEmbers) {
+        const k = 1 - e.t / e.life;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = `rgba(130,220,255,${0.7 * k})`;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, 1.3 * k + 0.3, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    // 飞行剑：拖尾（长半透明蓝带）→ 本体
+    if (this.mirage) {
+      for (const b of this.mirage.flying) {
+        if (b.trail.length > 1) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.lineCap = 'round';
+          for (let i = 1; i < b.trail.length; i++) {
+            const k = i / b.trail.length;
+            ctx.strokeStyle = `rgba(70,150,255,${0.28 * k})`;
+            ctx.lineWidth = 9 * k;
+            ctx.beginPath();
+            ctx.moveTo(b.trail[i - 1].x, b.trail[i - 1].y);
+            ctx.lineTo(b.trail[i].x, b.trail[i].y);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+        drawMirageEdge(ctx, b.x, b.y, b.angle, 1, { seed: b.seed });
+      }
+    }
+
+    // ---- 第一百四十六轮：格挡特效（斩击线 → 火花 → 涟漪）----
+    for (const s of this.parryFx) {
+      const k = 1 - s.t / s.life;
+      drawParrySlash(ctx, s.x, s.y, s.seed, k);
+    }
+    for (const s of this.parrySparks) drawParrySpark(ctx, s);
+    for (const r of this.parryRipples) {
+      drawParryRipple(ctx, this.bx, this.by, r.t / r.life, 150);
+    }
+
+    // ---- 第一百四十八轮：P3 蓄力演出世界层（全部 lighter 拉满）----
+    if (this.chargeT > 0) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      // 能量气场：脚下扩散的一圈圈缓慢脉动青色光环
+      for (let i = 0; i < 3; i++) {
+        const ph = (this.t * 0.55 + i / 3) % 1;
+        const rr = 26 + ph * 130;
+        const a2 = (1 - ph) * 0.4;
+        ctx.strokeStyle = `rgba(70,220,255,${a2})`;
+        ctx.lineWidth = 3 * (1 - ph) + 0.6;
+        ctx.beginPath();
+        ctx.ellipse(this.bx, this.by + 8, rr, rr * 0.32, 0, 0, TAU);
+        ctx.stroke();
+      }
+      // 反向汇聚粒子（青/紫小光点，加速吸向椅子中心）
+      for (const q of this.chargeParts) {
+        const e = q.k * q.k;                        // easeIn：越近越快
+        const x = q.sx + (this.bx - q.sx) * e;
+        const y = q.sy + (this.by - q.sy) * e;
+        const col = q.hue === 'c' ? '120,235,255' : '190,120,255';
+        ctx.fillStyle = `rgba(${col},${0.5 + 0.5 * q.k})`;
+        ctx.beginPath();
+        ctx.arc(x, y, 1.4 + 1.8 * q.k, 0, TAU);
+        ctx.fill();
+        // 短拖尾（指向来路）
+        ctx.strokeStyle = `rgba(${col},${0.35 * q.k + 0.1})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + (q.sx - this.bx) * 0.03, y + (q.sy - this.by) * 0.03);
+        ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      // 空间裂缝：黑/暗紫折线，高频闪烁（像玻璃即将碎开）
+      for (const c of this.chargeCracks) {
+        const k = 1 - c.t / c.life;
+        const a2 = (0.35 + 0.65 * Math.abs(Math.sin(c.t * 42))) * k;
+        const rnd = mulberry32(c.seed);
+        let px = c.x, py = c.y;
+        let ang = rnd() * TAU;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = `rgba(30,4,44,${a2})`;
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        for (let s = 0; s < 5; s++) {
+          ang += (rnd() - 0.5) * 1.5;
+          px += Math.cos(ang) * (10 + rnd() * 18);
+          py += Math.sin(ang) * (10 + rnd() * 18);
+          ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(0,0,0,${a2 * 0.9})`;
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 刀锋火花（第一百四十九轮：次元斩每波的白色细长溅射）
+    //（renderWorld 是纯渲染，无 dt —— 沿 drawShards 先例用固定 1/60）
+    for (let i = this.bladeSparks.length - 1; i >= 0; i--) {
+      const s = this.bladeSparks[i];
+      s.t += 1 / 60;
+      s.x += s.vx / 60;
+      s.y += s.vy / 60;
+      s.vx *= 0.9; s.vy *= 0.9;
+      if (s.t >= s.life) this.bladeSparks.splice(i, 1);
+      else drawBladeSpark(ctx, s);
+    }
+
     // 玻璃碎片
     drawShards(ctx, this.shards, 1 / 60);
   }
@@ -863,6 +1367,31 @@ export class VergilFight {
     }
     // 大招暗幕（屏幕系）
     if (this.veil > 0.01) drawUltVeil(ctx, W, H, this.veil);
+    // ---- 第一百四十八轮：P3 蓄力屏幕层 ----
+    if (this.chargeT > 0) {
+      // 第 1 秒渐入的极暗紫色 Vignette（边缘向内挤压）
+      const vig = Math.min(1, (5 - this.chargeT)) * 0.6;
+      if (vig > 0.01) {
+        const cx = W / 2, cy = H / 2;
+        const r = Math.hypot(cx, cy);
+        const grad = ctx.createRadialGradient(cx, cy, r * 0.34, cx, cy, r);
+        grad.addColorStop(0, 'rgba(24,0,40,0)');
+        grad.addColorStop(0.72, `rgba(24,0,40,${vig * 0.45})`);
+        grad.addColorStop(1, `rgba(10,0,22,${vig})`);
+        ctx.save();
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
+      // 第 5 秒：绝对黑屏 0.2s（BGM 淡出恰好归零，纯黑无任何内容）
+      if (this.chargeBlack && this.chargeT <= 0.2) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,1)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+        return;                            // 黑屏期间什么都看不见
+      }
+    }
     // 受击红边
     drawEdgeFlash(ctx, W, H, this.edgeFlash);
     // 白闪

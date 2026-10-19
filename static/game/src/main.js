@@ -776,29 +776,38 @@ export class Game {
           pu.launched++;
           const cam = this.camera;
           const vw = cam.viewW, vh = cam.viewH;
-          // 半数刀光瞄怪，半数满屏随机 —— 演出与杀伤兼顾
-          const foes = this.world.enemies.items.filter((e) => !e.dead);
-          for (let i = 0; i < 8; i++) {
-            let ox, oy;
-            const foe = foes.length ? foes[(Math.random() * foes.length) | 0] : null;
-            if (i % 2 === 0 && foe) { ox = foe.x; oy = foe.y; }
-            else {
-              ox = cam.cx + (Math.random() - 0.5) * vw;
-              oy = cam.cy + (Math.random() - 0.5) * vh;
+          const half = Math.hypot(vw, vh) * 0.62;
+          // 第一百五十轮：**屏内每个敌人一道瞄准刀光 + 500 真伤**——
+          // 用户："最好阎魔刀技能触发的时候屏幕上的每个敌人都能被砍个
+          // 七八刀起步"——10 连 = 每怪保底 10 刀。敌人多时刀光封顶
+          // 24 道/连（超出只结算伤害，防 100+ 怪时刀光数组爆炸）。
+          // 敌人侧确认：Enemy.takeDamage **没有** 0.2s 受击无敌帧
+          //（0.2s invuln 是玩家侧机制）——每刀都实打实掉血。
+          let aimed = 0;
+          const foes = this.world.enemies.items.filter((e) => !e.dead
+            && Math.abs(e.x - cam.cx) < vw && Math.abs(e.y - cam.cy) < vh);
+          for (const e of foes) {
+            e.takeDamage(500, { pierceArmor: true });
+            if (aimed < 24) {
+              aimed++;
+              const a2 = Math.random() * Math.PI * 2;
+              pu.blades.push({
+                x1: e.x - Math.cos(a2) * half, y1: e.y - Math.sin(a2) * half,
+                x2: e.x + Math.cos(a2) * half, y2: e.y + Math.sin(a2) * half,
+                seed: (Math.random() * 1e9) | 0, t: 0, life: LIFE,
+              });
             }
+          }
+          // 装饰刀光：满屏随机 4 道（演出密度）
+          for (let i = 0; i < 4; i++) {
             const a = Math.random() * Math.PI * 2;
-            const half = Math.hypot(vw, vh) * 0.62;
+            const ox = cam.cx + (Math.random() - 0.5) * vw;
+            const oy = cam.cy + (Math.random() - 0.5) * vh;
             pu.blades.push({
               x1: ox - Math.cos(a) * half, y1: oy - Math.sin(a) * half,
               x2: ox + Math.cos(a) * half, y2: oy + Math.sin(a) * half,
               seed: (Math.random() * 1e9) | 0, t: 0, life: LIFE,
             });
-          }
-          // 每连斩：屏内每个敌人 500 真伤（绕护甲；不伤玩家）
-          for (const e of foes) {
-            if (Math.abs(e.x - cam.cx) < vw && Math.abs(e.y - cam.cy) < vh) {
-              e.takeDamage(500, { pierceArmor: true });
-            }
           }
         }
       }
