@@ -641,7 +641,9 @@ export const SPECIAL_WAVE_FROM = 11;
 /** 触发一次特殊波后，接下来 2 个回合不再触发 */
 export const SPECIAL_WAVE_COOLDOWN = 2;
 
-/** 每类的触发概率（三类各 20%，即约六成的波是特殊波） */
+/** 每类的触发概率——原三类各 20%（总约六成波是特殊波）；
+ *  第一百五十六轮扩到七类后**总触发率保持不变**，七类均分：
+ *  每类 ≈ 0.6/7 ≈ 8.6%（见 world._rollSpecialWave 的抽签） */
 export const SPECIAL_WAVE_CHANCE = 0.2;
 
 /**
@@ -660,6 +662,21 @@ export const SPECIAL_WAVE_POOLS = {
   charge: { label: '全是冲锋敌人！', ids: ['charger'] },
   bullet: { label: '全是弹幕敌人！', ids: ['spitter', 'chaos_egg', 'spiral_cat', 'blade_cat'] },
   tank: { label: '全是肉盾敌人！', ids: ['tank', 'crab', 'elite_crab', 'splitter'] },
+  // ---- 第一百五十六轮：新四类（不改刷怪构成，只挂波次模组）----
+  // 用户原话：
+  //  "内部混乱：该模式下所有近战怪会对远程怪造成伤害，远程怪会对近战怪
+  //   造成伤害。两边ai互相敌对（不影响本身敌对玩家，也就是靠近玩家还是
+  //   会打玩家）。"
+  //  "全员摸鱼日：所有怪物移动速度-30%，攻击速度-50%。"
+  //  "发薪日：所有怪物攻击力+20%，射击频率+20%。"
+  //  "隔壁发免费鸡蛋了？：怪物刷新数量-50%，但是所有怪物掉落翻倍
+  //   （不影响本局经济）"
+  // 没有 ids 字段 = 不换本波刷怪构成（_pickSpawnEntry 对无 pool 的类型
+  // 走原波次配置），模组效果在 world / enemy 的消费点按类型生效。
+  chaos: { label: '内部混乱！近战与远程互相敌对！' },
+  slack: { label: '全员摸鱼日！敌人移速 -30%、攻速 -50%' },
+  payday: { label: '发薪日！敌人攻击 +20%、射速 +20%' },
+  egg: { label: '隔壁发免费鸡蛋了？怪少一半，掉落翻倍！' },
 };
 
 /** 某一波的配置（无限模式会合成 Boss 波并继续加难度） */

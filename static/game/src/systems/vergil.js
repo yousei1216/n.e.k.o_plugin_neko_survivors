@@ -17,6 +17,7 @@
 import { Enemy } from '../entities/enemy.js';
 import { TAU } from '../core/math.js';
 import { audio } from './audio.js';
+import { pluginBridge } from '../plugin-bridge.js';
 import {
   drawCrescent, drawZigzagBlade, drawDashSlash, drawAoeRing, drawRift,
   drawUltVeil, spawnShatter, drawShards, drawEdgeFlash, distToSegment,
@@ -267,6 +268,16 @@ export class VergilFight {
           this._bgmStarted = true;
         } catch { /* */ }
       }
+      // ---- 第一百五十六轮：猫娘台词（走官方 TTS 语音，pluginBridge.say）----
+      // 用户："在屏幕慢慢变黑的3秒，彻底黑了就触发第一句话（考虑到一点延迟，
+      // 所以猫娘开始说话的时候我们应该已经可以看到椅子了），然后第二句台词
+      // 就是boss亮血条的时候说，2句话应该间隔有5-6秒应该不至于说不完第一句
+      // 话被第二句话打断。"——台词1 在 3s（黑屏转淡入，椅子即将可见），
+      // 台词2 在 9s 开战瞬间（hitbox/血条开启的同一帧），间隔恰好 6s。
+      if (this.introT >= INTRO_BLACK_END && !this._talkChair) {
+        this._talkChair = true;
+        pluginBridge.say('嗯？这个椅子它说它需要"帕瓦"，"帕瓦"是什么呀？');
+      }
       // 9s：背对剪影消失 → 椅子在同一像素点出现 → 开战
       if (this.introT >= INTRO_END) {
         this.state = 'wander';
@@ -275,6 +286,10 @@ export class VergilFight {
         p.noAttack = false;              // 演出结束恢复攻击
         // hitbox 与血条此刻开启（用户反馈 2）
         this.boss.bossPhase.invulnTimer = 0;
+        if (!this._talkAwake) {
+          this._talkAwake = true;
+          pluginBridge.say('哇！它动起来了喵！！');
+        }
       }
       return;                            // 演出期间不跑 AI/技能
     }

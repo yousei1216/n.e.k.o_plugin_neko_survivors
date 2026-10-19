@@ -208,6 +208,10 @@ export class World {
     // 第七轮：再乘一个随波次增长的刷怪率倍率（第 20 波 ×2.00，无限模式封顶维持）。
     // 这是**所有难度**共享的，不区分难度。
     this.spawnRateMul = spawnRateMul(waveIndex);
+    // 第一百五十六轮：隔壁发免费鸡蛋了？—— 刷新数量 -50%（掉落翻倍在
+    // _dropLoot；"不影响本局经济"= 不动 durationDamp / earlyBonus 这些
+    // 平衡曲线，纯刷怪量减半 + 掉落纯 ×2）
+    if (this.specialWave === 'egg') this.spawnRateMul *= 0.5;
     this.budgetTotal = Math.max(3, Math.round(cfg.budget * d.enemyCount * this.spawnRateMul));
     this.budgetUsed = 0;
     this.elitesToSpawn = Math.max(0, Math.round((cfg.elites ?? 0) * (d.enemyCount > 1 ? 1 + (d.enemyCount - 1) * 0.5 : 1)));
@@ -464,7 +468,7 @@ export class World {
    *    而不是递减计数器：那样重试普通波会把冷却偷偷烧掉；
    *  - 抽签结果按波次缓存：重试本波复现同一个特殊波（重试不该换怪）。
    *
-   * @returns {'charge'|'bullet'|'tank'|null}
+   * @returns {'charge'|'bullet'|'tank'|'chaos'|'slack'|'payday'|'egg'|null}
    */
   _rollSpecialWave(waveIndex, cfg) {
     if (waveIndex + 1 < SPECIAL_WAVE_FROM) return null;
@@ -480,12 +484,17 @@ export class World {
       return cached;
     }
 
-    // 三类各 20%：依次比较，命中即定类型；>60% 就是普通波
+    // ---- 第一百五十六轮：三类扩七类 ----
+    // 用户原话见 waves.js SPECIAL_WAVE_POOLS 的注释。总触发率保持原来的
+    // 约 60%（SPECIAL_WAVE_CHANCE × 3），七类**均分**：每类 ≈8.6%。
+    // 老三类排在前面的顺序不变（老存档缓存里存的是类型名，不受影响）。
+    const SPW_TYPES = ['charge', 'bullet', 'tank', 'chaos', 'slack', 'payday', 'egg'];
     const r = this.rng.next();
     let type = null;
-    if (r < SPECIAL_WAVE_CHANCE) type = 'charge';
-    else if (r < SPECIAL_WAVE_CHANCE * 2) type = 'bullet';
-    else if (r < SPECIAL_WAVE_CHANCE * 3) type = 'tank';
+    const total = SPECIAL_WAVE_CHANCE * 3;
+    if (r < total) {
+      type = SPW_TYPES[Math.min(SPW_TYPES.length - 1, Math.floor(r / (total / SPW_TYPES.length)))];
+    }
 
     this._specialCache.set(waveIndex, type);
     if (type) this._lastSpecialWave = waveIndex;
@@ -586,6 +595,14 @@ export class World {
       e.dmgScale *= 1.5;
       e.xpValue = Math.round(e.xpValue * 3);
       e.materialValue = Math.round(e.materialValue * 3);
+    }
+    // ---- 第一百五十六轮：特殊波数值模组（生成时一次性挂上）----
+    // 全员摸鱼日：移速 -30%（攻速在 enemy 射击冷却处砍）
+    if (this.specialWave === 'slack' && !def.boss) e.speed *= 0.7;
+    // 发薪日：攻击 +20%（接触 damage 与弹幕乘区 dmgScale 两条通道都吃）
+    if (this.specialWave === 'payday' && !def.boss) {
+      e.damage *= 1.2;
+      e.dmgScale *= 1.2;
     }
     this.enemies.add(e);
     this.totalSpawned++;
@@ -1080,9 +1097,13 @@ export class World {
 
   _dropLoot(player, enemy) {
     // 经验
+    // 第一百五十六轮：隔壁发免费鸡蛋了？—— 全部掉落 ×2（经验与材料；
+    // "不影响本局经济"指不动本函数里的 durationDamp / earlyBonus 等平衡
+    // 曲线，掉落在曲线算完之后整体翻倍）
+    const lootMul = this.specialWave === 'egg' ? 2 : 1;
     const xp = enemy.xpValue;
     const xpCount = Math.min(8, Math.max(1, Math.round(xp / 2)));
-    const perXp = Math.max(1, Math.round(xp / xpCount));
+    const perXp = Math.max(1, Math.round(xp / xpCount)) * lootMul;
     for (let i = 0; i < xpCount; i++) {
       const a = this.rng.next() * TAU;
       const d = this.rng.range(4, 22);
@@ -1115,9 +1136,10 @@ export class World {
       ? 1
       : Math.min(1, 0.85 * luckMul * earlyBonus * this.durationDamp);
     if (this.rng.next() < matChance) {
+      // 第一百五十六轮：鸡蛋波材料掉落也 ×2（lootMul 定义见上方经验段）
       const value = Math.max(1, Math.round(
         enemy.materialValue * lateDamp * this.durationDamp * (enemy.boss ? 1 : 1),
-      ));
+      )) * (this.specialWave === 'egg' ? 2 : 1);
       // 双份概率：前期有帮助，中后期收回
       const dbl = w < 10 ? 0.4 : 0.2;
       const count = enemy.boss ? 14 : enemy.elite ? 6 : (this.rng.next() < dbl ? 2 : 1);
@@ -1203,6 +1225,10 @@ export class World {
 
   spawnEnemyBullet(cfg) {
     const b = new EnemyBullet(cfg);
+    // ---- 第一百五十六轮：特殊波「内部混乱」----
+    // 混乱波里所有敌方弹幕带阵营标记：除了打玩家，命中**近战怪**也会结算
+    // 伤害（远程怪 vs 近战怪的互相伤害，见 update 的敌人子弹循环）。
+    if (this.specialWave === 'chaos') b.hostileToEnemies = true;
     this.enemyBullets.add(b);
     return b;
   }
@@ -1296,6 +1322,22 @@ export class World {
     for (const b of this.enemyBullets.items) {
       if (b.dead) continue;
       b.update(dt, this, player);
+      // ---- 第一百五十六轮：特殊波「内部混乱」----
+      // 带阵营标记的敌方弹幕会打**近战怪**（远程怪朝近战怪放的弹）。
+      // 变异怪不参与内讧（既不当目标也不被波及），Boss 也不吃。
+      if (b.hostileToEnemies && !b.dead) {
+        for (const e of this.enemies.items) {
+          if (e.dead || !e.melee || e.mutant || e.boss || e.isChest) continue;
+          const dx = e.x - b.x; const dy = e.y - b.y;
+          const rr = e.radius + (b.radius ?? 6);
+          if (dx * dx + dy * dy <= rr * rr) {
+            e.takeDamage(b.damage ?? 4, { pierceArmor: true });
+            b.dead = true;
+            this.fx?.nova?.(b.x, b.y, 12, '#a8b6ff');
+            break;
+          }
+        }
+      }
     }
 
     // ---- 拾取物 ----

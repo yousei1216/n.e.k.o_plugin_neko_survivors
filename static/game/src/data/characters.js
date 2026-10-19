@@ -110,7 +110,10 @@ export const CHARACTERS = [
     desc: '影子里潜行的黑猫。暴击极高、攻速快，但血量很低。',
     stats: {},
     mods: { maxHp: -8 },
-    pct: { critChance: 20, critDamage: 40, attackSpeed: 15, dodge: 8 },
+    // 第一百五十六轮：基础闪避 8% → 12%（用户："库洛的基础闪避从+8%改到
+    // 12%，稍微削弱一点她受到的伤害，把一击线拉高点"）；被动承伤 20% → 12%
+    // 见 char-skills.js 的 damageTaken。
+    pct: { critChance: 20, critDamage: 40, attackSpeed: 15, dodge: 12 },
     startWeapon: 'shadow_dagger',
     unlock: { type: 'wave', value: 18, desc: '到达第 18 波' },
   },

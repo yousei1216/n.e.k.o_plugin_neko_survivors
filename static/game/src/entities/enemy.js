@@ -478,6 +478,29 @@ export class Enemy extends Entity {
     const distToPlayer = Math.hypot(toPlayerX, toPlayerY) || 1;
     this.facing = Math.atan2(toPlayerY, toPlayerX);
 
+    // ---- 第一百五十六轮：特殊波「内部混乱」----
+    // 用户："该模式下所有近战怪会对远程怪造成伤害，远程怪会对近战怪造成
+    // 伤害。两边ai互相敌对（不影响本身敌对玩家，也就是靠近玩家还是会打
+    // 玩家）。"
+    // 实现：近战怪把**最近的远程怪**当追击目标（走到哪都撞它，见下面的
+    // 内讧接触伤害）；远程怪的站位/开火方向朝**最近的近战怪**（弹幕带
+    // 阵营标记，world 侧会让它打怪）。facing 仍看玩家（眼睛照旧盯着你，
+    // 保留"敌对玩家"的原味）。变异怪 / Boss / 宝箱怪不参与内讧。
+    let aimX = toPlayerX;
+    let aimY = toPlayerY;
+    let aimDist = distToPlayer;
+    let aimFoe = null;
+    if (world?.specialWave === 'chaos' && !this.mutant && !this.boss
+      && !this.isChest && this.behavior !== 'flee' && this.behavior !== 'healer'
+      && this.behavior !== 'exploder') {
+      aimFoe = this._nearestFoe(world);
+      if (aimFoe) {
+        aimX = aimFoe.x - this.x;
+        aimY = aimFoe.y - this.y;
+        aimDist = Math.hypot(aimX, aimY) || 1;
+      }
+    }
+
     // ---- 第二十五轮：Boss 无敌倒计时提到这里统一走 ----
     // 用户 bug 报告："蒜蓉粉丝开背虾……他的无敌时间变成了无限并且不攻击
     // 了"，实测补充："只要远离虾，虾就动起来并且可以攻击和掉血了……可能
@@ -508,6 +531,10 @@ export class Enemy extends Entity {
     // 第一百五十三轮：行为异常优先 —— aiOverride 是"怪菌"给这只怪套上的
     // 别人 AI（'melee'/'ranged'）或故障态（'idle' 摸鱼挂机）。_flee 是
     // 现成的宝箱怪逃跑逻辑，摸鱼被打后 50% 切过去（见 takeDamage）。
+    // ---- 行为分派 ----
+    // 第一百五十六轮：分派参数统一用 aim*（内部混乱时是内讧目标的方向/
+    // 距离，其余时刻就是玩家的）—— 追击、站位、开火方向全部跟着目标走。
+    // 'boss'/'meleeBoss' 不会出现在 chaos（上面已过滤），参数换不换无感。
     switch (this.aiOverride === 'idle' ? '_idle' : (this.aiOverride ?? this.behavior)) {
       // 摸鱼：原地发呆什么都不做。后面的击退/边界/地形/接触伤害照常跑 ——
       // 它还是一只怪，只是"脑子坏了"，撞到玩家照样烫。
@@ -516,18 +543,18 @@ export class Enemy extends Entity {
       // AI（闷头贴脸）。_shooter/_chase 的 def 字段全部有 ?? 缺省，
       // 跨类型套用不需要额外配置。'flee'（摸鱼被打后学宝箱怪逃跑）复用
       // 下面原有的 case 'flee' 分支，不在此重复。
-      case 'melee':     this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
-      case 'ranged':    this._shooter(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
-      case 'chase':     this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
-      case 'tank':      this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
-      case 'zigzag':    this._zigzag(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
-      case 'orbit':     this._orbit(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
-      case 'shooter':   this._shooter(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
+      case 'melee':     this._chase(dt, player, aimDist, aimX, aimY); break;
+      case 'ranged':    this._shooter(dt, player, aimDist, aimX, aimY, world); break;
+      case 'chase':     this._chase(dt, player, aimDist, aimX, aimY); break;
+      case 'tank':      this._chase(dt, player, aimDist, aimX, aimY); break;
+      case 'zigzag':    this._zigzag(dt, player, aimDist, aimX, aimY); break;
+      case 'orbit':     this._orbit(dt, player, aimDist, aimX, aimY); break;
+      case 'shooter':   this._shooter(dt, player, aimDist, aimX, aimY, world); break;
       // 第九轮新增：近战 + 远程混合（压上来的同时放弹幕，不能靠风筝躲）
-      case 'chaseShooter': this._chaseShooter(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
-      case 'charger':   this._charger(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
-      case 'exploder':  this._exploder(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
-      case 'splitter':  this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
+      case 'chaseShooter': this._chaseShooter(dt, player, aimDist, aimX, aimY, world); break;
+      case 'charger':   this._charger(dt, player, aimDist, aimX, aimY); break;
+      case 'exploder':  this._exploder(dt, player, aimDist, aimX, aimY, world); break;
+      case 'splitter':  this._chase(dt, player, aimDist, aimX, aimY); break;
       case 'boss':      this._boss(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
       // 第十一轮：近战冲锋型 Boss（酸液猫将 / 依趣苹果醋）。
       // 和 'boss' 的根本区别：那个保持 200px 中距离放弹幕，
@@ -537,7 +564,7 @@ export class Enemy extends Entity {
       // 注意它**不追人**，所以不会像别的怪一样堆在玩家脸上。
       case 'healer':    this._healer(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
       case 'flee':      this._flee(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
-      default:          this._chase(dt, player, distToPlayer, toPlayerX, toPlayerY); break;
+      default:          this._chase(dt, player, aimDist, aimX, aimY); break;
     }
 
     // ---- 第十八轮 ⑦：撞墙检测的"帧后"部分 ----
@@ -627,6 +654,45 @@ export class Enemy extends Entity {
         if (!(wxW?.noKnockback)) this.applyKnockback(player.x, player.y, 40);
       }
     }
+
+    // ---- 第一百五十六轮：内部混乱的内讧接触伤害 ----
+    // 近战怪贴到远程怪身上也造成伤害（0.5s 一跳，防每帧结算秒杀）；
+    // 对怪伤害走 takeDamage，不吃玩家侧的天气/击退那套。
+    if (aimFoe && this.damage > 0 && this.behavior !== 'exploder') {
+      this._chaosHitCd = Math.max(0, (this._chaosHitCd ?? 0) - dt);
+      const rrFoe = this.radius + aimFoe.radius;
+      if (this._chaosHitCd <= 0 && aimDist < rrFoe) {
+        aimFoe.takeDamage(this.damage, {});
+        this._chaosHitCd = 0.5;
+        world?.fx?.nova?.(aimFoe.x, aimFoe.y, 14, '#ffb0a0');
+      }
+    }
+  }
+
+  /**
+   * 第一百五十六轮：内部混乱 —— 找最近的对立阵营怪。
+   * 近战怪找最近的远程怪，远程怪找最近的近战怪。变异怪 / Boss / 宝箱 /
+   * 奶妈 / 宝箱怪不参与（它们有更重要的身份）。带 0.25s 缓存：
+   * 全场怪两两求距离每帧跑太浪费，0.25s 内方向够新。
+   */
+  _nearestFoe(world) {
+    const now = world?.t ?? performance.now() / 1000;
+    if (this._foeCache && !this._foeCache.dead
+      && now - this._foeCacheT < 0.25) {
+      return this._foeCache;
+    }
+    let best = null;
+    let bd = Infinity;
+    for (const e of world.enemies.items) {
+      if (e === this || e.dead || e.mutant || e.boss || e.isChest) continue;
+      if (e.melee === this.melee) continue;                 // 同阵营跳过
+      if (e.def?.behavior === 'flee' || e.def?.behavior === 'healer') continue;
+      const d = (e.x - this.x) ** 2 + (e.y - this.y) ** 2;
+      if (d < bd) { bd = d; best = e; }
+    }
+    this._foeCache = best;
+    this._foeCacheT = now;
+    return best;
   }
 
   /** 击退位移与衰减（僵直时也要跑，否则被击飞的敌人会定住） */
@@ -938,8 +1004,11 @@ export class Enemy extends Entity {
       //
       // 第十二轮：再叠一层全局的 +20%（ENEMY_FIRE_RATE_BUFF）。
       // 两层是**相乘**：噩梦弹幕怪的最终射速 = 1.3 × 1.2 = 1.56 倍。
+      // 第一百五十六轮：特殊波模组 —— 全员摸鱼日攻速 -50%、发薪日射速 +20%。
       const fireRate = (world?.difficulty?.enemyFireRate ?? 1) * ENEMY_FIRE_RATE_BUFF
-        * (world?.weather?.enemyFireMul ?? 1);   // 第一百零八轮：血月敌我攻速
+        * (world?.weather?.enemyFireMul ?? 1)   // 第一百零八轮：血月敌我攻速
+        * (world?.specialWave === 'slack' ? 0.5 : 1)
+        * (world?.specialWave === 'payday' ? 1.2 : 1);
       // 第十六轮：毒舌的"攻速 -20%"→ 冷却 ×1.25（见 curseCooldownMul 的注释）
       this.attackCooldown = (this.def.attackCooldown ?? 2) / fireRate * this.curseCooldownMul;
       this._firePattern(world, Math.atan2(dy, dx));
