@@ -147,6 +147,11 @@ export class World {
     this._tmp = [];
     this.player = null;
 
+    // ---- 第一百六十轮：四重存在分身（莱万汀）----
+    // 实体由 main._updatePhantoms 驱动（要读 player 的持有/战斗状态）；
+    // 渲染从 world.phantoms 读。每局 new World 自带空数组，无需重置。
+    this.phantoms = [];
+
     // ---- 第一百六十轮：动态难度（隐式适应，用户规格）----
     // "检测玩家某回合一直在秒杀目标，那么之后怪物的成长偷偷加速一些，
     //  检测玩家半天打不死一个怪，偷偷降低一些怪物成长。只针对秒杀和

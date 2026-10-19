@@ -13,6 +13,8 @@ import { WeatherSystem } from './systems/weather.js';
 import { Player } from './entities/player.js';
 import { PICKUP_TYPE } from './entities/pickup.js';
 import { Pet } from './entities/pet.js';
+// 第一百六十轮：四重存在（莱万汀分身）
+import { PhantomClone } from './entities/phantom.js';
 import { UI } from './ui/ui.js';
 import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
@@ -854,6 +856,9 @@ export class Game {
     // 更新玩家
     p.update(dt, this.input, this.camera, this.world);
 
+    // ---- 第一百六十轮：四重存在（莱万汀分身）----
+    this._updatePhantoms(dt);
+
     // 第一百零八轮：天气调度与逐帧机制（Boss 波/芙兰战内部会自行短路）
     this.weather.update(dt, this.world, p);
     // 第一百一十四轮：天气开播 → 猫娘口播提示词（气泡贴在小小猫娘头顶，
@@ -970,6 +975,65 @@ export class Game {
   }
 
   /**
+   * 第一百六十轮：四重存在（莱万汀的被动）。
+   *
+   * 用户设计："每5秒判定一次，有20%概率变出3个玩家分身，继承玩家的25%
+   * 属性……武器和玩家相同。ai会攻击附近的敌人……分身上限为3个……
+   * 死了一个分身，就从玩家位置再生成一个分身。"
+   * —— 判定通过时把分身补齐到 3（场上满 3 就没效果，死了补缺口）。
+   *
+   * 数值口径见 entities/phantom.js：攻速 35% + 每发 71.4%，总 DPS 恒为
+   * 玩家 25%；3 分身合计射弹量 ≈ 玩家 105%，弹幕负载几乎不变。
+   */
+  _updatePhantoms(dt) {
+    const p = this.player;
+    const world = this.world;
+    if (!p || !world) return;
+    const list = world.phantoms;
+
+    // 铁律口径：Boss 战（芙兰/维吉尔）期间分身消散；没带莱万汀同样清空。
+    // 推进演出（次元斩）里也先收起来，别让分身在时间慢放里白嫖输出。
+    const busy = this.world.flandreFight || this.world.vergilFight || this.playerUlt;
+    if (busy || p.dead || !p.hasItem?.('laevatein')) {
+      if (list.length > 0) {
+        for (const ph of list) {
+          world.fx.sparkle(ph.x, ph.y, '#ffb3d4', 6);
+        }
+        list.length = 0;
+      }
+      this._phantomTimer = 5;
+      return;
+    }
+
+    // 每 5 秒判定一次，20% 概率补齐到 3 个（从玩家位置生成）
+    this._phantomTimer = (this._phantomTimer ?? 5) - dt;
+    if (this._phantomTimer <= 0) {
+      this._phantomTimer = 5;
+      if (list.length < 3 && this.rng.next() < 0.20) {
+        const had = list.length;
+        while (list.length < 3) {
+          const a = this.rng.next() * Math.PI * 2;
+          const ph = new PhantomClone(p, world, p.x + Math.cos(a) * 46, p.y + Math.sin(a) * 46, this.rng);
+          ph.spawnT = 0.45;
+          list.push(ph);
+          world.fx.ring(p.x, p.y, 64, '#ffb3d4', 0.5, { player: true });
+        }
+        this.ui.toast(had > 0 ? '四重存在：消散的分身重新现形！' : '四重存在！', 'good', 2600);
+        audio.play('heal');
+      }
+    }
+
+    // 分身逐帧更新（AI/武器/接触磨损）；倒下的炸一朵花，下一轮判定补员
+    for (const ph of list) ph.update(dt, world, p);
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].dead) {
+        this.ui.toast('一个分身消散了……', 'info', 2200);
+        list.splice(i, 1);
+      }
+    }
+  }
+
+  /**
    * Boss 相关事件。
    *
    * 用户要求："击杀 boss 直接过关并且自动获得 boss 的掉落经验和金币"。
@@ -1023,13 +1087,20 @@ export class Game {
         //（用户："打过第十波boss没有掉落红色物品"）。转成玩家视角 1-based。
         const wave = (this.world.currentWave ?? 0) + 1;
         if (wave === 10 || wave === 20) {
-          const pool = ITEMS.filter((it) => it.bossDropOnly);
-          const def = this.rng.pick(pool);
-          this.world.pendingItemRewards.push({
-            id: def.id, name: def.name, price: def.price, rare: true,
-            sellValue: Math.max(4, Math.round(def.price * 0.55)),
-          });
-          this.ui.toast(`击败了波次 Boss！掉落了【${def.name}】！在商店里决定留下还是卖掉`, 'good', 6000);
+          // 第一百六十轮：池子排除阎魔刀 —— 用户："按理说阎魔刀不出现在
+          // 普通boss掉落里。"（此前池子含 yamato，20 波 boss 随机抽中它时
+          // 看起来就像"维吉尔的刀又掉了一把"。）同时排除已持有的
+          //（bossDropOnly 全是 maxStacks=1，抽到了也只能领失败白摆着）。
+          const pool = ITEMS.filter((it) =>
+            it.bossDropOnly && it.id !== 'yamato' && !p.hasItem?.(it.id));
+          if (pool.length > 0) {
+            const def = this.rng.pick(pool);
+            this.world.pendingItemRewards.push({
+              id: def.id, name: def.name, price: def.price, rare: true,
+              sellValue: Math.max(4, Math.round(def.price * 0.55)),
+            });
+            this.ui.toast(`击败了波次 Boss！掉落了【${def.name}】！在商店里决定留下还是卖掉`, 'good', 8000);
+          }
         }
       }
 
@@ -1484,10 +1555,19 @@ export class Game {
       audio.play('bossKill');
       this.ui.toast(`次元斩落下！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
       // 阎魔刀：红色至尊（每回合一次的次元斩），走宝箱战利品流程
-      this.world.pendingItemRewards.push({
-        id: 'yamato', name: '阎魔刀', price: 88, rare: true, sellValue: 66,
-      });
-      this.ui.toast('他掉落了【阎魔刀】！在商店里决定留下还是卖掉', 'good', 6000);
+      // 第一百六十轮：已持有则不再掉第二把 —— 用户："20波打败芙兰之后
+      // 还会掉一把额外的阎魔刀，也就是玩家可能有2把了。看一下原因。"
+      //（重复挑战可再次触发此掉落；maxStacks=1 只拦"持有"，不拦掉落）
+      if (!p.hasItem?.('yamato')) {
+        this.world.pendingItemRewards.push({
+          id: 'yamato', name: '阎魔刀', price: 88, rare: true, sellValue: 66,
+        });
+        this.ui.toast('他掉落了【阎魔刀】！在商店里决定留下还是卖掉', 'good', 6000);
+      } else {
+        const pity = 120;
+        p.gainMaterials(pity);
+        this.ui.toast(`你已持有阎魔刀，他把刀意化作了 ${pity} 材料送你`, 'good', 5000);
+      }
     } else if (outcome === 'timeout') {
       this.ui.toast('90 秒到……椅子收刀离场，什么都没有留下', 'bad', 4200);
     } else {
@@ -1662,11 +1742,18 @@ export class Game {
           this._saveMeta();
           this.ui.toast('标题页解锁了【直接挑战芙兰！】', 'good', 6000);
         }
-        // 莱万汀：红色至尊（+80% 最终伤害 / +50% 最终承伤），走宝箱战利品流程
-        this.world.pendingItemRewards.push({
-          id: 'laevatein', name: '莱万汀', price: 99, rare: true, sellValue: 60,
-        });
-        this.ui.toast('芙兰掉落了【莱万汀】！在商店里决定留下还是卖掉', 'good', 6000);
+        // 莱万汀：红色至尊（+60% 最终伤害 / +30% 最终承伤），走宝箱战利品
+        // 流程。第一百六十轮：已持有同样不再重复掉（同阎魔刀的去重口径）。
+        if (!p.hasItem?.('laevatein')) {
+          this.world.pendingItemRewards.push({
+            id: 'laevatein', name: '莱万汀', price: 99, rare: true, sellValue: 60,
+          });
+          this.ui.toast('芙兰掉落了【莱万汀】！在商店里决定留下还是卖掉', 'good', 6000);
+        } else {
+          const pity = 160;
+          p.gainMaterials(pity);
+          this.ui.toast(`莱万汀已在你手中，芙兰留下了 ${pity} 材料作为战利品`, 'good', 5000);
+        }
       } else if (outcome === 'extraDeath') {
         // 第六十五轮：用户："额外模式死了拿经验和金币，没死拿莱万汀" ——
         // EP 阶段被弹幕打死也结算经验+材料（没有莱万汀）；正式卡阶段
@@ -1768,6 +1855,15 @@ export class Game {
     // 只在**有宠物**时触发：宠物是第十一轮的跟随单位，
     // 没有宠物就没有"小小猫娘"，偷东西的人都不存在。
     this._maybePetSteal(p);
+
+    // ---- 第一百六十轮：进商店时提醒待领取战利品 ----
+    // 用户反馈链的教训：Boss 红品掉落 toast 只挂几秒（本轮已加到 8s），
+    // 打完 Boss 直接弹商店，玩家一走神就错过"掉了什么"。落袋为安：
+    // 进商店时按待领取数量再提醒一次。
+    const pend = this.world.pendingItemRewards?.length ?? 0;
+    if (pend > 0) {
+      this.ui.toast(`有 ${pend} 件战利品待领取！在商店下方的战利品栏决定留下还是卖掉`, 'good', 8000);
+    }
 
     this.ui.showShop({
       player: p,

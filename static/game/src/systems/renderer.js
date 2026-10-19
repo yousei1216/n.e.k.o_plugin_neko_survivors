@@ -311,6 +311,14 @@ export class Renderer {
     // ---- 玩家 ----
     this._drawPlayer(ctx, player);
 
+    // ---- 第一百六十轮：四重存在分身（莱万汀）----
+    // 轻量光影绘制（不采立绘采样，3 个分身的每帧开销 ≈ 3 个普通怪）：
+    // 粉紫半透明身形 + 猫耳 + 顶部血条，一眼可辨"这不是本体"。
+    for (const ph of world.phantoms ?? []) {
+      if (ph.dead || !camera.isVisible(ph.x, ph.y, 60)) continue;
+      this._drawPhantom(ctx, ph);
+    }
+
     // ---- 宠物（小小猫娘）：画在玩家上方，避免被玩家挡住 ----
     if (world.pet && !world.pet.dead && camera.isVisible(world.pet.x, world.pet.y, 60)) {
       // 把 camera 传进去：台词气泡要按缩放反向补偿字号
@@ -649,6 +657,67 @@ export class Renderer {
   // =========================================================
   // 玩家：猫娘占位造型
   // =========================================================
+  /** 第一百六十轮：四重存在分身 —— 粉紫半透明光影小猫（性能友好，零贴图采样） */
+  _drawPhantom(ctx, ph) {
+    const r = ph.radius;
+    const bob = Math.sin((ph.age ?? 0) * 3) * 1.5;
+    // 出场 0.45s 渐显
+    const a = ph.spawnT > 0 ? clamp(1 - ph.spawnT / 0.45, 0, 1) : 1;
+    const flash = ph.hitFlash > 0;
+
+    ctx.save();
+    ctx.translate(ph.x, ph.y + bob);
+
+    // 影子
+    ctx.globalAlpha = 0.2 * a;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(0, r * 0.85 - bob, r * 0.8, r * 0.3, 0, 0, TAU);
+    ctx.fill();
+
+    // 身体：粉紫半透明圆 + 标识色描边
+    ctx.globalAlpha = (flash ? 0.85 : 0.5) * a;
+    ctx.fillStyle = flash ? '#ffffff' : '#c86ae0';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 0.9 * a;
+    ctx.strokeStyle = '#ff7bac';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, TAU);
+    ctx.stroke();
+
+    // 猫耳
+    ctx.fillStyle = flash ? '#fff' : '#c86ae0';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(s * r * 0.25, -r * 0.75);
+      ctx.lineTo(s * r * 0.7, -r * 1.5);
+      ctx.lineTo(s * r * 0.85, -r * 0.45);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // 眼睛
+    ctx.globalAlpha = 0.95 * a;
+    ctx.fillStyle = '#2a1030';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(s * r * 0.32, -r * 0.1, r * 0.12, 0, TAU);
+      ctx.fill();
+    }
+    // 顶部小血条
+    const w = r * 2.2;
+    const ratio = clamp(ph.hp / ph.maxHp, 0, 1);
+    ctx.globalAlpha = 0.9 * a;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(-w / 2, -r * 2.1, w, 4);
+    ctx.fillStyle = '#ff7bac';
+    ctx.fillRect(-w / 2, -r * 2.1, w * ratio, 4);
+
+    ctx.restore();
+  }
+
   _drawPlayer(ctx, p) {
     const bob = p.isMoving ? Math.sin(p.walkPhase) * 2 : Math.sin(p.age * 2) * 1.2;
     const r = p.radius;

@@ -97,6 +97,12 @@ export class WeaponInstance {
     // 玩家打赢芙兰只吃到 +50% 承伤惩罚、拿不到收益。）
     if ((player.dealtFinalMul ?? 1) !== 1) out *= player.dealtFinalMul;
 
+    // ---- 第一百六十轮：四重存在（莱万汀分身）的每发伤害补正 ----
+    // 分身属性吃 25%，但攻速压到 35%（3 个分身合计射弹量 ≈ 玩家 105%，
+    // 弹幕负载几乎不变）；这里把每发补到 71.4%，总 DPS 恒为玩家的 25%。
+    // 本体没有这个字段（undefined → ?? 1），伤害链完全不受影响。
+    if (player.cloneDmgScale != null) out *= player.cloneDmgScale;
+
     // ---- 第一百三十四轮：龙虾抱枕 —— 每 1% 吸血，伤害 +1%（最终乘算）----
     // 动态乘区：吸血面板会变（升级/其他道具），所以在这里现算而不是
     // 拿道具时折算进 dealtFinalMul。0 吸血 = 无加成。
