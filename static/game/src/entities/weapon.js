@@ -65,13 +65,13 @@ export class WeaponInstance {
     // （percent 属性的 base 是 0，乘出来恒为 0）。
     // 所以只能在伤害算完之后，按武器种类单独乘。
     //
-    // 按 kind 分派而不是用一个全局系数，是因为 neon宴会的
+    // 按 kind 分派而不是用一个全局系数，是因为 Neon（原"neon宴会"）的
     // "炮台 +20%、其他 -20%"要求两者走**不同**的系数。
     if (player.mulFor) {
       if (this.def.kind === 'melee') out *= player.mulFor('meleeDamage');
       else if (this.def.kind === 'ranged') out *= player.mulFor('rangedDamage');
       else if (this.def.kind === 'element') out *= player.mulFor('elemDamage');
-      // 本体武器的"其他伤害"（neon宴会的 -20%）
+      // 本体武器的"其他伤害"（Neon（原"neon宴会"）的 -20%）
       out *= player.mulFor('damage');
     }
 

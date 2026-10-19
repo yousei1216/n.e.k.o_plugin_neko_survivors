@@ -4,7 +4,7 @@
 // stats 为「基础值覆盖」，mods 为「初始修正」。
 //
 // 第十三轮：按用户要求把 7 个已有角色改成猫娘姐妹的真名，
-// 并新增炮台专精的「neon宴会」。**id 一律不动** —— 存档、解锁记录、
+// 并新增炮台专精的「neon宴会」（即现在的 Neon）。**id 一律不动** —— 存档、解锁记录、
 // 角色专精表（archetypes.js）、立绘文件名都挂在 id 上，
 // 改 id 会把玩家的解锁进度全部作废。只有显示用的 name/glyph 变了。
 // ============================================================
@@ -46,7 +46,11 @@ export const CHARACTERS = [
   },
   {
     id: 'luna',
-    name: 'neon',
+    // 第一百六十轮：改名 —— 用户："我之前以为neon是有2套衣服，结果其实是
+    // 2个人。现在的neon名字改成Roki，然后neon宴会变成Neon"。
+    // **id 保持 luna 不动**（存档/解锁记录/立绘映射全挂 id）。立绘文件
+    // neon.png 是资源路径，同样不动。
+    name: 'Roki',
     role: '法师型',
     color: '#b794f6',
     accent: '#e3d6ff',
@@ -59,6 +63,7 @@ export const CHARACTERS = [
     // 用户原话："给neon也做个基础加强：加一个移速+8%的基础能力。"
     // "不然neon噩梦难度开局表现也有点糟糕，她无法甩开敌人，导致技能
     // 无法生效。"（她的技能是"离敌人越远伤害越高"，跑不開就白板。）
+    // （历史注释里的"neon"指本角色，即现在的 Roki。）
     pct: { elemDamage: 25, rangedDamage: 10, attackSpeed: -5, moveSpeed: 8 },
     startWeapon: 'star_wand',
     unlock: { type: 'wave', value: 8, desc: '到达第 8 波' },
@@ -162,9 +167,9 @@ export const CHARACTERS = [
     unlock: null,
   },
   // ============================================================
-  // 第十三轮新增：neon宴会 —— 炮台专精
+  // 第十三轮新增：Neon（原"neon宴会"） —— 炮台专精
   //
-  // 用户原话："新增角色neon宴会，擅长炮台类的角色，初始武器是炮台。"
+  // 用户原话："新增角色neon宴会，擅长炮台类的角色，初始武器是炮台。"（neon宴会 = 现在的 Neon）
   //
   // 设计要点：
   //   * 初始武器给 **toy_turret（玩具炮台，tier 1）** —— 炮台系最低阶的那把。
@@ -180,7 +185,9 @@ export const CHARACTERS = [
   // ============================================================
   {
     id: 'neon_party',
-    name: 'neon宴会',
+    // 第一百六十轮：改名 Neon—— 与 Roki（原 neon）区分，
+    // 用户："其实是 2 个人"。**id 保持 neon_party 不动**。
+    name: 'Neon',
     role: '炮台专精',
     color: '#7ce0d3',
     accent: '#fff2b8',

@@ -130,7 +130,7 @@ export class Bullet extends Entity {
       world.dealDamage(this.ownerPlayer, this.owner, e, this.damage * Math.pow(0.6, this.itemUsed), {
         knockback: 50, fromX: this.x, fromY: this.y,
         // 第十六轮：标出"这是炮台打的"。
-        // neon宴会 的「火力即正义」只认炮台命中，而炮台子弹和玩家子弹
+        // Neon（原"neon宴会"） 的「火力即正义」只认炮台命中，而炮台子弹和玩家子弹
         // 走的是**同一条** dealDamage 路径 —— 不显式标记的话，
         // 玩家本体武器的命中也会给敌人叠层，技能就不是"炮台专精"了。
         fromTurret: this.kind === 'turret',

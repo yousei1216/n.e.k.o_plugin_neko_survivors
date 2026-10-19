@@ -58,7 +58,7 @@ export class CharRuntime {
     // 库洛死了/换角色之后它就该消失，挂在自己身上天然满足。
     this.curseTimers = new Map();
 
-    // ---- neon宴会：火力即正义 ----
+    // ---- Neon（原"neon宴会"）：火力即正义 ----
     // 同上，key 是 enemy.id，value 是 { stacks, timer }
     this.turretStacks = new Map();
 
@@ -111,7 +111,7 @@ export class CharRuntime {
     // ---- 库洛：毒舌判定 ----
     if (this.id === 'kuro' && world) this._updateKuroCurse(dt, world);
 
-    // ---- neon宴会：炮台叠层过期 ----
+    // ---- Neon（原"neon宴会"）：炮台叠层过期 ----
     // 不要求 world：叠层纯粹是"玩家自己的记账"，没有世界也要能倒计时
     // （测试里就是 `rt.update(dt, null)` 直接跑的）。
     if (this.id === 'neon_party') this._updateTurretStacks(dt);
@@ -377,7 +377,7 @@ export class CharRuntime {
   }
 
   // =========================================================
-  // neon宴会：火力即正义
+  // Neon（原"neon宴会"）：火力即正义
   // =========================================================
   /** 炮台命中某个敌人时叠一层，返回当前叠层加成（0.01 = +1%） */
   onTurretHit(enemy) {
