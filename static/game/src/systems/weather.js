@@ -23,6 +23,9 @@ const ROLL_CHANCE = 0.2;     // 20% 进天气
 const DUR_MIN = 15;          // 持续 15-30 秒
 const DUR_MAX = 30;
 const ANNOUNCE_T = 10;       // 公告横幅挂 10 秒左右
+// 第一百六十轮：结束淡出时长 —— 用户："给天气消失效果加个淡出效果，比如
+// 2-3秒缓慢消失而不是一帧消失，尤其浓雾天一帧雾就没了很诡异。"
+const WEATHER_FADE_T = 2.5;  // 自然结束淡出（forceEnd 走 1.2s 快速散）
 const WEATHER_RNG_SALT = 0x57ea7ca1;
 
 export class WeatherSystem {
@@ -60,10 +63,21 @@ export class WeatherSystem {
     this.burns = [];           // 流星余烬：{e,t,acc}
     this.dotAcc = 0;           // 烈日/无风 每秒跳
     this.drops = null;         // 雾雨雨滴（屏幕坐标，视觉）
+    // ---- 第一百六十轮：结束淡出 ----
+    // 用户："给天气消失效果加个淡出效果，比如2-3秒缓慢消失而不是一帧
+    // 消失，尤其浓雾天一帧雾就没了很诡异。"
+    this.fadeT = 0;            // fading 剩余（秒）
+    this._fadeDur = WEATHER_FADE_T;
   }
 
   get def() { return WEATHER_MAP[this.id]; }
   get active() { return this.phase === 'active'; }
+  /** 渲染淡出系数：active 1 → fading 线性 →0（cooldown/idle 0） */
+  get visualAlpha() {
+    if (this.phase === 'active') return 1;
+    if (this.phase === 'fading') return Math.max(0, this.fadeT / this._fadeDur);
+    return 0;
+  }
 
   /** Boss 波 / 芙兰战 / 维吉尔战 —— 天气绝对不出现（用户铁律） */
   static blocked(world) {
@@ -90,6 +104,26 @@ export class WeatherSystem {
       this.visT += dt;
       this._tickWeather(dt, world, player);
       if (this.t >= this.dur) this._end();
+    } else if (this.phase === 'fading') {
+      // ---- 第一百六十轮：淡出段（2.5s）----
+      // 玩法效果已在 _end 里随 flags 归零停掉；这里只做视觉消散：
+      // 雾团/龙卷按 r0 线性收缩到 0，雨滴按比例变稀。
+      this.fadeT -= dt;
+      const k = this.visualAlpha;
+      for (const c of this.fogClouds) {
+        if (c.r0 == null) c.r0 = c.r;
+        c.r = c.r0 * k;
+      }
+      for (const tp of this.typhoons) {
+        if (tp.r0 == null) tp.r0 = tp.r;
+        tp.r = tp.r0 * k;
+      }
+      if (this.drops) this.drops.length = Math.ceil(this.drops.length * k);
+      if (this.fadeT <= 0) {
+        this.phase = 'cooldown';
+        this._clearEntities();
+        this.id = null;
+      }
     } else if (this.phase === 'cooldown') {
       this.cd -= dt;
       if (this.cd <= 0) { this.phase = 'idle'; this.rollAcc = 0; }
@@ -137,18 +171,24 @@ export class WeatherSystem {
     if (def.id === 'rain') this._initDrops();
   }
 
-  _end() {
+  _end(fast = false) {
+    // ---- 第一百六十轮：一帧清 → 2.5s 淡出（forceEnd 走 1.2s 快速散）----
+    // id 和实体都保留（渲染继续画、visualAlpha 渐降）；玩法效果立刻停：
+    // 下面的 _applyFlags 读不到 active，全部 hook 旗标归零。
     this.cd = this.dur;          // 天气结束后对应时长内不再进入
-    this.phase = 'cooldown';
-    this._clearEntities();
-    this.id = null;
+    this.phase = 'fading';
+    this._fadeDur = fast ? 1.2 : WEATHER_FADE_T;
+    this.fadeT = this._fadeDur;
+    for (const c of this.fogClouds) c.r0 = c.r;   // 淡出收缩基准
+    for (const tp of this.typhoons) tp.r0 = tp.r;
+    this._applyFlags();
   }
 
-  /** Boss 波开始等场合：立刻散（冷却照算，出门不回头） */
+  /** Boss 波开始等场合：立刻散（冷却照算，出门不回头）。1.2s 快速淡出 */
   forceEnd() {
     if (!this.active) return;
     const dur = this.dur;
-    this._end();
+    this._end(true);
     this.cd = dur;
   }
 
@@ -168,7 +208,14 @@ export class WeatherSystem {
     this.miss = 0; this.playerOut = 1; this.enemyOut = 1; this.moveMul = 1;
     this.enemyFireMul = 1; this.cooldownDiv = 1; this.invulnMin = 0;
     this.noKnockback = false; this.vacuum = false;
-    if (!this.active || !d) { this.fogRamp = 0; return; }
+    if (!this.active || !d) {
+      this.fogRamp = 0;
+      // 淡出段：浓雾的视野灰幕跟随 visualAlpha 渐弱（玩法旗标保持归零）
+      if (this.phase === 'fading' && d?.id === 'fog') {
+        this.fogRamp = Math.min(1, this.visT / (d.rampS || 1)) * this.visualAlpha;
+      }
+      return;
+    }
     const ramp = Math.min(1, this.visT / (d.rampS || 1));
     if (d.miss) this.miss = d.miss;
     if (d.outMul) { this.playerOut = d.outMul; this.enemyOut = d.outMul; }

@@ -561,9 +561,11 @@ export class Game {
     //（普通 10% / 无限 20%）。每波同步一次，读档/当场开启都自然生效。
     this.world.endless = this.endlessEnabled;
     // 第二十一轮：特殊波次提示（冲锋/弹幕/肉盾；11 波起 20%×3 类）
+    // 第一百六十轮：停留 2.6s → 8s —— 用户："特殊波次播报框停留时间太短了，
+    // 改到持续8秒吧，有时候看不到字就没了。"
     if (this.world.specialWave) {
       const pool = SPECIAL_WAVE_POOLS[this.world.specialWave];
-      if (pool) this.ui?.toast(`特殊波次：${pool.label}`, 'bad', 2600);
+      if (pool) this.ui?.toast(`特殊波次：${pool.label}`, 'bad', 8000);
     }
     this.waveDuration = this.world.waveDuration;
     this.waveTimer = 0;
@@ -1264,6 +1266,10 @@ export class Game {
     const p = this.player;
     this.waveEnding = true;
     audio.play('waveClear');
+
+    // ---- 第一百六十轮：动态难度结算（隐式，见 world.tuneDiffScale）----
+    // 在清场前调：此刻 world._waveT / _killAges 还是本波的完整数据。
+    this.world.tuneDiffScale();
 
     // 清场（Boss 除外，但 Boss 波此时应该已经死了）
     // 第四十八轮：Boss 关到时放行（_bossForfeit）时，活着的 Boss 也一并

@@ -3845,10 +3845,12 @@ export class Renderer {
   /** 世界层：川雾云 → 台风 → 流星警告/砸落 → 浓雾视野（雾最上） */
   _drawWeatherWorld(ctx, world, camera, player, W, H) {
     const w = world.weather;
-    if (!w || !w.active) return;
+    // 第一百六十轮：淡出段（phase 'fading'）继续绘制 —— 实体半径在
+    // weather.update 里线性收缩、fogRamp 跟随 visualAlpha，视觉 2.5s 渐隐
+    if (!w || !(w.active || w.phase === 'fading')) return;
     const d = w.def;
     if (!d) return;
-    const ramp = Math.min(1, w.visT / (d.rampS || 1));
+    const ramp = Math.min(1, w.visT / (d.rampS || 1)) * (w.visualAlpha ?? 1);
     const t = w.visT;
     // 视野外裁剪（世界坐标下的可视矩形，留 200px 余量）
     const vx0 = camera.cx - W / 2 - 200, vy0 = camera.cy - H / 2 - 200;
@@ -4257,10 +4259,11 @@ export class Renderer {
   /** 屏幕层：色调（暗/灰/暖/亮）+ 血月红光 + 快晴太阳 + 雾雨雨滴 */
   _drawWeatherScreen(ctx, world, player, W, H) {
     const w = world.weather;
-    if (!w || !w.active) return;
+    // 第一百六十轮：淡出段继续绘制（雨滴密度/色调由 weather 端收缩驱动）
+    if (!w || !(w.active || w.phase === 'fading')) return;
     const d = w.def;
     if (!d) return;
-    const ramp = Math.min(1, w.visT / (d.rampS || 1));
+    const ramp = Math.min(1, w.visT / (d.rampS || 1)) * (w.visualAlpha ?? 1);
     const t = w.visT;
 
     // ---- 流星雨砸地白闪（第一百一十二轮阶段 3，全屏快闪快衰减）----

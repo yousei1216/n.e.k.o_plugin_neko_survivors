@@ -670,6 +670,13 @@ export class UI {
     // 当前选中的武器槽（点了才显示"确认出售"，避免误触）
     let selected = -1;
 
+    // 第一百六十轮：保留换行的 tip 转义（道具卡悬浮详情也要用，从下方
+    // shop-char 段上提）。escAttr 会把换行压成空格，这里配合
+    // .tip-float 的 white-space: pre-line 让多行文本各占一行。
+    const tipEsc = (s) => String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
     /** 常驻的详细数值面板（左侧竖排），不再需要按 ESC 才能看 */
     const statPanelHtml = () => {
       const s = player.stats.values;
@@ -803,9 +810,37 @@ export class UI {
                 <ellipse cx="18.8" cy="9.4" rx="2.5" ry="2.9"/>
               </svg></div>` : '';
 
+        // ---- 第一百六十轮：道具悬浮详情（用户："目前商店页面我们可以鼠标
+        // 停留在属性上看详情，但是看不了道具，把道具也加上，然后效果提升
+        // 维持最新（比如我买了一个道具，数量1看他的效果描述就是正常的
+        // 描述，买了10个之后放上去直接显示10倍效果而不用我自己计算……
+        // 直接放上去显示介绍和最终加成数字。）"----
+        // 线性乘区（mods/pct）直接 ×数量；诅咒类是乘算，按 (1-v)^n 算复合值。
+        const itemTip = (() => {
+          if (isWeapon) return null;   // 武器已有 weaponDetailText 的 tip
+          const n = ownedCount;
+          const fmtN = (x) => Math.round(x * 100) / 100;
+          const lines = [String(o.data.desc ?? '')];
+          if (n > 0) {
+            lines.push(`── 当前累计（已持有 ${n} 个）──`);
+            for (const [k, v] of Object.entries(o.data.mods || {})) {
+              lines.push(`${STAT_DEFS[k]?.name ?? k} +${fmtN(v * n)}`);
+            }
+            for (const [k, v] of Object.entries(o.data.pct || {})) {
+              lines.push(`${STAT_DEFS[k]?.name ?? k} ${v * n >= 0 ? '+' : ''}${fmtN(v * n)}%`);
+            }
+            for (const [k, v] of Object.entries(o.data.curse || {})) {
+              const remain = Math.round((1 - v) ** n * 1000) / 10;
+              lines.push(`${STAT_DEFS[k]?.name ?? k} -${Math.round(v * 100)}%（乘算 ×${n} → 剩余 ${remain}%）`);
+            }
+          }
+          return lines.join('\n');
+        })();
+
         return `
           <div class="card tier-${tier} ${locked ? 'locked' : ''} ${o.sold ? 'sold ' : ''}${o.sold || !afford ? 'cant-afford' : ''}"
-               data-slot="${i}">
+               data-slot="${i}"
+               ${itemTip ? `has-tip data-tip="${tipEsc(itemTip)}"` : ''}>
             <div class="tier-badge t${tier}" style="color:${color}">${tierName}</div>
             ${locked ? '<div class="lock-badge">🔒 已锁定</div>' : ''}
             ${pawHtml}
@@ -939,13 +974,9 @@ export class UI {
       // 第二十轮：最左侧角色栏（用户："在商店页面最左侧的空白区域放上角色
       // 的头像，鼠标放上去会显示角色的能力和技能，以防玩家忘记自己的角色
       // 能力具体加成。目前左侧还空着一些。"）悬停说明复用 _bindTips 的
-      // data-tip 通道；escAttr 会把换行压成空格，这里用保留换行的本地转义，
-      // 配合 .tip-float 的 white-space: pre-line，能力/技能各占一行。
+      // data-tip 通道（tipEsc 已上提到 showShop 开头）。
       const charDef = player.char || {};
       const cs = getCharSkill(charDef.id);
-      const tipEsc = (s) => String(s ?? '')
-        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const charTip = cs
         ? `${charDef.name || charDef.id}\n能力【${cs.ability.name}】${cs.ability.text}\n技能【${cs.skill.name}】${cs.skill.text}`
         : (charDef.name || charDef.id || '');

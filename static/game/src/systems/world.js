@@ -146,6 +146,21 @@ export class World {
 
     this._tmp = [];
     this.player = null;
+
+    // ---- 第一百六十轮：动态难度（隐式适应，用户规格）----
+    // "检测玩家某回合一直在秒杀目标，那么之后怪物的成长偷偷加速一些，
+    //  检测玩家半天打不死一个怪，偷偷降低一些怪物成长。只针对秒杀和
+    //  半天打不死一个怪。（1-3回合不检测……）"
+    // 附加判定（用户追加）："可以加攻击前判定一下，现在被加攻击成长的怪
+    //  是否会在成长后达到一击秒杀当前的玩家，如果是就不加强。我们不能
+    //  因为玩家秒怪就让怪的攻击无脑成长到玩家满血也一击死。那样子买
+    //  +攻击-血量的道具等于单纯给自己加难度了。"
+    // 不进 UI、不进存档（新一局重新适应，读档回 1 重适应几波即可）。
+    this.diffHp = 1;           // 敌人血量成长乘数
+    this.diffDmg = 1;          // 敌人攻击成长乘数（受"一击线"门约束）
+    this._killAges = [];       // 本波每个被击杀敌人的存活时长（秒）
+    this._waveT = 0;           // 本波已进行时间
+    this._maxContactDmg = 0;   // 本波出现过的最高接触伤害（一击线预判用）
   }
 
   /** 设置难度（开局前调用；会立刻作用于后续所有刷怪与伤害） */
@@ -202,6 +217,14 @@ export class World {
     // 掷骰决定本波是否"全是某一类敌人"（11 波起、非 Boss 波、冷却外）。
     // 结果缓存在 World 上：重试本波复现同一个特殊波，不会重掷。
     this.specialWave = this._rollSpecialWave(waveIndex, cfg);
+    // ---- 第一百六十轮：动态难度乘区（隐式适应）----
+    // 只动血量与攻击成长，不动速度/经验/材料（用户只点名"攻击和血量"）。
+    scaling.hp *= this.diffHp;
+    scaling.damage *= this.diffDmg;
+    // 本波击杀统计重置（动态难度检测数据）
+    this._killAges.length = 0;
+    this._waveT = 0;
+    this._maxContactDmg = 0;
     this.waveScaling = scaling;
     this.waveDuration = getWaveDuration(waveIndex);
     // 难度影响刷怪预算（数量）
@@ -622,11 +645,74 @@ export class World {
     }
     this.enemies.add(e);
     this.totalSpawned++;
+    // 动态难度统计：出生时刻（算存活时长）+ 本波最高接触伤害（一击线预判）
+    e._bornWaveT = this._waveT;
+    if (e.damage > this._maxContactDmg && !def.boss) this._maxContactDmg = e.damage;
     return e;
   }
 
-  _spawnOne(player) {
-    const entry = this._pickSpawnEntry();
+  /**
+   * 第一百六十轮：动态难度结算（每波结束由 main._endWave 调用，隐式无 UI）。
+   *
+   * 用户规格："检测玩家某回合一直在秒杀目标，那么之后怪物的成长偷偷加速
+   * 一些，检测玩家半天打不死一个怪，偷偷降低一些怪物成长。只针对秒杀和
+   * 半天打不死一个怪。（1-3回合不检测。如果玩家4回合开始就秒秒秒就每回合
+   * 多加怪一点点攻击和血量直到不再秒秒秒，而反之一个精英怪打到超时都
+   * 打不死，小怪也费劲，下回合怪物的攻击和血量成长就降低一些。）"
+   *
+   * 攻击一击门（用户追加）："可以加攻击前判定一下，现在被加攻击成长的怪
+   * 是否会在成长后达到一击秒杀当前的玩家，如果是就不加强。"
+   * —— 用本波实际出现过的最高接触伤害外推：加压后如果对当前玩家
+   * （扣护甲后）≥ 满血，攻击乘数保持不动，只加血量。
+   */
+  tuneDiffScale() {
+    const STEP = 0.06;         // 每回合 ±6%，温和爬坡
+    const HP_MIN = 0.75, HP_MAX = 1.45, DMG_MIN = 0.8, DMG_MAX = 1.3;
+    // currentWave 0 基（第 1 波 = 0）：1-3 回合不检测 = 第 4 波（3）起。
+    // Boss 波时长固定、特殊波刷怪结构异常，数据失真都不检测。
+    if (this.currentWave < 3 || this.bossSpawned || this.specialWave) {
+      this._killAges.length = 0;
+      return;
+    }
+    const ages = this._killAges;
+    const n = ages.length;
+    // 打满时限还没清完（main 超时路径也会走 _endWave）= "打不动"强信号
+    const timedOut = this._waveT >= this.waveDuration - 0.5;
+    let delta = 0;
+    if (!timedOut && n >= 8) {
+      let fast = 0;
+      for (const a of ages) if (a < 1.5) fast++;
+      if (fast / n >= 0.7) delta = STEP;            // 秒秒秒 → 偷偷加压
+    }
+    if (delta === 0 && timedOut) {
+      let sum = 0;
+      for (const a of ages) sum += a;
+      const avg = n ? sum / n : Infinity;
+      if (n < 5 || avg > 7) delta = -STEP;          // 精英磨到超时 → 偷偷减压
+    }
+    if (delta !== 0) {
+      // 血量：无条件跟随
+      this.diffHp = Math.min(HP_MAX, Math.max(HP_MIN, this.diffHp + delta));
+      // 攻击：加压前过"一击线"门 —— 本波最高接触伤害按新乘数外推，
+      // 扣掉玩家护甲后若 ≥ 玩家满血，攻击本轮不升（血量照升）。
+      if (delta > 0) {
+        const p = this.player;
+        const armor = p?.stats?.values?.armor ?? 0;
+        const peak = this._maxContactDmg * ((this.diffDmg + STEP) / Math.max(0.01, this.diffDmg));
+        if (p && Math.max(1, peak - armor) >= p.maxHp) {
+          // 用户："不能因为玩家秒怪就让怪的攻击无脑成长到玩家满血也一击死。"
+          this.diffDmg = Math.max(DMG_MIN, this.diffDmg);   // 保持不动
+        } else {
+          this.diffDmg = Math.min(DMG_MAX, Math.max(DMG_MIN, this.diffDmg + STEP));
+        }
+      } else {
+        this.diffDmg = Math.min(DMG_MAX, Math.max(DMG_MIN, this.diffDmg + delta));
+      }
+    }
+    this._killAges.length = 0;
+  }
+
+  _spawnOne(player) {    const entry = this._pickSpawnEntry();
     const pos = this._spawnPosition(player);
     // 找不到空地就不刷（见 _spawnPosition 的说明）
     if (!pos) return null;
@@ -1050,7 +1136,6 @@ export class World {
 
   _onKill(player, enemy, weapon) {
     enemy.dead = true;
-
     // ---- 宝箱：不走普通击杀流程 ----
     // 宝箱不是"敌人"，不计入击杀数、不掉经验/材料，
     // 只结算它自己预先掷好的奖励（道具或医疗包）。
@@ -1066,6 +1151,8 @@ export class World {
     this.totalKills++;
     player.kills++;
     if (weapon) weapon.kills++;
+    // 动态难度统计：这个敌人活了多久（秒杀检测用）
+    if (enemy._bornWaveT != null) this._killAges.push(this._waveT - enemy._bornWaveT);
 
     // 掉落
     this._dropLoot(player, enemy);
@@ -1291,6 +1378,8 @@ export class World {
   // =========================================================
   update(dt, player, waveElapsed) {
     this.player = player;
+    // 动态难度：本波计时（击杀存活时长/超时判定的基准）
+    this._waveT += (dt || 0);
 
     // Boss 阶段需要知道"剩余时间比例"。main.js 负责计时，
     // 这里把 waveElapsed 换算成比例注入，Boss 就能同时用血量/时间双触发。
