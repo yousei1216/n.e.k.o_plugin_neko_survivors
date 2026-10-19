@@ -12,8 +12,8 @@
 // ============================================================
 
 /** 游戏身份，必须与宿主页 neko-minigame-host-launch 里的注册表一致 */
+import { GAME_VERSION } from './version.js';
 const GAME_ID = 'neko-survivors';
-const GAME_VERSION = '0.1.0';
 
 /** 吐槽触发场景 */
 export const EVENT = {

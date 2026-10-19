@@ -12,6 +12,7 @@ import { BEHAVIOR_LABEL } from '../entities/weapon.js';
 import { getDifficulty, difficultyList } from '../data/difficulty.js';
 // 第十六轮：角色选择界面要展示"能力 + 技能"
 import { getCharSkill } from '../data/char-skills.js';
+import { GAME_VERSION } from '../version.js';
 import { sprites } from '../core/assets.js';
 
 /**
@@ -441,6 +442,10 @@ export class UI {
                audio.js 里以备将来排查，只是不再有入口） -->
         </div>
         <div class="hint" style="margin-top:14px">种子：${seed}</div>
+        <!-- 第一百五十七轮：标题页版本号 —— 用户："加了之后我就知道是
+             不是自己的问题而不是你做错了。"（插件市场旧版导致噩梦过 10 波
+             见不到维吉尔的排查事故）。版本唯一来源 src/version.js -->
+        <div style="margin-top:6px;font-size:12px;opacity:0.45;letter-spacing:0.5px">v${GAME_VERSION}</div>
       </div>
     `);
     root.querySelector('[data-act="start"]').onclick = onStart;
