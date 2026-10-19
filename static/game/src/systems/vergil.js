@@ -399,19 +399,23 @@ export class VergilFight {
     else if (this.phase === 2 && this.boss.hp <= VERGIL_MAX_HP * 0.33) this._enterPhase(3);
 
     // ---- 第一百六十轮：常驻锁血（替代 154 轮的 P3 专属里程碑）----
-    // 每累计受到 2000 伤害 → invulnTimer = max(现有, 0.5s；P3 0.8s)。
+    // 每累计受到 2000 伤害 → 无敌 **累加** 0.5s（P3 每段 0.8s）。
+    // 用户追认的叠加语义："假设玩家用了一次高伤害，一发打了他1万血，
+    // 他是会触发5次锁血无敌2.5秒还是1次0.5秒？" —— 叠加才满足
+    // "玩家再肥他也可以坚持30秒左右"的预算（总无敌 ≈ 总承伤/2000×段长）。
     // 复用 invulnTimer 通道（getter invulnerable 自动生效：takeDamage 全
-    // blocked + 渲染层青色护盾），与转阶段 5s 锁血同一视觉语言，Math.max
-    // 不缩短已有的 5s 锁血。while 处理单帧大量伤害（一发大招吃掉 4000+
-    // 也按两档锁）。
+    // blocked + 渲染层青色护盾），转阶段 5s 锁血只会被加长不被缩短。
+    // while 处理单帧大量伤害（一发 1 万 = 5 段 = 2.5s）。
     {
       const drop = this._hpLast - this.boss.hp;
-      if (drop > 0) {
+      // 转阶段演出窗口（_p3Pending：5s 大招锁血）期间冻结常驻锁 ——
+      // 演出锁本身全挡伤害（真实战斗 drop=0），这里防的是任何直接改血
+      // 的路径把大招演出拖长。
+      if (drop > 0 && !this._p3Pending) {
         this._dmgAccum += drop;
         while (this._dmgAccum >= LOCK_DMG_STEP) {
           this._dmgAccum -= LOCK_DMG_STEP;
-          const dur = this.phase >= 3 ? P3_LOCK_INVULN : LOCK_INVULN;
-          this.boss.bossPhase.invulnTimer = Math.max(this.boss.bossPhase.invulnTimer, dur);
+          this.boss.bossPhase.invulnTimer += this.phase >= 3 ? P3_LOCK_INVULN : LOCK_INVULN;
         }
       }
       this._hpLast = this.boss.hp;
