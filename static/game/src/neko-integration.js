@@ -28,6 +28,13 @@ export const EVENT = {
   DEATH: 'death',
   WIN: 'win',
   IDLE: 'idle',
+  // 第一百六十六轮：猫娘代打（NekoPilot）专属场景 —— 她知道现在是
+  // 自己在玩，不再夸主人，改自评战况/求夸/输了求安慰
+  PILOT_TAKEOVER: 'pilot_takeover',   // 接管：「要人家帮你玩了吗～」
+  PILOT_HANDOVER: 'pilot_handover',   // 交还：「诶，要你亲自出马了吗？」
+  PILOT_WAVE: 'pilot_wave',           // 代打中的波次自评（求夸）
+  PILOT_WIN: 'pilot_win',             // 代打通关自夸
+  PILOT_LOSE: 'pilot_lose',           // 代打输了求安慰
 };
 
 /**
@@ -123,6 +130,32 @@ const SCENE_PROMPTS = {
     system: `{persona} 主人通关了全部 20 波！难度「{difficultyName}」，击杀 {kills} 只敌人。`
       + '说一句话超级兴奋地庆祝。20 字以内。',
   },
+  // ---- 第一百六十六轮：猫娘代打场景 —— 主语换成"我自己" ----
+  [EVENT.PILOT_TAKEOVER]: {
+    cooldown: 0,
+    system: `{persona} 主人把操作交给了{nekoName}自己来玩（代打模式开启）。`
+      + '说一句话自信（或有点小得意）地接下这个任务。15 字以内。',
+  },
+  [EVENT.PILOT_HANDOVER]: {
+    cooldown: 0,
+    system: `{persona} 刚才一直在替主人代打，现在主人把操作收回来了。`
+      + '说一句话乖乖交还、顺便给主人打气。15 字以内。',
+  },
+  [EVENT.PILOT_WAVE]: {
+    cooldown: 14,
+    system: `{persona} 现在是{nekoName}自己在替主人打第 {wave} 波，Lv.{level}，击杀 {kills}，血量 {hpPercent}%。`
+      + '用第一人称自评一下战况，暗示主人夸夸自己。15 字以内。',
+  },
+  [EVENT.PILOT_WIN]: {
+    cooldown: 0,
+    system: `{persona} {nekoName}替主人打通了全部 20 波（难度「{difficultyName}」，击杀 {kills}）！`
+      + '超级骄傲地邀功，明示主人快夸夸自己。20 字以内。',
+  },
+  [EVENT.PILOT_LOSE]: {
+    cooldown: 0,
+    system: `{persona} {nekoName}替主人打第 {wave} 波的时候输了（击杀 {kills}）。`
+      + '有点委屈地认错、求主人安慰和鼓励，不要甩锅给主人。18 字以内。',
+  },
 };
 
 /**
@@ -195,6 +228,27 @@ export const FALLBACK_LINES = {
     '休息一下也好', '呼…刚才好险', '需要{nekoName}陪你说话吗？',
     '水喝了吗，主人', '{nekoName}在数你的呼吸哦', '安静一会儿也不错喵',
     '要摸摸头吗？就一下',
+  ],
+  // ---- 第一百六十六轮：猫娘代打专属台词池（每场 5 句随机）----
+  [EVENT.PILOT_TAKEOVER]: [
+    '要人家帮你玩了吗～', '把键盘交给我吧喵！', '看好了，{nekoName}的走位～',
+    '放心交给我，喵！', '嘿嘿，轮到我上场啦～',
+  ],
+  [EVENT.PILOT_HANDOVER]: [
+    '诶，要你亲自出马了吗？', '好吧好吧，键盘还你喵～', '那你要加油哦！',
+    '人家打得不好吗…喵', '主人的手痒了吧～',
+  ],
+  [EVENT.PILOT_WAVE]: [
+    '这波打得不错吧，快夸夸我喵！', '看我的走位～很稳吧？', '稳住，{nekoName}可是专业的喵',
+    '这波有点险…但没事！', '喵哈哈，都在人家计算之内～',
+  ],
+  [EVENT.PILOT_WIN]: [
+    '看到没！人家通关啦！快夸夸我喵！', '喵啊啊{nekoName}做到了！', '人家替你打的喵！要谢我～',
+    '通关啦！我是不是很厉害！', '快摸摸头夸夸我喵！',
+  ],
+  [EVENT.PILOT_LOSE]: [
+    '呜…人家居然输了…安慰一下我喵', '不怪我喵，是怪物太多…', '呜呜，摸摸头说没关系…',
+    '人家尽力了喵…求鼓励…', '再给我一次机会，喵！',
   ],
 };
 

@@ -43,6 +43,7 @@ import { pluginBridge } from './plugin-bridge.js';
 // 第四十九轮：隐藏挑战 Boss 芙兰朵露（素材与弹幕规格来自 touhou-flandre 拆包）
 import { FlandreFight, flandreUnlockOk, ARENA } from './systems/flandre.js';
 import { VergilFight, VERGIL_MAX_HP, ARENA as VARENA } from './systems/vergil.js';
+import { NekoPilot } from './systems/neko-pilot.js';
 
 export const STATE = {
   TITLE: 'title',
@@ -256,6 +257,28 @@ export class Game {
 
   /** 统一的吐槽入口：任何异常都不影响游戏 */
   _nekoComment(event, ctx = {}) {
+    // ---- 第一百六十六轮：猫娘代打的自我认知 ----
+    // pilot 接管期间她知道"现在是我在玩"，不再夸主人（杀怪/升级/
+    // 合成的夸奖全部哑火），改为第一人称自评战况；输了求安慰，
+    // 通关了邀功求夸。
+    if (window.NekoAgent?.pilot?.on) {
+      const remap = {
+        [EVENT.RUN_START]: EVENT.PILOT_WAVE,
+        [EVENT.WAVE_START]: EVENT.PILOT_WAVE,
+        [EVENT.LEVEL_UP]: null,          // 升级是自己的事，不说话
+        [EVENT.LOW_HP]: null,            // 自己的血自己扛（hpLow 事件通道另有）
+        [EVENT.BOSS_SPAWN]: EVENT.PILOT_WAVE,
+        [EVENT.BOSS_PHASE]: null,
+        [EVENT.BOSS_KILL]: EVENT.PILOT_WAVE,
+        [EVENT.WEAPON_COMBO]: null,      // 自己买的自己知道
+        [EVENT.DEATH]: EVENT.PILOT_LOSE,
+        [EVENT.WIN]: EVENT.PILOT_WIN,
+        [EVENT.IDLE]: null,
+      };
+      const mapped = Object.prototype.hasOwnProperty.call(remap, event) ? remap[event] : event;
+      if (!mapped) return;
+      event = mapped;
+    }
     // 第一百二十六轮：nekoReady 只代表"形象/状态可用"，不代表有对话能力。
     // 插件面板里 standalone 形象挂上后 nekoReady 也是 true —— 那时 SDK
     // 对话通道并不存在，必须继续走桥（第一百二十五轮修好后这成了
@@ -444,6 +467,13 @@ export class Game {
       },
       onBack: () => this.showTitle(),
       onSetDifficulty: (id) => { this.setDifficulty(id); this.showCharSelect(); },
+      // 第一百六十六轮：「猫娘帮你玩」—— 用当前选中的角色+难度开一局，
+      // 并把方向盘交给 NekoPilot（接管语音由 pilot.start 自己播）
+      onNekoPlay: (id) => {
+        audio.play('gameStart');
+        this.startRun(id);
+        window.NekoAgent?.pilot?.start(this, { characterId: id });
+      },
     });
   }
 
@@ -2057,6 +2087,16 @@ export class Game {
         this._endRun(false, true);
       },
       onExit: () => this._exitGame(),
+      // 第一百六十六轮：猫娘代打切换开关（显示当前状态，点了切换并
+      // 重开暂停菜单刷新文案）
+      pilotOn: !!window.NekoAgent?.pilot?.on,
+      onTogglePilot: () => {
+        const pl = window.NekoAgent?.pilot;
+        if (!pl) return;
+        if (pl.on) pl.stop(this);   // 交还：语音"诶，要你亲自出马了吗？"
+        else pl.adopt(this);        // 接管：语音"要人家帮你玩了吗～"
+        this._pause();              // 重画暂停菜单，刷新开关状态
+      },
       // 第三十九轮："玩家特效"透明度滑条（0~100%，持久化到 meta）
       fxAlpha: this.meta.fxAlpha ?? 100,
       onFxAlpha: (v) => {
@@ -2562,6 +2602,9 @@ game.start();
 // 打断游戏主循环。
 // ============================================================
 window.NekoAgent = {
+  /** 代打大脑（第一百六十五轮）：start()/stop()/report()，tick 由 _tick 驱动 */
+  pilot: new NekoPilot(),
+
   /** 内部：抛全局事件（构造失败也吞掉） */
   _emit(type, detail) {
     try {
@@ -2577,6 +2620,10 @@ window.NekoAgent = {
    */
   _tick(g) {
     try {
+      // 代打大脑优先于事件钩子 —— 它要看到所有状态（level_up/shop/
+      // vergil/result），而事件钩子只在 playing 下有意义。大脑崩溃
+      // 只影响代打，绝不拖垮游戏主循环。
+      if (this.pilot?.on) this.pilot.tick(g);
       const p = g?.player;
       if (!p || g.state !== 'playing') return;
       const maxHp = Number(p.maxHp) || 0;

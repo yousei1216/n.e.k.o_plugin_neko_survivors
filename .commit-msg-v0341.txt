@@ -1,6 +1,0 @@
-v0.3.41：boss 结算断链修复 · 道具悬浮 · 材料缩写
-
-onBossKilled 的 p is not defined（0.3.36 引入，异常被静默吞 → 打死
-10 波 boss 不结算不掉红）；材料 ≥1k 显示 1.1k/NaN 兜底 0；商店面板
-道具行 hover 显示累计效果；战利品栏 >12 件自动折价防洪；NekoAgent
-状态串对齐 level_up。游戏运行时同步（version 0.3.41）

@@ -450,6 +450,13 @@ export class Player extends Entity {
     // 与角色技能同一位置 —— 护甲之后、护盾之前）。
     if ((this.takenFinalMul ?? 1) !== 1) final *= this.takenFinalMul;
 
+    // ---- 第一百六十六轮：猫娘代打辅助光环「猫娘的敏捷」----
+    // pilot（代打大脑）接管期间**单次受伤至多 1 点**（悠怡"猫的步伐"
+    // 同款锁伤机制，游戏内已有先例），配合 pilot tick 的持续回复构成
+    // 容错池。明牌设计：AI 走位没有真人细（无弹道预测），用锁伤补到
+    // "输了有趣但不能局局输"的水位；pilotBuff=false 光环立刻消失。
+    if (this.pilotBuff) final = Math.min(final, 1);
+
     // ---- 第十六轮：悠怡萌妹「本喵最欧」防御侧 ----
     // 也放在护甲之后：用户说"减少50%**最终**伤害"。
     const guard = this.charRt?.rollLuckyGuard?.() ?? 1;
@@ -682,6 +689,9 @@ export class Player extends Entity {
     let speed = this.baseSpeed * speedMul * this.mulFor('moveSpeed')
       * (this.speedBonusMul ?? 1) * (1 + mdMove / 100)
       * (world?.weather?.moveMul ?? 1);
+    // 第一百六十六轮：猫娘代打辅助光环「猫娘的敏捷」移速侧 —— +25%
+    //（受伤 -70% 在 takeDamage；芙兰战锁速走下面 flandreSpeed，不叠加）
+    if (this.pilotBuff) speed *= 1.25;
     // 第六十五轮：芙兰 boss 战专属移速设定 ——
     // 用户："玩家移动速度在boss战期间强制110%移速，然后加个设计，玩家
     // 按住shift的时候移动速度减半"（用户原文写成 shirt，指 Shift 键）。
@@ -823,7 +833,9 @@ export class Player extends Entity {
    */
   flandreHit(sourceX, sourceY) {
     if (this.invuln > 0 || this.dead) return 0;
-    const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.22));
+    const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.22
+      // 第一百六十六轮：猫娘代打光环对芙兰真伤同样削到 1/4（22% → 5%）
+      * (this.pilotBuff ? 0.25 : 1)));
     this.hp -= dmg;
     this.damageTaken += dmg;
     // 第九十七轮：1 秒受击免疫（FLANDRE_HIT_INVULN），否则一发连发直接蒸发
