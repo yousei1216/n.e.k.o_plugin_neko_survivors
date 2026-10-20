@@ -295,14 +295,33 @@ export class NekoPilot {
       if (hasThreat) {
         // 风筝：逃离威胁（旋转 ~34° 走弧线 —— 纯直线逃跑会被直线弹幕
         // 追上，弧线让每发子弹都差一点）+ 场心拉力 + 拾取吸引
+        // 第一百六十九轮：逃跑方向锥（<45°、<180px）内有**安全掉落**
+        // （自身离怪 >200）就直奔顺路吃 —— 吸附机制，逃跑不白跑
         const rot = 0.6 * (this._orbitDir ??= (Math.random() < 0.5 ? 1 : -1));
         const cosR = Math.cos(rot), sinR = Math.sin(rot);
         const rfX = fleeX * cosR - fleeY * sinR;
         const rfY = fleeX * sinR + fleeY * cosR;
         const distC = Math.hypot(p.x, p.y);
         const pullC = Math.max(0, distC - half * 0.78) / 160;
-        tx = p.x + rfX * fleeMag - p.x * 0.1 * pullC + this._pickupPull(g, p, 'x') * 0.5;
-        ty = p.y + rfY * fleeMag - p.y * 0.1 * pullC + this._pickupPull(g, p, 'y') * 0.5;
+        const onPath = this._pickupOnPath(g, p, rfX, rfY);
+        if (onPath) {
+          tx = onPath.x; ty = onPath.y;
+        } else {
+          tx = p.x + rfX * fleeMag - p.x * 0.1 * pullC + this._pickupPull(g, p, 'x') * 0.5;
+          ty = p.y + rfY * fleeMag - p.y * 0.1 * pullC + this._pickupPull(g, p, 'y') * 0.5;
+        }
+      } else if (nearest && nearestD > 500) {
+        // 第一百六十九轮：真安全（最近怪 >500）才离巡逻圈去捡漏 ——
+        // 只捡自身离怪 >220 的安全掉落；阈值定 500 而不是 350：
+        // 教训 —— 350 就判定"安全"会主动走向怪（无光环实测波 1 送头）
+        const pk = this._safePickup(g, p, 620);
+        if (pk) {
+          tx = pk.x; ty = pk.y;
+        } else {
+          this._orbit = (this._orbit ?? Math.random() * 6.283) + 0.3;
+          tx = Math.cos(this._orbit) * half * 0.72;
+          ty = Math.sin(this._orbit) * half * 0.72;
+        }
       } else {
         // 安全期绝不站桩：贴边绕场巡逻（0.72×半场）—— 怪从场内刷，
         // 场边一侧永远只有半个方向的怪，幸存者类的经典遛怪位。
@@ -337,6 +356,61 @@ export class NekoPilot {
         if (!it || it.dead) continue;
         const d = Math.hypot(it.x - p.x, it.y - p.y);
         if (d < bestD) { bestD = d; best = it; }
+      }
+      return best;
+    } catch { return null; }
+  }
+
+  /** 第一百六十九轮：安全掉落 —— 范围内且自身离最近怪 >220 的掉落 */
+  _safePickup(g, p, maxD) {
+    try {
+      const items = g.world?.pickups?.items;
+      const enemies = g.world?.enemies?.items;
+      if (!Array.isArray(items)) return null;
+      let best = null, bestD = maxD;
+      for (const it of items) {
+        if (!it || it.dead) continue;
+        const d = Math.hypot(it.x - p.x, it.y - p.y);
+        if (d >= bestD) continue;
+        let minE = Infinity;
+        if (Array.isArray(enemies)) {
+          for (const e of enemies) {
+            if (!e || e.dead || e.isChest) continue;
+            const ed = Math.hypot(it.x - e.x, it.y - e.y);
+            if (ed < minE) minE = ed;
+          }
+        }
+        if (minE > 220) { bestD = d; best = it; }
+      }
+      return best;
+    } catch { return null; }
+  }
+
+  /** 第一百六十九轮：吸附 —— 逃跑方向锥（夹角 <45°、距离 <180）内的
+   *  安全掉落（自身离怪 >200），逃跑路上顺路吃 */
+  _pickupOnPath(g, p, dirX, dirY) {
+    try {
+      const m = Math.hypot(dirX, dirY) || 1;
+      const ux = dirX / m, uy = dirY / m;
+      const items = g.world?.pickups?.items;
+      const enemies = g.world?.enemies?.items;
+      if (!Array.isArray(items)) return null;
+      let best = null, bestD = 180;
+      for (const it of items) {
+        if (!it || it.dead) continue;
+        const dx = it.x - p.x, dy = it.y - p.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 1 || d > 180) continue;
+        if ((dx * ux + dy * uy) / d <= 0.7 || d >= bestD) continue;
+        let minE = Infinity;
+        if (Array.isArray(enemies)) {
+          for (const e of enemies) {
+            if (!e || e.dead || e.isChest) continue;
+            const ed = Math.hypot(it.x - e.x, it.y - e.y);
+            if (ed < minE) minE = ed;
+          }
+        }
+        if (minE > 200) { bestD = d; best = it; }
       }
       return best;
     } catch { return null; }
@@ -405,8 +479,13 @@ export class NekoPilot {
           }
         } catch { /* 合成失败不影响购买 */ }
         const weaponCount = (p.weapons || []).length;
+        // ---- 第一百六十九轮：土豆兄弟铁律 —— 前 5 波武器栏没满 6 把，
+        // 钱全砸武器（道具再香不看；武器多 = 输出成倍，发育滚雪球）；
+        // 满 6 后转向攻速/伤害/血量。减益道具依旧一票否决。
+        const rushWeapons = weaponCount < 6 && (g.waveIndex ?? 0) < 5;
+        const buyCap = rushWeapons ? 4 : 3;
         let bought = 0;
-        for (let slot = 0; slot < shop.offers.length && bought < 3; slot++) {
+        for (let slot = 0; slot < shop.offers.length && bought < buyCap; slot++) {
           const o = shop.offers[slot];
           if (!o || o.sold) continue;
           if (!(p.materials >= o.price)) continue;
@@ -425,16 +504,19 @@ export class NekoPilot {
           // 同名武器允许持有 2 把（游戏机制：两把同名可合成升级），
           // 第 3 把起纯占栏，跳过
           if (isWeapon && typeof p.findWeapons === 'function' && p.findWeapons(o.data.id).length >= 2) continue;
-          // 决策：远程武器见到就买（最多 4 把）；其余买 1~2 件最贵的补给
-          const want = isRangedWeapon
-            || (isWeapon && weaponCount + bought < 2)
-            || isHpItem
-            || (!isWeapon && bought < 2 && o.price >= 10);
+          // 决策：冲刺期是武器就买（近战先塞栏，之后靠合成腾位）；
+          // 满栏后远程武器见到仍买 / 血量移速必买 / 1~2 件较贵补给
+          const want = rushWeapons
+            ? isWeapon
+            : (isRangedWeapon
+              || (isWeapon && weaponCount < 6)
+              || isHpItem
+              || (!isWeapon && bought < 2 && o.price >= 10));
           if (!want) continue;
           const r = shop.buy(p, slot);
           if (r && r.ok !== false) {
             bought++;
-            this._log(`商店购入【${o.data?.name ?? o.data?.id ?? slot}】(-${o.price})`);
+            this._log(`商店购入【${o.data?.name ?? o.data?.id ?? slot}】(-${o.price})${rushWeapons && isWeapon ? '（6 武器冲刺）' : ''}`);
           }
         }
       }
