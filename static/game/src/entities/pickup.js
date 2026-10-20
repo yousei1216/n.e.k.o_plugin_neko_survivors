@@ -61,7 +61,10 @@ export class Pickup extends Entity {
     const dy = player.y - this.y;
     const d = Math.hypot(dx, dy) || 1;
 
-    const pickupRange = player.stats.get('pickupRange');
+    // 第一百七十轮：猫娘代打轻量光环 —— `_pilotMagnet` 是代打大脑给
+    // 她的"大范围磁吸"（无锁伤无回血，靠吃满地图掉落发育）。取 max
+    // 是不削弱玩家自己的拾取范围道具。
+    const pickupRange = Math.max(player.stats.get('pickupRange'), player._pilotMagnet ?? 0);
 
     // ---- 第十八轮 ⑩：满血时不主动吸医疗包 ----
     //

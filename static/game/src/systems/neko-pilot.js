@@ -142,6 +142,10 @@ export class NekoPilot {
           this._hpSnapshot = null;
         }
         g.player.pilotBuff = false;
+        // 轻量光环一并清（第一百七十轮）
+        g.player.pilotLite = false;
+        g.player._pilotMagnet = 0;
+        g.player._pilotEarly = false;
         g.player.agentMoveTarget = null;   // 清掉她的移动意图，别拽着玩家走
       }
     } catch { /* */ }
@@ -175,16 +179,24 @@ export class NekoPilot {
       } else if (p) { this._lastX = p.x; this._lastY = p.y; }
 
       // 辅助光环每帧保证（startRun 会新建 player，重开后 buff 会丢）。
-      // 明牌设计：代打 AI 的走位没有真人细（无弹道预测），「猫娘的敏捷」
-      // 三件套补容错 —— 单次受伤至多 1（takeDamage）+ 持续回复 + 芙兰
-      // 真伤削减；关掉代打立刻全部消失。
-      // 探针 __nobuff=1：光环整体不挂 —— 纯走位强度测量用。
-      if (g.player && !g.player.dead && !window.__nobuff && !g.__nobuff) {
-        g.player.pilotBuff = true;
-        if (g.player.hp > 0) {
-          // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
-          // 用户要"输了也挺有趣，但不能真的一局都赢不了"，留死亡窗口
-          g.player.hp = Math.min(g.player.maxHp, g.player.hp + 0.4);
+      // 两档明牌光环（探针 __nobuff=1 全关 / __altbuff=1 只开轻量）：
+      // · pilotBuff（全套）：单次受伤至多 1 + 持续回复 + 芙兰真伤削减
+      // · pilotLite（轻量，第一百七十轮）：大范围磁吸（400）吸收全图
+      //   掉落发育 + 前 3 波隐藏减伤 40% 防 AI 开局送 —— 无锁伤无回血
+      if (g.player && !g.player.dead) {
+        const nobuff = window.__nobuff || g.__nobuff;
+        const lite = !nobuff && (window.__altbuff || g.__altbuff);
+        if (!nobuff) {
+          g.player.pilotBuff = !lite;
+          g.player.pilotLite = !!lite;
+          if (lite) {
+            g.player._pilotEarly = (g.waveIndex ?? 0) < 3;
+            g.player._pilotMagnet = 400;
+          } else if (g.player.hp > 0) {
+            // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
+            // 用户要"输了也挺有趣，但不能真的一局都赢不了"，留死亡窗口
+            g.player.hp = Math.min(g.player.maxHp, g.player.hp + 0.4);
+          }
         }
       }
       switch (g.state) {

@@ -456,6 +456,10 @@ export class Player extends Entity {
     // 容错池。明牌设计：AI 走位没有真人细（无弹道预测），用锁伤补到
     // "输了有趣但不能局局输"的水位；pilotBuff=false 光环立刻消失。
     if (this.pilotBuff) final = Math.min(final, 1);
+    // 第一百七十轮：轻量光环（pilotLite）—— 无锁伤无回血无移速，只有
+    // 前 3 波的隐藏减伤 40%（用户口径："1-3回合给她一个玩家看不出来的
+    // 减伤"，防 AI 开局送；_pilotEarly 由 pilot tick 每帧按波次刷新）
+    if (this.pilotLite && this._pilotEarly) final *= 0.6;
 
     // ---- 第十六轮：悠怡萌妹「本喵最欧」防御侧 ----
     // 也放在护甲之后：用户说"减少50%**最终**伤害"。
