@@ -88,6 +88,8 @@ export class NekoPilot {
     this._lastPush = -999;
     this._events = [];
     this.startedAt = Date.now();
+    this._hpSnapshot = null;   // 新局满血，无快照
+    this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
     try {
       if (this.difficulty && typeof g.setDifficulty === 'function' && g.difficultyId !== this.difficulty) {
         g.setDifficulty(this.difficulty);
@@ -115,6 +117,11 @@ export class NekoPilot {
     this._lastPush = -999;
     this._events = this._events || [];
     this.startedAt = this.startedAt || Date.now();
+    // 第一百六十八轮：交出瞬间快照血量**比例** —— 代打期间光环回复拉满
+    // 也不能带走：切回来时按比例还原，堵死"切猫娘回满血再切回来 = 不死"
+    // 的漏洞。光环回血只服务于她自己活着。
+    try { if (g?.player) this._hpSnapshot = g.player.hp / Math.max(1, g.player.maxHp); } catch { /* */ }
+    this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
     try {
       window.NekoAgent?.setPuppetMode?.(true);
       this._log(`代打中途接管（第 ${(g?.waveIndex ?? 0) + 1} 波）`);
@@ -127,7 +134,18 @@ export class NekoPilot {
   stop(g) {
     this.on = false;
     try { window.NekoAgent?.setPuppetMode?.(false); } catch { /* */ }
-    try { if (g?.player) g.player.pilotBuff = false; } catch { /* */ }
+    try {
+      if (g?.player) {
+        // 还原交出时的血量比例（第一百六十八轮防漏洞，见 adopt）
+        if (this._hpSnapshot != null) {
+          g.player.hp = Math.max(1, Math.round(this._hpSnapshot * g.player.maxHp));
+          this._hpSnapshot = null;
+        }
+        g.player.pilotBuff = false;
+        g.player.agentMoveTarget = null;   // 清掉她的移动意图，别拽着玩家走
+      }
+    } catch { /* */ }
+    this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
     try { g?._nekoSay?.(pick(HANDOVER_LINES)); } catch { /* */ }
     this._log('代打结束，控制权交还玩家');
   }
@@ -136,11 +154,32 @@ export class NekoPilot {
   tick(g) {
     if (!this.on || !g) return;
     try {
+      // ---- 卡墙检测 ----
+      // 有移动目标但 ~0.3s 位移 <0.6px = 撞墙了 —— 侧移 90° 绕行。
+      // （agentMoveTarget 是直线走位，遇地形障碍会顶死在墙上）
+      const p = g.player;
+      if (p && this._lastX != null) {
+        const moved = Math.hypot(p.x - this._lastX, p.y - this._lastY);
+        if (moved < 0.6 && p.agentMoveTarget) {
+          if (++this._stuckN > 18) {
+            const t = p.agentMoveTarget;
+            const dx = t.x - p.x, dy = t.y - p.y;
+            const d = Math.hypot(dx, dy) || 1;
+            window.NekoAgent?.doAction?.(`move(${Math.round(p.x - (dy / d) * 130)}, ${Math.round(p.y + (dx / d) * 130)})`);
+            this._stuckN = 0;
+            this._lastX = p.x; this._lastY = p.y;
+            return;
+          }
+        } else this._stuckN = 0;
+        this._lastX = p.x; this._lastY = p.y;
+      } else if (p) { this._lastX = p.x; this._lastY = p.y; }
+
       // 辅助光环每帧保证（startRun 会新建 player，重开后 buff 会丢）。
       // 明牌设计：代打 AI 的走位没有真人细（无弹道预测），「猫娘的敏捷」
       // 三件套补容错 —— 单次受伤至多 1（takeDamage）+ 持续回复 + 芙兰
       // 真伤削减；关掉代打立刻全部消失。
-      if (g.player && !g.player.dead) {
+      // 探针 __nobuff=1：光环整体不挂 —— 纯走位强度测量用。
+      if (g.player && !g.player.dead && !window.__nobuff && !g.__nobuff) {
         g.player.pilotBuff = true;
         if (g.player.hp > 0) {
           // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
@@ -276,7 +315,16 @@ export class NekoPilot {
         ty = pk ? pk.y * 0.6 + py * 0.4 : py;
       }
     }
-    window.NekoAgent?.doAction?.(`move(${Math.round(tx)}, ${Math.round(ty)})`);
+    // ---- 走位平滑（低通 + 迟滞）----
+    // 威胁向量帧间微小变化 → 目标点左右横跳（实测"鬼畜般高速抖动"）。
+    // 新目标先和旧目标按 4:6 混合；混合后位移 <26px 就不更新 —— 角色继续
+    // 朝旧目标走，只有真正有意义的方向变化才会改道。
+    const mix = this._tgt
+      ? { x: tx * 0.4 + this._tgt.x * 0.6, y: ty * 0.4 + this._tgt.y * 0.6 }
+      : { x: tx, y: ty };
+    if (this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
+    this._tgt = mix;
+    window.NekoAgent?.doAction?.(`move(${Math.round(mix.x)}, ${Math.round(mix.y)})`);
   }
 
   /** 420 内最近拾取物（巡逻时顺路捡） */
@@ -429,6 +477,8 @@ export class NekoPilot {
     this.attempt++;
     this._lastPush = -999;   // 防抖标志跨局重置（每局都从 waveIndex=0 开始，
     //                            不重置会把新一局第 1 波的推波误拦成"已推过"）
+    this._hpSnapshot = null;   // 新局满血，旧快照作废
+    this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
     this._log(`第 ${this.attempt - 1} 次尝试倒在第 ${reached} 波 → 重开（${this.attempt}/${this.maxAttempts}）`);
     try {
       g.ui?.clearOverlay?.();
