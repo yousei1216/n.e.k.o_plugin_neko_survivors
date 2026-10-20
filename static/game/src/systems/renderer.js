@@ -6,6 +6,9 @@
 // ============================================================
 
 import { TAU, clamp } from '../core/math.js';
+// 第一百六十二轮：移动端性能档位（shadowBlur 全关 / dpr 1.5 / 标题粒子减半；
+// 桌面 MOBILE=false，所有原值不变）
+import { MOBILE, MOBILE_TUNE } from '../core/mobile.js';
 import { PICKUP_TYPE } from '../entities/pickup.js';
 import { FX_TYPE, fxSettings } from '../systems/fx.js';
 // 敌人贴图（第七轮）。没加载到贴图时**照旧走几何形状**，所以贴图始终是可选增强。
@@ -48,7 +51,8 @@ export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 第一百六十二轮：移动端 DPR 上限 1.5（像素填充率是手机第二大瓶颈）
+    this.dpr = Math.min(window.devicePixelRatio || 1, MOBILE ? MOBILE_TUNE.DPR_CAP : 2);
     this.width = 0;
     this.height = 0;
     this.bgPattern = null;
@@ -177,7 +181,8 @@ export class Renderer {
     // ---- 远景静态星（闪烁）：小而密，走 alpha 呼吸 ----
     ctx.save();
     ctx.fillStyle = '#cfd8ff';
-    for (let i = 0; i < 46; i++) {
+    // 第一百六十二轮：移动端标题星星减半（桌面 46 不变）
+    for (let i = 0; i < (MOBILE ? 23 : 46); i++) {
       const seed = i * 97.13;
       const x = (seed * 5.31) % W;
       const y = (seed * 3.77) % H;
@@ -192,7 +197,8 @@ export class Renderer {
     // ---- 上升魔法光点（粉/蓝/紫，双层圆光晕，向上漂 + 轻微横摆）----
     // 与芙兰战的魔法粒子同一色系，主界面和战斗的氛围连起来。
     ctx.save();
-    for (let i = 0; i < 40; i++) {
+    // 第一百六十二轮：移动端标题光尘减半（桌面 40 不变）
+    for (let i = 0; i < (MOBILE ? 20 : 40); i++) {
       const seed = i * 137.508;
       const speed = 9 + (i % 5) * 7;                       // 各自不同的上升速度
       const x = (((seed * 7.3 + Math.sin(t * 0.35 + i) * 42) % (W + 60)) + W + 60) % (W + 60) - 30;
@@ -1089,11 +1095,11 @@ export class Renderer {
 
     const col = e.hurtFlash > 0 ? '#ffffff' : (e.mutant ? '#9c2231' : e.color);
     // 第一百五十三轮：变异体红色轮廓光 —— 用户："给变异小怪的边缘加一圈
-    // 红色的发光描边（ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 10;），
+    // 红色的发光描边（ctx.shadowColor = '#ff0000'; ctx.shadowBlur = MOBILE ? 0 :10;），
     // 像大树守卫那样浑身透着红光"。在形状/贴图绘制前挂 shadow，画完清掉。
     if (e.mutant) {
       ctx.shadowColor = '#ff0000';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = MOBILE ? 0 :10;
     }
 
     // ---- 第一百三十一轮：过载减伤触发闪光 ----
@@ -1217,7 +1223,7 @@ export class Renderer {
         dy = -s * 0.60;
       }
       ctx.drawImage(drawImg, dx, dy, dw, dh);
-      ctx.shadowBlur = 0;    // rim light 只罩贴图这一下（变异体，第一百五十三轮）
+      ctx.shadowBlur = MOBILE ? 0 :0;    // rim light 只罩贴图这一下（变异体，第一百五十三轮）
 
       if (flash > 0) {
         // 用**离屏剪影**叠色，而不是在主画布上 source-atop。
@@ -1407,7 +1413,7 @@ export class Renderer {
       }
     }
     }   // ← 结束「无贴图时走几何形状」的 else
-    if (e.mutant) ctx.shadowBlur = 0;   // rim light 只罩本体（几何兜底路径）
+    if (e.mutant) ctx.shadowBlur = MOBILE ? 0 :0;   // rim light 只罩本体（几何兜底路径）
 
     // 眼睛：朝向玩家
     //
@@ -1616,7 +1622,7 @@ export class Renderer {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
       ctx.shadowColor = '#ff0000';
-      ctx.shadowBlur = 9;
+      ctx.shadowBlur = MOBILE ? 0 :9;
       ctx.fillStyle = `rgba(255,32,48,${blink})`;
       ctx.fillText('危', e.x, e.y - r - 22);
       ctx.restore();
@@ -3783,7 +3789,7 @@ export class Renderer {
       const breath = 0.45 + 0.35 * Math.abs(Math.sin(t * 2.6));
       ctx.save();
       ctx.shadowColor = `rgba(255,36,72,${0.55 + 0.35 * breath})`;
-      ctx.shadowBlur = 10 + 14 * breath;
+      ctx.shadowBlur = MOBILE ? 0 :10 + 14 * breath;
       ctx.strokeStyle = `rgba(255,60,90,${0.25 + 0.3 * breath})`;
       ctx.lineWidth = 2;
       ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
@@ -3835,7 +3841,7 @@ export class Renderer {
 
     // ---- ⑤ 阶段刻度：发光金线 + 菱形挡板 ----
     ctx.shadowColor = 'rgba(255,208,64,0.9)';
-    ctx.shadowBlur = 6;
+    ctx.shadowBlur = MOBILE ? 0 :6;
     ctx.fillStyle = '#ffd23a';
     for (const k of (o.ticks ?? [0.2, 0.4, 0.6, 0.8])) {
       const tx = innerX + innerW * k;
@@ -3846,7 +3852,7 @@ export class Renderer {
       ctx.fillRect(-2.6, -2.6, 5.2, 5.2);                      // 菱形挡板 ◆
       ctx.restore();
     }
-    ctx.shadowBlur = 0;
+    ctx.shadowBlur = MOBILE ? 0 :0;
 
     // ---- ⑥ 名字与数值（3px 圆角黑描边）----
     ctx.font = '700 12px "PingFang SC", "Microsoft YaHei", sans-serif';
@@ -4676,12 +4682,12 @@ export class Renderer {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.shadowColor = 'rgba(255,214,140,0.55)';
-      ctx.shadowBlur = 5;
+      ctx.shadowBlur = MOBILE ? 0 :5;
       ctx.lineWidth = 4;
       ctx.strokeStyle = 'rgba(5,3,8,0.95)';
       ctx.lineJoin = 'round';
       ctx.strokeText(hpText, txX, txY);
-      ctx.shadowBlur = 0;
+      ctx.shadowBlur = MOBILE ? 0 :0;
       ctx.fillStyle = '#fff4e2';
       ctx.fillText(hpText, txX, txY);
       ctx.restore();
@@ -4745,10 +4751,10 @@ export class Renderer {
         ctx.fillStyle = S[gKey];
         if (nearFull) ctx.globalAlpha = 0.82 + 0.18 * pulse;
         ctx.shadowColor = nearFull ? `rgba(255,140,220,${0.5 + 0.5 * pulse})` : 'rgba(216,115,239,0.4)';
-        ctx.shadowBlur = nearFull ? 8 + 12 * pulse : 5;
+        ctx.shadowBlur = MOBILE ? 0 :nearFull ? 8 + 12 * pulse : 5;
         ctx.fillRect(0, y0 + 1, W * ratio, BAR_H - 2);
         // 光带顶部高光
-        ctx.shadowBlur = 0;
+        ctx.shadowBlur = MOBILE ? 0 :0;
         ctx.fillStyle = 'rgba(255,255,255,0.3)';
         ctx.fillRect(0, y0 + 1, W * ratio, 1.5);
         ctx.restore();
@@ -4776,7 +4782,7 @@ export class Renderer {
       }
       ctx.save();
       ctx.shadowColor = 'rgba(255,210,58,0.8)';
-      ctx.shadowBlur = 4;
+      ctx.shadowBlur = MOBILE ? 0 :4;
       for (const p of [0.25, 0.5, 0.75]) {
         ctx.drawImage(S.pawSprite, W * p - 9, y0 + BAR_H / 2 - 9, 18, 18);
       }
@@ -4788,7 +4794,7 @@ export class Renderer {
         const px = (swipe.from + (swipe.to - swipe.from) * k) * W;
         ctx.save();
         ctx.shadowColor = 'rgba(255,255,255,0.95)';
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = MOBILE ? 0 :10;
         // 拖尾（身后三个递减亮点）
         for (let i = 1; i <= 3; i++) {
           const tk = Math.max(0, swipe.t - i * 0.07);
@@ -4826,12 +4832,12 @@ export class Renderer {
         S.lvGrad = g; S.lvGradY = lvY;
       }
       ctx.shadowColor = 'rgba(255,200,80,0.5)';
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = MOBILE ? 0 :6;
       ctx.lineWidth = 5;
       ctx.strokeStyle = 'rgba(10,6,18,0.95)';
       ctx.lineJoin = 'round';
       ctx.strokeText(lvText, W - 14, lvY);
-      ctx.shadowBlur = 0;
+      ctx.shadowBlur = MOBILE ? 0 :0;
       ctx.fillStyle = S.lvGrad;
       ctx.fillText(lvText, W - 14, lvY);
       ctx.restore();

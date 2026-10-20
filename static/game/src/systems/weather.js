@@ -16,6 +16,8 @@
 // ============================================================
 
 import { RNG } from '../core/rng.js';
+// 第一百六十二轮：移动端天气视觉密度档位（桌面 MOBILE=false，数量全部不变）
+import { MOBILE } from '../core/mobile.js';
 import { WEATHER_DEFS, WEATHER_MAP } from '../data/weather.js';
 
 const ROLL_INTERVAL = 3;     // 每 3 秒一次判定
@@ -157,16 +159,16 @@ export class WeatherSystem {
     this.fogClouds.length = 0;
     this.burns.length = 0;
     this.dotAcc = 0;
+    // 第一百六十二轮：移动端天气视觉密度减半（玩法旗标不变，纯视觉；
+    // 桌面 MOBILE=false 恒 4 龙卷 / 8 雾团）
     if (def.id === 'typhoon') {
-      this._spawnTyphoon(world, player);
-      this._spawnTyphoon(world, player);
+      const n = MOBILE ? 2 : 4;
       // 第一百三十五轮：龙卷风 2 → 4 个（用户："只有2个龙卷风太少啦"）
-      this._spawnTyphoon(world, player);
-      this._spawnTyphoon(world, player);
+      for (let i = 0; i < n; i++) this._spawnTyphoon(world, player);
     }
     if (def.id === 'riverFog') {
       // 第一百三十五轮：雾团 4 → 8 团（用户："雾气数量多一倍"）
-      for (let i = 0; i < 8; i++) this._spawnFogCloud(world, player);
+      for (let i = 0; i < (MOBILE ? 5 : 8); i++) this._spawnFogCloud(world, player);
     }
     if (def.id === 'rain') this._initDrops();
   }
@@ -575,7 +577,8 @@ export class WeatherSystem {
   // ---- 雾雨雨滴（纯视觉，Math.random；屏幕坐标）----
   _initDrops() {
     this.drops = [];
-    for (let i = 0; i < 170; i++) {
+    // 第一百六十二轮：移动端雨滴密度减半（桌面 170 不变）
+    for (let i = 0; i < (MOBILE ? 85 : 170); i++) {
       this.drops.push({
         x: Math.random() * 1, y: Math.random() * 1,
         len: 9 + Math.random() * 12,

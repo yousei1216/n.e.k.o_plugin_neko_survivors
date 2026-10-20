@@ -16,6 +16,8 @@
 // ============================================================
 
 import { TAU } from '../core/math.js';
+// 第一百六十二轮：移动端性能档位（桌面 MOBILE=false，maxItems 仍为 240）
+import { MOBILE, MOBILE_TUNE } from '../core/mobile.js';
 
 // ---- 第三十九轮：玩家特效透明度 ----
 // 用户原话："增加个暂停菜单的设置选项，让玩家可拖动"玩家特效"条来调整
@@ -49,7 +51,8 @@ export class FXSystem {
     // 240 是折中：仍然远高于正常战斗的同屏特效数（实测峰值约 60~90），
     // 只有在"后期极高攻速 + 暴击碎片"这种极端情况下才会触顶，
     // 而那时玩家本来也看不清多出来的特效。
-    this.maxItems = 240;
+    // 移动端降档（MOBILE=false 桌面恒 240，行为不变）
+    this.maxItems = MOBILE ? MOBILE_TUNE.FX_MAX_ITEMS : 240;
     // 供测试断言"特效真的被创建了"用
     this.stats = { created: 0, dropped: 0 };
   }
