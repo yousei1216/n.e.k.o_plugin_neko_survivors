@@ -892,12 +892,15 @@ export class Renderer {
     }
     }   // ← 结束「无贴图时走几何小猫」的 else
 
-    // 受伤闪红（贴图和几何两条路径都要闪，所以放在 else 外面）
+    // 受伤闪白（贴图和几何两条路径都要闪，所以放在 else 外面）
+    // 第一百六十七轮：原来这里是红色大圆（1.12×半径），用户观感反馈
+    // "看起来像是 hitbox"。改成半透明白闪 —— 只提示"挨打了"，
+    // 不再像身上套了个圈。
     if (p.hurtFlash > 0) {
-      ctx.globalAlpha = clamp(p.hurtFlash / 0.25, 0, 1) * 0.7;
-      ctx.fillStyle = '#ff2d55';
+      ctx.globalAlpha = clamp(p.hurtFlash / 0.25, 0, 1) * 0.55;
+      ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(0, 0, r * 1.12, 0, TAU);
+      ctx.arc(0, 0, r * 1.05, 0, TAU);
       ctx.fill();
     }
 

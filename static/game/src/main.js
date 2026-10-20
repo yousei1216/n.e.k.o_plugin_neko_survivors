@@ -2095,7 +2095,12 @@ export class Game {
         if (!pl) return;
         if (pl.on) pl.stop(this);   // 交还：语音"诶，要你亲自出马了吗？"
         else pl.adopt(this);        // 接管：语音"要人家帮你玩了吗～"
-        this._pause();              // 重画暂停菜单，刷新开关状态
+        // 重画暂停菜单刷新开关状态。**_pauseFrom 必须保住原值** ——
+        // _pause() 会把 _pauseFrom 记成"当前状态"，而当前就是 PAUSED，
+        // 之后点继续 state 回到 PAUSED = 永远卡在暂停（实测"切换就卡死"）
+        const from = this._pauseFrom;
+        this._pause();
+        this._pauseFrom = from;
       },
       // 第三十九轮："玩家特效"透明度滑条（0~100%，持久化到 meta）
       fxAlpha: this.meta.fxAlpha ?? 100,
