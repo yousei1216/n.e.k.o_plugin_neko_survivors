@@ -22,9 +22,14 @@ export class Input {
         e.preventDefault();
       }
       if (Input.agentBlocked) {
-        if (this.keys.size) this.keys.clear();
-        if (this.justPressed.size) this.justPressed.clear();
-        return;
+        // 第一百六十七轮：**ESC 放行** —— 否则代打期间玩家连暂停菜单都
+        // 唤不出来，彻底无法接管（实测："esc完全失效"）。只吞操作键，
+        // ESC 照常入队走暂停流程，玩家从菜单里的开关抢回方向盘。
+        if (e.code !== 'Escape') {
+          if (this.keys.size) this.keys.clear();
+          if (this.justPressed.size) this.justPressed.clear();
+          return;
+        }
       }
       if (!this.keys.has(e.code)) this.justPressed.add(e.code);
       this.keys.add(e.code);

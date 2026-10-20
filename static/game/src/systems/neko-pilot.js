@@ -397,6 +397,9 @@ export class NekoPilot {
       if (this._lastPush === g.waveIndex) return;
       this._lastPush = g.waveIndex;
       this._log(`第 ${g.waveIndex + 1} 波结算完毕 → 开第 ${g.waveIndex + 2} 波`);
+      // 先关商店 overlay 再推波 —— 与正常"下一波"按钮回调同序。漏了这步
+      // 会导致商店界面挂在屏上，玩家点"下一波"就又跳一波（实测跳波）。
+      g.ui?.clearOverlay?.();
       g._beginWave(g.waveIndex + 1);
       // _beginWave 只做波次装配、不切状态（正常由商店按钮回调切）——
       // pilot 绕过 UI 直接推，必须自己把状态切回 playing
