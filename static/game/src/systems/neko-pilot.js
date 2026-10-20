@@ -76,8 +76,24 @@ export class NekoPilot {
    * @param {object} [opts] { difficulty, characterId, maxAttempts }
    */
   start(g, opts = {}) {
+    // ---- 第一百七十轮：entity 模式（pilot2 驱动 P2 队友）----
+    // 不重开局、不抢键盘、不挂光环（双 0buff 实验）；P2 已由 main 的
+    // startRun(duo) 创建好，这里只是"接管她的大脑"。
+    if (opts.entity) {
+      this.entity = opts.entity;
+      this.on = true;
+      this.win = false;
+      this.gaveUp = false;
+      this._lastPush = -999;
+      this._events = [];
+      this._hpSnapshot = null;
+      this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
+      this._log(`P2 猫娘上线：${opts.entity.characterId}（双 0buff 实验）`);
+      return true;
+    }
     // 难度默认跟当前选角界面选的难度走（用户从选角界面点"猫娘帮你玩"
     // 时期望打的就是选中的难度，不是写死的噩梦）
+    this.entity = null;
     this.difficulty = opts.difficulty ?? g?.difficultyId ?? 'nightmare';
     this.characterId = opts.characterId ?? 'luna';
     this.maxAttempts = opts.maxAttempts ?? 3;
@@ -158,10 +174,29 @@ export class NekoPilot {
   tick(g) {
     if (!this.on || !g) return;
     try {
+      // ---- 第一百七十轮：实体参数化（2P）----
+      // entity 模式（pilot2）：this.entity 是队友 P2 —— 不重开局、
+      // 不抢键盘、不挂任何光环（双 0buff 实验）、不处理结算
+      //（双死判负由 main），P2 倒地时原地待救援。
+      const p = this.entity ?? g.player;
+      if (!p) return;
+      if (this.entity) {
+        if (p.dead || p.downed) return;   // 倒地等救援，AI 不动作
+        if (g.state === 'result') return; // 结算交给 P1 的 pilot
+        if (p.pendingLevelUps > 0) {
+          // P2 升级自动化（不走选卡 UI）：简化包 = 生存向 +6 上限/+8% 伤害
+          p.pendingLevelUps--;
+          p.stats.addFlat('maxHp', 6);
+          p.stats.addPct('damage', 8);
+          p.stats.dirty = true;
+          p.heal(6);
+          this._log('P2 升级：+6 生命上限 / +8% 伤害（自动）');
+        }
+      }
+
       // ---- 卡墙检测 ----
       // 有移动目标但 ~0.3s 位移 <0.6px = 撞墙了 —— 侧移 90° 绕行。
       // （agentMoveTarget 是直线走位，遇地形障碍会顶死在墙上）
-      const p = g.player;
       if (p && this._lastX != null) {
         const moved = Math.hypot(p.x - this._lastX, p.y - this._lastY);
         if (moved < 0.6 && p.agentMoveTarget) {
@@ -183,29 +218,30 @@ export class NekoPilot {
       // · pilotBuff（全套）：单次受伤至多 1 + 持续回复 + 芙兰真伤削减
       // · pilotLite（轻量，第一百七十轮）：大范围磁吸（400）吸收全图
       //   掉落发育 + 前 3 波隐藏减伤 40% 防 AI 开局送 —— 无锁伤无回血
-      if (g.player && !g.player.dead) {
+      // duo 模式（2P 实验）双人 0buff：光环整段跳过。
+      if (!this.entity && !(window.__duo || g.__duo) && p && !p.dead) {
         const nobuff = window.__nobuff || g.__nobuff;
         const lite = !nobuff && (window.__altbuff || g.__altbuff);
         if (!nobuff) {
-          g.player.pilotBuff = !lite;
-          g.player.pilotLite = !!lite;
+          p.pilotBuff = !lite;
+          p.pilotLite = !!lite;
           if (lite) {
-            g.player._pilotEarly = (g.waveIndex ?? 0) < 3;
-            g.player._pilotMagnet = 400;
-          } else if (g.player.hp > 0) {
+            p._pilotEarly = (g.waveIndex ?? 0) < 3;
+            p._pilotMagnet = 400;
+          } else if (p.hp > 0) {
             // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
             // 用户要"输了也挺有趣，但不能真的一局都赢不了"，留死亡窗口
-            g.player.hp = Math.min(g.player.maxHp, g.player.hp + 0.4);
+            p.hp = Math.min(p.maxHp, p.hp + 0.4);
           }
         }
       }
       switch (g.state) {
-        case 'playing': this._combat(g, false); break;
-        case 'vergil': this._combat(g, true); break;
-        case 'flandre': this._combat(g, true); break;   // 芙兰战同款环绕（20 波后挑战）
-        case 'level_up': this._pickUpgrade(g); break;
-        case 'shop': this._nextWave(g); break;
-        case 'result': this._settle(g); break;
+        case 'playing': this._combat(g, false, p); break;
+        case 'vergil': this._combat(g, true, p); break;
+        case 'flandre': this._combat(g, true, p); break;   // 芙兰战同款环绕（20 波后挑战）
+        case 'level_up': this._pickUpgrade(g, p); break;
+        case 'shop': this._nextWave(g, p); break;
+        case 'result': if (!this.entity) this._settle(g); break;
         default: break; // title/char_select/paused 等不动作
       }
     } catch { /* 决策异常不许影响游戏 */ }
@@ -214,8 +250,8 @@ export class NekoPilot {
   // ---------------------------------------------------------
   // 战斗走位
   // ---------------------------------------------------------
-  _combat(g, vergilMode) {
-    const p = g.player;
+  _combat(g, vergilMode, ent) {
+    const p = ent ?? g.player;
     if (!p || p.dead) return;
     // 节流：每 4 帧重算一次目标（~0.13s）——太慢会被噩梦怪海围死
     if (++this._aimT % 4 !== 1) return;
@@ -447,7 +483,9 @@ export class NekoPilot {
   // ---------------------------------------------------------
   // 选卡：打分制
   // ---------------------------------------------------------
-  _pickUpgrade(g) {
+  _pickUpgrade(g, ent) {
+    // entity 模式（P2）不走选卡 UI：升级在 tick 里自动应用
+    if (this.entity) return;
     const opts = Array.isArray(g.currentUpgradeOptions) ? g.currentUpgradeOptions : [];
     if (opts.length === 0) return;
     const early = (g.waveIndex ?? 0) < 4;   // 前 4 波：见血必选（噩梦 10 血基底扛不住）
@@ -474,10 +512,10 @@ export class NekoPilot {
   // ---------------------------------------------------------
   // 商店：优先买远程武器（定风筝基调），再补 afford 道具，然后推波
   // ---------------------------------------------------------
-  _nextWave(g) {
+  _nextWave(g, ent) {
     try {
       const shop = g.shop;
-      const p = g.player;
+      const p = ent ?? g.player;
       if (shop && p && Array.isArray(shop.offers)) {
         // ① 先合成：两把同名 → 高一阶武器（T4 传说只能合成得到，伤害跃升）
         try {
@@ -533,6 +571,9 @@ export class NekoPilot {
         }
       }
     } catch { /* 商店买不成不影响推波 */ }
+    // 第一百七十轮（2P）：entity 模式（pilot2）只买东西**不推波** ——
+    // 推波是全局动作，由 P1 的 pilot 统一负责（不然两个大脑各推一次）
+    if (this.entity) return;
     if (typeof g._beginWave === 'function' && Number.isInteger(g.waveIndex)) {
       // 防抖：同一波只推一次（shop 态每帧都会 tick 进来，不防抖会一帧
       // 推好几波 —— 实测曾一路推到 53638 波）

@@ -366,6 +366,9 @@ export class Player extends Entity {
     //   跳过 miss / 闪避 / 护甲 / 承伤乘区 / 真伤附加 —— 护盾照常吸收，
     //   猫的步伐锁血照常触发（防暴毙精神保留），回血 / 吸血不受限制。
     const ignoreI = opts.ignoreIFrames === true;
+    // 第一百七十轮：倒地玩家不吃任何伤害（仇恨/弹幕层也会跳过 downed，
+    // 这里兜底），死拦保留
+    if (this.downed) return 0;
     if (this.dead) return 0;
     if (!ignoreI && this.invuln > 0) return 0;
 
@@ -575,8 +578,15 @@ export class Player extends Entity {
 
     if (this.hp <= 0) {
       this.hp = 0;
-      this.dead = true;
-      this.onDeath?.();
+      // ---- 第一百七十轮（2P）：duo 模式下**任何玩家**死亡都先转倒地
+      //（等队友救援），只有倒地时队友也倒了才由 main 判负。
+      // duoMode 由 main 在创建队友时给两人都打标；单人 P1 完全不变。
+      if (this.duoMode) {
+        this.down();
+      } else {
+        this.dead = true;
+        this.onDeath?.();
+      }
     }
     return final;
   }
@@ -661,9 +671,56 @@ export class Player extends Entity {
   // ---------------------------------------------------------
   // 每帧更新
   // ---------------------------------------------------------
+  /** 倒地后再站起来的救援需求：第 1 次 5 刀、第 2 次 10 刀、第 3+ 次 30 刀
+   *  （第一百七十轮 2P 实验，波次结束重置 downCount） */
+  get rescueNeed() {
+    if (this.downCount <= 1) return 5;
+    if (this.downCount === 2) return 10;
+    return 30;
+  }
+
+  /** 倒下（2P 实验）：不死、不结算，留在场上等队友打醒 */
+  down() {
+    this.downed = true;
+    this.downCount += 1;
+    this.rescueHits = 0;
+    this.dead = false;
+    this.hp = 0;
+    this.invuln = 1.5;   // 倒地瞬间保护，防止被连续追击直接判负
+    this.onDown?.();
+  }
+
+  /** 队友的每次有效攻击 → 救援计数；攒够即 30% 血站起来 */
+  rescueHit() {
+    if (!this.downed) return false;
+    this.rescueHits += 1;
+    if (this.rescueHits >= this.rescueNeed) {
+      this.downed = false;
+      this.hp = Math.max(1, Math.round(this.maxHp * 0.3));
+      this.invuln = 2;
+      this.onRevive?.();
+      return true;   // true = 复活了
+    }
+    return false;
+  }
+
+  /** 波次结束：倒下次数清零（第一百七十轮规格） */
+  resetDownCount() {
+    this.downCount = 0;
+  }
+
   update(dt, input, camera, world) {
     this.age += dt;
     this.timeAlive += dt;
+
+    // ---- 第一百七十轮：倒地状态（2P 实验）----
+    // 倒地 = 不能动/开火/被敌人选为目标，但实体还在场上等队友救援。
+    // 只衰减无敌帧和受伤闪红，其余行为全部跳过。
+    if (this.downed) {
+      if (this.invuln > 0) this.invuln -= dt;
+      if (this.hurtFlash > 0) this.hurtFlash -= dt;
+      return;
+    }
 
     // ---- 移动 ----
     // 第一百六十四轮：NekoAgent 外部接管 —— player.agentMoveTarget 由

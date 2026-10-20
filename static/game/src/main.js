@@ -22,7 +22,7 @@ import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
 // 第十七轮：CHARACTERS 不再需要 —— 解锁逻辑删掉后，
 // 选人界面直接用 availableCharacters()（现在恒等于全部角色）。
-import { availableCharacters, getCharacter, getSpriteCharacters } from './data/characters.js';
+import { availableCharacters, getCharacter, getSpriteCharacters, CHARACTERS } from './data/characters.js';
 import { WAVE_COUNT, waveClearBonus, SPECIAL_WAVE_POOLS } from './data/waves.js';
 import { getEnemy, ENEMIES, getSpriteEnemies, BOSS_VARIANTS, pickBossForWave } from './data/enemies.js';
 import { getDifficulty, DEFAULT_DIFFICULTY } from './data/difficulty.js';
@@ -471,8 +471,24 @@ export class Game {
       // 并把方向盘交给 NekoPilot（接管语音由 pilot.start 自己播）
       onNekoPlay: (id) => {
         audio.play('gameStart');
+        window.__duo = false;
         this.startRun(id);
         window.NekoAgent?.pilot?.start(this, { characterId: id });
+      },
+
+      // ---- 第一百七十轮：「双猫娘同游」（2P 实验）——
+      // P1 = 玩家操控（当前选中角色），P2 = AI 猫娘（花名册里另一个角色）。
+      // 经验共享、金币独立、最近仇恨、双死判负、倒地救援（5/10/30 刀）。
+      // 双 0buff：duo 下 pilot/pilot2 都不挂任何光环。
+      onDuoPlay: (id) => {
+        audio.play('gameStart');
+        window.__duo = true;
+        this.startRun(id, { duo: true });
+        const p2 = this.world.player2;
+        if (p2) {
+          window.NekoAgent?.pilot2?.start(this, { entity: p2 });
+          this._nekoSay?.(` duo 开局！${p2.characterId} 也来帮忙了喵～`);
+        }
       },
     });
   }
@@ -480,11 +496,29 @@ export class Game {
   // =========================================================
   // 开局
   // =========================================================
-  startRun(characterId) {
+  startRun(characterId, opts = {}) {
     this.rng = new RNG(randomSeed());
     this.player = new Player(characterId, this.rng);
     this.world = new World(this.rng, this.camera);
     this.world.setDifficulty(this.difficultyId);
+    // ---- 第一百七十轮：2P 猫娘队友（双猫娘同游实验）----
+    // opts.duo = true 时创建第二个真玩家实体（另一个角色），两人都打
+    // duoMode 标：死亡一律转倒地等队友救援，都倒了才判负。
+    this.world.player2 = null;
+    if (opts.duo) {
+      const roster = CHARACTERS.map((c) => c.id);
+      const partnerId = roster.find((id) => id !== characterId) ?? characterId;
+      const p2 = new Player(partnerId, this.rng);
+      p2.isP2 = true;
+      this.player.duoMode = true;
+      p2.duoMode = true;
+      p2.world = this.world;
+      // 出生错开，避免两人模型重叠
+      p2.x = this.player.x + 60;
+      p2.y = this.player.y + 40;
+      this.world.player2 = p2;
+    }
+    this._duoEnabled = !!opts.duo;
     // 第一百零八轮：天气系统 —— 随机判定走独立流（rng.fork），主随机
     // 流一个字不动；实体通过 world.weather / player.world 读旗标。
     this.weather = new WeatherSystem(this.rng);
@@ -911,6 +945,14 @@ export class Game {
     // 更新玩家
     p.update(dt, this.input, this.camera, this.world);
 
+    // ---- 第一百七十轮：2P 猫娘（AI 队友）----
+    // P2 不吃键盘（空 input 桩），完全由 pilot2 的 agentMoveTarget 驱动。
+    // 双死判负：P1 倒下且 P2 也死透/倒地不可救（都倒了）才整局结束。
+    const p2 = this.world.player2;
+    if (p2) {
+      p2.update(dt, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
+    }
+
     // ---- 第一百六十轮：四重存在（莱万汀分身）----
     this._updatePhantoms(dt);
 
@@ -932,8 +974,17 @@ export class Game {
     this.camera.follow(p.x, p.y, dt);
     this.camera.update(dt);
 
-    // 玩家死亡
-    if (p.dead) {
+    // 玩家死亡 —— 第一百七十轮（2P）：P1 倒下时若 P2 还活着/倒地可救，
+    // 游戏继续（等待救援或 P2 独自作战）；两个都倒下才算输。
+    // 注意：duo 模式下 takeDamage 已把两人死亡都转成 downed，
+    // p.dead 为 true 只在非 duo 模式（兼容单人全部既有流程）。
+    const p2Down = p2 && (p2.dead || p2.downed);
+    if (p.dead && (!p2 || p2Down)) {
+      this._endRun(false);
+      return;
+    }
+    // duo 双倒：两人都 downed = 全队失去战斗能力 = 判负
+    if (this._duoEnabled && p.downed && p2 && p2.downed) {
       this._endRun(false);
       return;
     }
@@ -1398,6 +1449,13 @@ export class Game {
     const p = this.player;
     this.waveEnding = true;
     audio.play('waveClear');
+
+    // ---- 第一百七十轮（2P）：波次结束重置倒下次数（救援刀数恢复
+    // 首档 5 刀）----
+    if (this.world.player2) {
+      p.resetDownCount();
+      this.world.player2.resetDownCount();
+    }
 
     // ---- 第一百六十轮：动态难度结算（隐式，见 world.tuneDiffScale）----
     // 在清场前调：此刻 world._waveT / _killAges 还是本波的完整数据。
@@ -2610,6 +2668,10 @@ window.NekoAgent = {
   /** 代打大脑（第一百六十五轮）：start()/stop()/report()，tick 由 _tick 驱动 */
   pilot: new NekoPilot(),
 
+  /** 第一百七十轮（2P）：队友猫娘的大脑 —— 驱动 world.player2（P2），
+   *  entity 模式，双 0buff 实验；duo 局由 _duoPlay 启动 */
+  pilot2: new NekoPilot(),
+
   /** 内部：抛全局事件（构造失败也吞掉） */
   _emit(type, detail) {
     try {
@@ -2629,6 +2691,8 @@ window.NekoAgent = {
       // vergil/result），而事件钩子只在 playing 下有意义。大脑崩溃
       // 只影响代打，绝不拖垮游戏主循环。
       if (this.pilot?.on) this.pilot.tick(g);
+      // ---- 第一百七十轮（2P）：队友大脑随后（同一状态帧，晚一拍无妨）
+      if (this.pilot2?.on) this.pilot2.tick(g);
       const p = g?.player;
       if (!p || g.state !== 'playing') return;
       const maxHp = Number(p.maxHp) || 0;

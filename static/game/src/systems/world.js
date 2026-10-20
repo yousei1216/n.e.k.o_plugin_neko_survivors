@@ -148,6 +148,29 @@ export class World {
 
     this._tmp = [];
     this.player = null;
+    // ---- 第一百七十轮：2P 实验（双猫娘同游）----
+    // player2 = 第二个真玩家实体（完整 Player，AI 驱动）。null = 单人模式，
+    // 所有主干路径通过 players()/nearestPlayerTo() 适配，单人行为零变化。
+    this.player2 = null;
+
+    // 多玩家帮助函数：单人时返回 [player]，双人返回 [player, player2]。
+    // 主干（仇恨/弹幕/拾取/结算）一律遍历这个数组，不写死单数。
+    this.players = () => {
+      const ps = [this.player];
+      if (this.player2) ps.push(this.player2);
+      return ps;
+    };
+    // 仇恨目标选择器（DeepSeek 建议的抽象）：谁离得近打谁。
+    // 倒地（downed）和已死的玩家不可被选为目标；全都不可选时回落 P1。
+    this.nearestPlayerTo = (x, y) => {
+      let best = null, bestD = Infinity;
+      for (const p of this.players()) {
+        if (!p || p.dead || p.downed) continue;
+        const d = Math.hypot(p.x - x, p.y - y);
+        if (d < bestD) { bestD = d; best = p; }
+      }
+      return best ?? this.player;
+    };
 
     // ---- 第一百六十轮：四重存在分身（莱万汀）----
     // 实体由 main._updatePhantoms 驱动（要读 player 的持有/战斗状态）；
@@ -1419,9 +1442,10 @@ export class World {
     }
 
     // ---- 敌人 ----
+    // 第一百七十轮：仇恨 = 距离最近的活玩家（倒地的不算），谁近打谁
     for (const e of this.enemies.items) {
       if (e.dead) continue;
-      e.update(dt, player, this);
+      e.update(dt, this.nearestPlayerTo(e.x, e.y), this);
     }
 
     // ---- 玩家子弹 ----
@@ -1441,9 +1465,11 @@ export class World {
     }
 
     // ---- 敌人子弹 ----
+    // 第一百七十轮：传玩家数组，弹逐个判定圆碰撞、命中谁打谁
+    const livePlayers = this.players();
     for (const b of this.enemyBullets.items) {
       if (b.dead) continue;
-      b.update(dt, this, player);
+      b.update(dt, this, livePlayers);
       // ---- 第一百五十六轮：特殊波「内部混乱」----
       // 带阵营标记的敌方弹幕会打**近战怪**（远程怪朝近战怪放的弹）。
       // 变异怪不参与内讧（既不当目标也不被波及），Boss 也不吃。
@@ -1463,9 +1489,11 @@ export class World {
     }
 
     // ---- 拾取物 ----
+    // 第一百七十轮：归属 = 最近的活玩家（金币独立谁吃算谁）；
+    // 经验共享在 pickup 内部处理（吸收时全队加）
     for (const p of this.pickups.items) {
       if (p.dead) continue;
-      p.update(dt, this, player);
+      p.update(dt, this, this.nearestPlayerTo(p.x, p.y));
     }
 
     // ---- 特效 ----

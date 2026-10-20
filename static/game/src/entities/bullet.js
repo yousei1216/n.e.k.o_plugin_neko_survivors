@@ -108,6 +108,22 @@ export class Bullet extends Entity {
 
   /** 与敌人碰撞检测（由 World 调用） */
   checkEnemyHit(world) {
+    // ---- 第一百七十轮（2P）：救援 ----
+    // 玩家弹命中**倒地的队友** = 伤害转为救援计数（打醒队友）。
+    // 非 duo 模式 world.players() 只有 P1 自己，循环零命中零开销。
+    // 近战武器不发弹，暂不能救援（实验版限制，写在战报里）。
+    for (const ally of (world.players?.() ?? [])) {
+      if (!ally || ally === this.ownerPlayer || !ally.downed) continue;
+      const adx = ally.x - this.x, ady = ally.y - this.y;
+      const arr = this.radius + ally.radius + 6;
+      if (adx * adx + ady * ady <= arr * arr) {
+        this.dead = true;
+        const revived = ally.rescueHit();
+        if (revived) world.fx?.nova?.(ally.x, ally.y, 26, '#7cf3c4');
+        else world.fx?.sparkle?.(ally.x, ally.y, '#7cf3c4');
+        return;
+      }
+    }
     const hits = world.grid.query(this.x, this.y, this.radius, []);
     for (const e of hits) {
       if (!e.isEnemy || e.dead) continue;
@@ -223,7 +239,7 @@ export class EnemyBullet extends Entity {
     this.floorSpeed = cfg.floorSpeed ?? 0;
   }
 
-  update(dt, world, player) {
+  update(dt, world, players) {
     this.age += dt;
     this.rotation += dt * 6;
     if (this.decel > 0 && this.speed > this.floorSpeed) {
@@ -263,14 +279,18 @@ export class EnemyBullet extends Entity {
     const half = world.halfSize + 80;
     if (Math.abs(this.x) > half || Math.abs(this.y) > half) { this.dead = true; return; }
 
-    // 命中玩家
+    // 命中玩家 —— 第一百七十轮（2P）：遍历所有活玩家（倒地不可被弹选
+    // 中），命中谁打谁。单人数组只有 P1，行为与旧版完全一致。
     // 第五十一轮：弹幕判定用玩家的 hitR（= radius × 80%，全模式通用），
     // 旧存档/测试桩没有 hitR 时回落 radius，行为不变。
     // 第八十九轮：敌弹侧改用独立 hitRadius（默认 = radius，行为不变；
     // 大玉的白色外圈不参与判定，只有中心小核能命中）。
-    const rr = this.hitRadius + (player.hitR ?? player.radius);
-    const ddx = player.x - this.x, ddy = player.y - this.y;
-    if (ddx * ddx + ddy * ddy <= rr * rr) {
+    const list = Array.isArray(players) ? players : [players];
+    for (const player of list) {
+      if (!player || player.dead || player.downed) continue;
+      const rr = this.hitRadius + (player.hitR ?? player.radius);
+      const ddx = player.x - this.x, ddy = player.y - this.y;
+      if (ddx * ddx + ddy * ddy > rr * rr) continue;
       // 第一百零八轮：浓雾里敌人的弹也会 miss（天气独立随机流）；
       // 雾雨"所有人造成的伤害+25%"乘在敌弹伤害上。
       const wxW = world?.weather;
@@ -290,6 +310,7 @@ export class EnemyBullet extends Entity {
       if (this.flandre) player.flandreHit?.(this.x, this.y);
       else player.takeDamage(this.damage * (wxW?.enemyOut ?? 1), this.x, this.y, { projectile: true, trueBonus });
       this.dead = true;
+      return;
     }
   }
 }

@@ -519,7 +519,7 @@ export class UI {
   }
 
   // ---------------- 角色选择 ----------------
-  showCharacterSelect({ characters, onConfirm, onBack, difficulty, onSetDifficulty, onNekoPlay }) {
+  showCharacterSelect({ characters, onConfirm, onBack, difficulty, onSetDifficulty, onNekoPlay, onDuoPlay }) {
     let selected = characters[0].id;
     const d = getDifficulty(difficulty);
 
@@ -602,6 +602,8 @@ export class UI {
           <button class="btn" data-act="back">返回</button>
           <!-- 第一百六十六轮：「猫娘帮你玩」—— NekoPilot 代打入口 -->
           ${onNekoPlay ? '<button class="btn" data-act="neko-play" style="border-color:#ff9ec7;color:#ff9ec7">🐾 猫娘帮你玩</button>' : ''}
+          <!-- 第一百七十轮：「双猫娘同游」—— 2P 实验（P1 手操 + P2 AI 猫娘队友） -->
+          ${onDuoPlay ? '<button class="btn" data-act="duo-play" style="border-color:#9ec7ff;color:#9ec7ff">🐱‍👤 双猫娘同游（实验）</button>' : ''}
         </div>
       </div>
     `);
@@ -619,6 +621,9 @@ export class UI {
     // 第一百六十六轮：猫娘代打入口
     const nekoBtn = root.querySelector('[data-act="neko-play"]');
     if (nekoBtn) nekoBtn.onclick = () => onNekoPlay(selected);
+    // 第一百七十轮：双猫娘同游（2P 实验）
+    const duoBtn = root.querySelector('[data-act="duo-play"]');
+    if (duoBtn) duoBtn.onclick = () => onDuoPlay(selected);
     root.querySelectorAll('[data-diff]').forEach((b) => {
       b.onclick = () => onSetDifficulty(b.dataset.diff);
     });

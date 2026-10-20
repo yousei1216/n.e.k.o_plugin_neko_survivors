@@ -143,11 +143,17 @@ export class Pickup extends Entity {
     }
     switch (this.type) {
       case PICKUP_TYPE.XP:
+        // ---- 第一百七十轮（2P）：经验共享 —— 谁吸到，全队都加
+        //（各自升各自的级、各自选卡）；双倍额度只结算吸取者的
         player.gainXp(this.value);
         if (doubled) player.gainXp(this.value);
+        for (const other of (world.players?.() ?? [player])) {
+          if (other && other !== player && !other.dead) other.gainXp(this.value);
+        }
         world.fx.sparkle(this.x, this.y, doubled ? '#a7f3d0' : '#6ee7a8');
         break;
       case PICKUP_TYPE.MATERIAL:
+        // 金币独立：谁吃到归谁（world 分发时已把最近的玩家传进来）
         player.gainMaterials(this.value);
         if (doubled) player.gainMaterials(this.value);
         world.fx.sparkle(this.x, this.y, doubled ? '#ffe08a' : '#ffc857');

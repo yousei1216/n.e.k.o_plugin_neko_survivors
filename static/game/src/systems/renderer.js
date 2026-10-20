@@ -317,6 +317,14 @@ export class Renderer {
     // ---- 玩家 ----
     this._drawPlayer(ctx, player);
 
+    // ---- 第一百七十轮（2P）：队友猫娘 P2 ----
+    // 复用同一绘制流程（完整角色渲染），头顶另加 P2 角标 + 独立血条
+    // + 倒地时的救援刀数进度。
+    if (world.player2 && camera.isVisible(world.player2.x, world.player2.y, 60)) {
+      this._drawPlayer(ctx, world.player2);
+      this._drawP2Badge(ctx, world.player2);
+    }
+
     // ---- 第一百六十轮：四重存在分身（莱万汀）----
     // 轻量光影绘制（不采立绘采样，3 个分身的每帧开销 ≈ 3 个普通怪）：
     // 粉紫半透明身形 + 猫耳 + 顶部血条，一眼可辨"这不是本体"。
@@ -725,6 +733,31 @@ export class Renderer {
     ctx.fillStyle = '#ff7bac';
     ctx.fillRect(-w / 2, -r * 2.1, w * ratio, 4);
 
+    ctx.restore();
+  }
+
+  /** 第一百七十轮（2P）：P2 头顶角标 —— 独立血条 + 倒地救援进度 */
+  _drawP2Badge(ctx, p2) {
+    const y = p2.y - p2.radius - 20;
+    const w = 46, h = 5;
+    ctx.save();
+    ctx.textAlign = 'center';
+    // 血条底
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(p2.x - w / 2 - 1, y - 1, w + 2, h + 2);
+    const ratio = clamp(p2.hp / Math.max(1, p2.maxHp), 0, 1);
+    ctx.fillStyle = p2.downed ? '#8a94a6' : (ratio < 0.3 ? '#ff5f6d' : '#6ee7a8');
+    ctx.fillRect(p2.x - w / 2, y, w * ratio, h);
+    // P2 角标
+    ctx.font = 'bold 11px system-ui';
+    ctx.fillStyle = '#9ec7ff';
+    ctx.fillText('P2', p2.x, y - 5);
+    // 倒地：救援刀数进度（金色提示"快来打我"）
+    if (p2.downed) {
+      ctx.fillStyle = '#ffd66e';
+      ctx.font = 'bold 12px system-ui';
+      ctx.fillText(`倒地 ${p2.rescueHits}/${p2.rescueNeed}`, p2.x, y + 17);
+    }
     ctx.restore();
   }
 
