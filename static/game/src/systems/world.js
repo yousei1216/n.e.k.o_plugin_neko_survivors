@@ -5,6 +5,8 @@
 // ============================================================
 
 import { EntityList, SpatialGrid } from '../entities/entity.js';
+// 第一百六十三轮：移动端同屏普通怪上限（桌面 MOBILE=false 不受限）
+import { MOBILE, MOBILE_TUNE } from '../core/mobile.js';
 import { Enemy } from '../entities/enemy.js';
 import { Bullet, EnemyBullet } from '../entities/bullet.js';
 import { Pickup, PICKUP_TYPE } from '../entities/pickup.js';
@@ -606,6 +608,11 @@ export class World {
   spawnEnemyById(id, x, y, mutate = false) {
     const def = getEnemy(id);
     if (!def) return null;
+    // 第一百六十三轮：移动端同屏普通怪上限（用户："限制移动端同屏最大
+    // 怪物数量（比如超过 50 个就不刷了）"）。boss 与剧情召唤不受限。
+    if (MOBILE && !def.boss && this.enemies.items.length >= MOBILE_TUNE.MAX_ENEMIES) {
+      return null;
+    }
     const e = new Enemy(def, x, y, this.waveScaling ?? { hp: 1, damage: 1, speed: 1, xp: 1, materials: 1 }, this.rng);
     // 第一百零八轮：敌人持有 world 引用 —— 天气（川雾/台风推挤、
     // 移速乘区）在 _move 等无 world 参数的方法里也要读得到

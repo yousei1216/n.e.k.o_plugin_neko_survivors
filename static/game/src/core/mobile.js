@@ -37,9 +37,11 @@ export const MOBILE = !!(isCapacitor || (isMobileUA && hasCoarsePointer) || isMo
  *                   是手机的第二大瓶颈；1.5 在 6 英寸屏上依然锐利）
  */
 export const MOBILE_TUNE = {
-  FX_MAX_ITEMS: 120,
+  FX_MAX_ITEMS: 80,
   SHADOW_BLUR: false,
-  WEATHER_MUL: 0.5,
+  WEATHER_MUL: 0.4,
   TITLE_PARTICLES: 0.5,
-  DPR_CAP: 1.5,
+  DPR_CAP: 1.0,
+  /** 同屏普通怪上限（boss/剧情召唤不受限）——第一百六十三轮 */
+  MAX_ENEMIES: 50,
 };
