@@ -158,9 +158,11 @@ export class NekoPilot {
           this._hpSnapshot = null;
         }
         g.player.pilotBuff = false;
-        // 轻量光环一并清（第一百七十轮）
+        // 轻量/第三档光环一并清（第一百七十/一七一轮）
         g.player.pilotLite = false;
+        g.player.pilotTough = false;
         g.player._pilotMagnet = 0;
+        g.player._pilotIframe = 0;
         g.player._pilotEarly = false;
         g.player.agentMoveTarget = null;   // 清掉她的移动意图，别拽着玩家走
       }
@@ -204,7 +206,10 @@ export class NekoPilot {
             const t = p.agentMoveTarget;
             const dx = t.x - p.x, dy = t.y - p.y;
             const d = Math.hypot(dx, dy) || 1;
-            window.NekoAgent?.doAction?.(`move(${Math.round(p.x - (dy / d) * 130)}, ${Math.round(p.y + (dx / d) * 130)})`);
+            // 第一百七十一轮修复：直设实体自己的 agentMoveTarget ——
+            // 走全局 doAction 会把指令打到 g.player（P1）头上，
+            // 这就是 v0.3.48"AI 控制了 1p、2p 挂机"的根因
+            p.agentMoveTarget = { x: p.x - (dy / d) * 130, y: p.y + (dx / d) * 130 };
             this._stuckN = 0;
             this._lastX = p.x; this._lastY = p.y;
             return;
@@ -213,25 +218,36 @@ export class NekoPilot {
         this._lastX = p.x; this._lastY = p.y;
       } else if (p) { this._lastX = p.x; this._lastY = p.y; }
 
-      // 辅助光环每帧保证（startRun 会新建 player，重开后 buff 会丢）。
-      // 两档明牌光环（探针 __nobuff=1 全关 / __altbuff=1 只开轻量）：
-      // · pilotBuff（全套）：单次受伤至多 1 + 持续回复 + 芙兰真伤削减
-      // · pilotLite（轻量，第一百七十轮）：大范围磁吸（400）吸收全图
-      //   掉落发育 + 前 3 波隐藏减伤 40% 防 AI 开局送 —— 无锁伤无回血
-      // duo 模式（2P 实验）双人 0buff：光环整段跳过。
-      if (!this.entity && !(window.__duo || g.__duo) && p && !p.dead) {
+      // ---- 光环调度（第一百七十一轮重构）----
+      // · pilotBuff  全套（锁1+回复）—— 单机默认
+      // · pilotLite  磁吸400 + 前3波减伤40% —— 探针 __altbuff
+      // · pilotTough 全图磁吸 + 无敌帧2s + 前3波减伤50% —— 探针 __buff3
+      // · duo 且无 __buff3：双 0buff（2P 实验基准）；duo 且 __buff3：
+      //   两只都挂 pilotTough（用户："单ai不行就双ai一起玩"）
+      {
+        const duo = window.__duo || g.__duo;
+        const buff3 = window.__buff3 || g.__buff3;
         const nobuff = window.__nobuff || g.__nobuff;
-        const lite = !nobuff && (window.__altbuff || g.__altbuff);
-        if (!nobuff) {
-          p.pilotBuff = !lite;
-          p.pilotLite = !!lite;
-          if (lite) {
-            p._pilotEarly = (g.waveIndex ?? 0) < 3;
-            p._pilotMagnet = 400;
-          } else if (p.hp > 0) {
-            // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
-            // 用户要"输了也挺有趣，但不能真的一局都赢不了"，留死亡窗口
-            p.hp = Math.min(p.maxHp, p.hp + 0.4);
+        const crew = this.entity ? [this.entity] : (g.players?.() ?? [g.player]);
+        for (const ent of crew) {
+          if (!ent || ent.dead) continue;
+          if (nobuff || (duo && !buff3)) {
+            ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = false;
+            ent._pilotMagnet = 0; ent._pilotIframe = 0; ent._pilotEarly = false;
+          } else if (buff3) {
+            ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = true;
+            ent._pilotEarly = (g.waveIndex ?? 0) < 3;
+            ent._pilotMagnet = 99999;   // 全图吸附
+            ent._pilotIframe = 2.0;
+          } else if (!this.entity) {
+            ent.pilotBuff = true; ent.pilotLite = false; ent.pilotTough = false;
+            if (ent.hp > 0) {
+              // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
+              // 用户要"输了也挺有趣，但不能真的一局都赢不了"，留死亡窗口
+              ent.hp = Math.min(ent.maxHp, ent.hp + 0.4);
+            }
+          } else {
+            ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = false;
           }
         }
       }
@@ -286,6 +302,19 @@ export class NekoPilot {
         const uy = (p.y - nearest.y) / (nearestD || 1);
         fleeX += ux * 1.1;
         fleeY += uy * 1.1;
+      }
+    }
+
+    // ---- 第一百七十一轮：救援优先 ----
+    // duo 下队友倒地：自己安全（最近怪 >350，不扛伤）就第一时间跑去
+    // 队友身边 —— 武器弹穿过倒地队友即救援。危险时照常风筝（两个人
+    // 都倒了这回合就输了），队友身边就是最好的复活点。
+    if (g.__duo && nearestD > 350) {
+      const mate = (ent === g.player || !ent) ? g.world?.player2 : g.player;
+      if (mate && mate.downed && !mate.dead) {
+        // 直设自己的 agentMoveTarget（同上，不走全局 doAction）
+        p.agentMoveTarget = { x: mate.x + 30, y: mate.y + 20 };
+        return;
       }
     }
 
@@ -391,7 +420,8 @@ export class NekoPilot {
       : { x: tx, y: ty };
     if (this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
     this._tgt = mix;
-    window.NekoAgent?.doAction?.(`move(${Math.round(mix.x)}, ${Math.round(mix.y)})`);
+    // 直设实体自己的 agentMoveTarget（第一百七十一轮修复，不走全局 doAction）
+    p.agentMoveTarget = { x: mix.x, y: mix.y };
   }
 
   /** 420 内最近拾取物（巡逻时顺路捡） */
@@ -518,7 +548,10 @@ export class NekoPilot {
       const p = ent ?? g.player;
       if (shop && p && Array.isArray(shop.offers)) {
         // ① 先合成：两把同名 → 高一阶武器（T4 传说只能合成得到，伤害跃升）
+        // 第一百七十一轮（2P）：entity 模式跳过 —— canCombine 会扫到
+        // P1 货架的同名武器（分池泄漏，花 P2 的钱买 P1 的格子）
         try {
+          if (!this.entity) {
           const ids = new Set((p.weapons || []).map((w) => w?.def?.id).filter(Boolean));
           for (const wid of ids) {
             const info = shop.canCombine?.(p, wid);
@@ -526,6 +559,7 @@ export class NekoPilot {
               const r = shop.combine(p, wid);
               if (r?.ok) this._log(`合成 ${wid} → ${r.target?.name ?? '?'}${r.upgraded ? `（升到 Lv.${r.level}）` : ''}`);
             }
+          }
           }
         } catch { /* 合成失败不影响购买 */ }
         const weaponCount = (p.weapons || []).length;
@@ -535,7 +569,10 @@ export class NekoPilot {
         const rushWeapons = weaponCount < 6 && (g.waveIndex ?? 0) < 5;
         const buyCap = rushWeapons ? 4 : 3;
         let bought = 0;
-        for (let slot = 0; slot < shop.offers.length && bought < buyCap; slot++) {
+        // ---- 第一百七十一轮（2P）：商店分池 —— entity 模式（P2）只买
+        // 后半货架（P2 专属格），P1 买前半，互不抢货
+        const slotBase = this.entity ? Math.ceil(shop.offers.length / 2) : 0;
+        for (let slot = slotBase; slot < shop.offers.length && bought < buyCap; slot++) {
           const o = shop.offers[slot];
           if (!o || o.sold) continue;
           if (!(p.materials >= o.price)) continue;

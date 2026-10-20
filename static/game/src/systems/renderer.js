@@ -316,12 +316,15 @@ export class Renderer {
 
     // ---- 玩家 ----
     this._drawPlayer(ctx, player);
+    // ---- 第一百七十一轮：倒地救援环（P1 倒地也画）----
+    if (player.downed) this._drawRescueRing(ctx, player);
 
     // ---- 第一百七十轮（2P）：队友猫娘 P2 ----
     // 复用同一绘制流程（完整角色渲染），头顶另加 P2 角标 + 独立血条
-    // + 倒地时的救援刀数进度。
+    // + 倒地时的黑夜君临式救援环。
     if (world.player2 && camera.isVisible(world.player2.x, world.player2.y, 60)) {
       this._drawPlayer(ctx, world.player2);
+      if (world.player2.downed) this._drawRescueRing(ctx, world.player2);
       this._drawP2Badge(ctx, world.player2);
     }
 
@@ -736,9 +739,68 @@ export class Renderer {
     ctx.restore();
   }
 
-  /** 第一百七十轮（2P）：P2 头顶角标 —— 独立血条 + 倒地救援进度 */
+  /**
+   * 第一百七十一轮：《艾尔登法环·黑夜君临》式倒地救援环。
+   * · 外圈 3 段底环（段间留缺口），亮起的段数 = 第几次倒地
+   * · 内圈紫色发光进度条：倒地即满（1倒=1/3圈、3倒=整圈），
+   *   队友命中一刀缩一点，缩完（0%）立刻 30% 血复活
+   * · 3 秒没被队友打 → 紫条回涨（次数越多涨越快，见 player.rescueRegain）
+   */
+  _drawRescueRing(ctx, p) {
+    const r = p.radius + 14;
+    const segs = Math.min(3, Math.max(1, p.downCount));
+    const gap = 0.18;                       // 段间缺口（弧度）
+    const arcEach = (Math.PI * 2) / 3;      // 三等分基准（固定 3 段布局）
+    const start = -Math.PI / 2;             // 从头顶 12 点方向起画
+    const full = Math.PI * 2;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // ---- 黑色描边底层（粗一圈，把整个环从背景里顶出来）----
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 9;
+    for (let i = 0; i < segs; i++) {
+      const a0 = start + i * arcEach + gap / 2;
+      const a1 = start + (i + 1) * arcEach - gap / 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, a0, a1);
+      ctx.stroke();
+    }
+    // ---- 段底（深紫灰，画满本次倒地的段数）----
+    ctx.strokeStyle = 'rgba(84,70,140,0.6)';
+    ctx.lineWidth = 6;
+    for (let i = 0; i < segs; i++) {
+      const a0 = start + i * arcEach + gap / 2;
+      const a1 = start + (i + 1) * arcEach - gap / 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, a0, a1);
+      ctx.stroke();
+    }
+    // ---- 紫色发光进度（剩余量；从 12 点顺时针，长度 = 段数比例 × 剩余）----
+    const ratio = clamp((p.rescueProgress ?? 0) / Math.max(1, p.rescueNeed), 0, 1);
+    if (ratio > 0.005) {
+      const len = full * (segs / 3) * ratio;
+      ctx.shadowColor = '#9a5cff';
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = '#b98cff';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, start, start + len);
+      ctx.stroke();
+      // 内侧再补一条细亮线，做出"能量条"层次
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = '#e6d9ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r - 4, start, start + len);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
+  /** 第一百七十轮（2P）：P2 头顶角标 —— 独立血条 + P2 标签 */
   _drawP2Badge(ctx, p2) {
-    const y = p2.y - p2.radius - 20;
+    const y = p2.y - p2.radius - 22;
     const w = 46, h = 5;
     ctx.save();
     ctx.textAlign = 'center';
@@ -746,18 +808,12 @@ export class Renderer {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillRect(p2.x - w / 2 - 1, y - 1, w + 2, h + 2);
     const ratio = clamp(p2.hp / Math.max(1, p2.maxHp), 0, 1);
-    ctx.fillStyle = p2.downed ? '#8a94a6' : (ratio < 0.3 ? '#ff5f6d' : '#6ee7a8');
+    ctx.fillStyle = ratio < 0.3 ? '#ff5f6d' : '#6ee7a8';
     ctx.fillRect(p2.x - w / 2, y, w * ratio, h);
     // P2 角标
     ctx.font = 'bold 11px system-ui';
     ctx.fillStyle = '#9ec7ff';
     ctx.fillText('P2', p2.x, y - 5);
-    // 倒地：救援刀数进度（金色提示"快来打我"）
-    if (p2.downed) {
-      ctx.fillStyle = '#ffd66e';
-      ctx.font = 'bold 12px system-ui';
-      ctx.fillText(`倒地 ${p2.rescueHits}/${p2.rescueNeed}`, p2.x, y + 17);
-    }
     ctx.restore();
   }
 

@@ -52,6 +52,14 @@ export class Player extends Entity {
     this.rng = rng;
 
     this.radius = 16;
+    // ---- 第一百七十一轮修复：倒地状态字段必须显式初始化 ----
+    // downCount 不初始化的话 undefined += 1 = NaN，rescueNeed() 走到
+    // 30 刀档 —— v0.3.48"第一次倒地就要打 30 下"的根因
+    this.downed = false;
+    this.downCount = 0;
+    this.rescueProgress = 0;
+    this._rescueIdle = 0;
+    this._rescueGate = 0;
     // 第五十一轮：弹幕判定圈缩到 80%（用户："玩家判定点有点太大了，甚至
     // 我们的贴图里的头发双马尾都有挨打判定，缩小一圈玩家的弹幕hitbox，
     // 到原来的80%左右，全模式通用修改"）。
@@ -463,6 +471,8 @@ export class Player extends Entity {
     // 前 3 波的隐藏减伤 40%（用户口径："1-3回合给她一个玩家看不出来的
     // 减伤"，防 AI 开局送；_pilotEarly 由 pilot tick 每帧按波次刷新）
     if (this.pilotLite && this._pilotEarly) final *= 0.6;
+    // 第一百七十一轮：第三档光环（pilotTough）—— 前 3 波减伤 50%
+    if (this.pilotTough && this._pilotEarly) final *= 0.5;
 
     // ---- 第十六轮：悠怡萌妹「本喵最欧」防御侧 ----
     // 也放在护甲之后：用户说"减少50%**最终**伤害"。
@@ -564,6 +574,9 @@ export class Player extends Entity {
       this.invuln = Math.max(
         opts.invuln ?? (opts.projectile ? PROJECTILE_INVULN : CONTACT_INVULN),
         this.world?.weather?.invulnMin ?? 0,
+        // ---- 第一百七十一轮：第三档光环（pilotTough）—— 无敌帧加强
+        // 到 2s（原 0.8/0.6），让纯走位 AI 挨打后有更长的脱身窗口
+        this._pilotIframe ?? 0,
       );
     }
     this.hurtFlash = 0.25;
@@ -671,30 +684,51 @@ export class Player extends Entity {
   // ---------------------------------------------------------
   // 每帧更新
   // ---------------------------------------------------------
-  /** 倒地后再站起来的救援需求：第 1 次 5 刀、第 2 次 10 刀、第 3+ 次 30 刀
-   *  （第一百七十轮 2P 实验，波次结束重置 downCount） */
+  /**
+   * 倒地救援（第一百七十一轮，《黑夜君临》式）：
+   * · 倒地即满紫：进度 = 需求刀数（1倒5/2倒10/3倒30）——紫圈长度由
+   *   downCount 决定（1/3、2/3、3/3 圈），进度从满往 0 打
+   * · 队友命中一刀 → 进度 -1；救援攻击 0.2s 全局 CD（6 武器自动火力
+   *   也不许秒救：1倒最快 1s、3倒最快 6s）
+   * · 连续 3s 没被队友打 → 进度回涨；倒地次数越多回涨越快
+   *   （1倒 0.4/s / 2倒 1.0/s / 3倒 2.5/s —— 3倒几乎救不动）
+   * · 进度清零 → 30% 血立刻站起；波次结束 resetDownCount()
+   */
   get rescueNeed() {
     if (this.downCount <= 1) return 5;
     if (this.downCount === 2) return 10;
     return 30;
   }
 
+  /** 3 秒空窗后的进度回涨速率（按倒地次数惩罚递增） */
+  get rescueRegain() {
+    if (this.downCount <= 1) return 0.4;
+    if (this.downCount === 2) return 1.0;
+    return 2.5;
+  }
+
   /** 倒下（2P 实验）：不死、不结算，留在场上等队友打醒 */
   down() {
     this.downed = true;
     this.downCount += 1;
-    this.rescueHits = 0;
+    this.rescueProgress = this.rescueNeed;   // 满紫起步，打空复活
+    this._rescueIdle = 0;                    // 3s 衰减计时
+    this._rescueGate = 0;                    // 救援攻击 CD 计时
     this.dead = false;
     this.hp = 0;
     this.invuln = 1.5;   // 倒地瞬间保护，防止被连续追击直接判负
     this.onDown?.();
   }
 
-  /** 队友的每次有效攻击 → 救援计数；攒够即 30% 血站起来 */
+  /** 队友的每次有效攻击 → 紫条 -1；清零即 30% 血站起 */
   rescueHit() {
     if (!this.downed) return false;
-    this.rescueHits += 1;
-    if (this.rescueHits >= this.rescueNeed) {
+    // 救援攻击 0.2s 全局 CD：同一时间窗内的多发命中只算一刀
+    if ((this._rescueGate ?? 0) > 0) return false;
+    this._rescueGate = 0.2;
+    this._rescueIdle = 0;
+    this.rescueProgress = Math.max(0, (this.rescueProgress ?? this.rescueNeed) - 1);
+    if (this.rescueProgress <= 0) {
       this.downed = false;
       this.hp = Math.max(1, Math.round(this.maxHp * 0.3));
       this.invuln = 2;
@@ -713,12 +747,18 @@ export class Player extends Entity {
     this.age += dt;
     this.timeAlive += dt;
 
-    // ---- 第一百七十轮：倒地状态（2P 实验）----
-    // 倒地 = 不能动/开火/被敌人选为目标，但实体还在场上等队友救援。
-    // 只衰减无敌帧和受伤闪红，其余行为全部跳过。
+    // ---- 第一百七十一轮：倒地状态（救援环版）----
+    // 不能动/开火/被敌人选为目标；紫条在 3s 无救援后开始回涨，
+    // 倒地次数越多回涨越快（原版机制：次数越多越难救）。
     if (this.downed) {
       if (this.invuln > 0) this.invuln -= dt;
       if (this.hurtFlash > 0) this.hurtFlash -= dt;
+      if ((this._rescueGate ?? 0) > 0) this._rescueGate -= dt;
+      this._rescueIdle = (this._rescueIdle ?? 0) + dt;
+      if (this._rescueIdle >= 3) {
+        this.rescueProgress = Math.min(this.rescueNeed,
+          (this.rescueProgress ?? this.rescueNeed) + this.rescueRegain * dt);
+      }
       return;
     }
 
@@ -764,7 +804,8 @@ export class Player extends Entity {
     // 移速一概不参与（Shift 减半保留）。
     if (this.flandreSpeed && this.flandreSpeed !== 1) {
       speed = this.baseSpeed * this.flandreSpeed;
-      if (input.isDown('ShiftLeft') || input.isDown('ShiftRight')) speed *= 0.5;
+      // 第一百七十一轮：P2 的减速键 = 小键盘 0（input 桩带 p2SkillSlow）
+      if (input.isDown('ShiftLeft') || input.isDown('ShiftRight') || input.p2SkillSlow?.()) speed *= 0.5;
     }
     this.vx = axis.x * speed;
     this.vy = axis.y * speed;

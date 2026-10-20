@@ -108,19 +108,22 @@ export class Bullet extends Entity {
 
   /** 与敌人碰撞检测（由 World 调用） */
   checkEnemyHit(world) {
-    // ---- 第一百七十轮（2P）：救援 ----
+    // ---- 第一百七十一轮（2P）：救援 ----
     // 玩家弹命中**倒地的队友** = 伤害转为救援计数（打醒队友）。
+    // 判定圈放大 40px：武器都是自动朝怪打的，弹道不一定正好穿过队友
+    // 身体 —— "跑到队友身边开火就能救"（v0.3.48 救援无效的根因之一）。
     // 非 duo 模式 world.players() 只有 P1 自己，循环零命中零开销。
-    // 近战武器不发弹，暂不能救援（实验版限制，写在战报里）。
     for (const ally of (world.players?.() ?? [])) {
       if (!ally || ally === this.ownerPlayer || !ally.downed) continue;
       const adx = ally.x - this.x, ady = ally.y - this.y;
-      const arr = this.radius + ally.radius + 6;
+      const arr = this.radius + ally.radius + 40;
       if (adx * adx + ady * ady <= arr * arr) {
         this.dead = true;
         const revived = ally.rescueHit();
         if (revived) world.fx?.nova?.(ally.x, ally.y, 26, '#7cf3c4');
-        else world.fx?.sparkle?.(ally.x, ally.y, '#7cf3c4');
+        else if (!ally._rescueGate || ally._rescueGate <= 0.2) {
+          world.fx?.sparkle?.(ally.x, ally.y, '#7cf3c4');
+        }
         return;
       }
     }

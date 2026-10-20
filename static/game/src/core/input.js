@@ -79,6 +79,29 @@ export class Input {
     return { x, y };
   }
 
+  /**
+   * 第一百七十一轮：P2 专属移动轴 —— 右侧小键盘 ↑↓←→（Numpad8/2/4/6）。
+   * duo 模式第二真人玩家用，与 P1 键位完全隔离，互不抢键。
+   * 注意：小键盘 8/2/4/6 在 NumLock 开启时是数字键（'Numpad8'），
+   * 关闭时是方向键（'ArrowUp' 等）—— 两种都收。
+   */
+  moveAxisP2() {
+    let x = 0, y = 0;
+    if (this.isDown('Numpad4') || this.isDown('NumpadLeft')) x -= 1;
+    if (this.isDown('Numpad6') || this.isDown('NumpadRight')) x += 1;
+    if (this.isDown('Numpad8') || this.isDown('NumpadUp')) y -= 1;
+    if (this.isDown('Numpad2') || this.isDown('NumpadDown')) y += 1;
+    if (x !== 0 && y !== 0) {
+      const inv = 1 / Math.SQRT2;
+      x *= inv; y *= inv;
+    }
+    return { x, y };
+  }
+
+  /** P2 技能键（芙兰战）：小键盘 0 = 减速、小键盘 . = 消弹（第一百七十一轮） */
+  p2SkillSlow() { return this.isDown('Numpad0') || this.isDown('NumpadInsert'); }
+  p2SkillClear() { return this.pressed('NumpadDecimal'); }
+
   dispose() {
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);

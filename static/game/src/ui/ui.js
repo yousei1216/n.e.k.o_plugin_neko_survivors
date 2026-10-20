@@ -519,7 +519,7 @@ export class UI {
   }
 
   // ---------------- 角色选择 ----------------
-  showCharacterSelect({ characters, onConfirm, onBack, difficulty, onSetDifficulty, onNekoPlay, onDuoPlay }) {
+  showCharacterSelect({ characters, onConfirm, onBack, difficulty, onSetDifficulty, onNekoPlay, onDuoPlay, onDuoWatch }) {
     let selected = characters[0].id;
     const d = getDifficulty(difficulty);
 
@@ -603,7 +603,9 @@ export class UI {
           <!-- 第一百六十六轮：「猫娘帮你玩」—— NekoPilot 代打入口 -->
           ${onNekoPlay ? '<button class="btn" data-act="neko-play" style="border-color:#ff9ec7;color:#ff9ec7">🐾 猫娘帮你玩</button>' : ''}
           <!-- 第一百七十轮：「双猫娘同游」—— 2P 实验（P1 手操 + P2 AI 猫娘队友） -->
-          ${onDuoPlay ? '<button class="btn" data-act="duo-play" style="border-color:#9ec7ff;color:#9ec7ff">🐱‍👤 双猫娘同游（实验）</button>' : ''}
+          ${onDuoPlay ? '<button class="btn" data-act="duo-play" style="border-color:#9ec7ff;color:#9ec7ff">🐱‍👤 和猫娘一起玩（实验）</button>' : ''}
+          <!-- 第一百七十一轮：双猫娘围观 —— 1P/2P 全 AI，纯看戏 -->
+          ${onDuoWatch ? '<button class="btn" data-act="duo-watch" style="border-color:#c79eff;color:#c79eff">👀 看2个猫娘手忙脚乱（实验）</button>' : ''}
         </div>
       </div>
     `);
@@ -624,6 +626,9 @@ export class UI {
     // 第一百七十轮：双猫娘同游（2P 实验）
     const duoBtn = root.querySelector('[data-act="duo-play"]');
     if (duoBtn) duoBtn.onclick = () => onDuoPlay(selected);
+    // 第一百七十一轮：双猫娘围观（全 AI）
+    const watchBtn = root.querySelector('[data-act="duo-watch"]');
+    if (watchBtn) watchBtn.onclick = () => onDuoWatch();
     root.querySelectorAll('[data-diff]').forEach((b) => {
       b.onclick = () => onSetDifficulty(b.dataset.diff);
     });
@@ -792,7 +797,10 @@ export class UI {
     };
 
     const render = () => {
-      const offerHtml = shop.offers.map((o, i) => {
+      // ---- 第一百七十一轮（2P）：只显示前 SHOP_SLOTS 格 —— 后半是
+      // P2 队友的专属货架，玩家的界面看不见也买不到
+      const visibleOffers = shop.offers.slice(0, 4);
+      const offerHtml = visibleOffers.map((o, i) => {
         if (!o) return '<div></div>';
         const locked = shop.locked.has(i);
         const afford = player.materials >= o.price && !o.sold;
