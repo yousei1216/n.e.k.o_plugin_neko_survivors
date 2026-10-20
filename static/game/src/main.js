@@ -698,6 +698,10 @@ export class Game {
   };
 
   _update(dt) {
+    // 第一百六十四轮：NekoAgent 事件钩子（hp<30% / lv≥10 → 全局事件，
+    // 宿主插件监听 'neko-agent-event' 触发 TTS 等）。_tick 内部全吞错。
+    window.NekoAgent?._tick?.(this);
+
     // M 键静音（任何状态下都能用）
     if (this.input.pressed('KeyM')) {
       const on = audio.toggle();
@@ -2524,3 +2528,191 @@ const canvas = document.getElementById('game');
 const game = new Game(canvas);
 window.__game = game;
 game.start();
+
+// ============================================================
+// 第一百六十四轮：window.NekoAgent —— 猫娘（宿主 AI）专属控制接口
+//
+// 与"模拟键鼠+截图OCR"的物理外挂相对的**底层 API 直调**方案：
+// 宿主插件读 getGameState() 拿精简局势 JSON，用 doAction(str) 下达
+// 结构化指令，setPuppetMode(true) 接管键盘（玩家可随时抢回）。
+// 血量 <30% 或升到 10 级时在 window 上抛 CustomEvent 'neko-agent-event'
+// （detail.type = 'hpLow' | 'levelUp10' | 'puppet'），供 TTS/直播弹幕。
+//
+// 【健壮性契约】所有公开方法 **绝不 throw**：内部全量 try/catch，
+// 异常一律折叠成 { ok:false, error } 返回值，外部插件瞎传参数也不会
+// 打断游戏主循环。
+// ============================================================
+window.NekoAgent = {
+  /** 内部：抛全局事件（构造失败也吞掉） */
+  _emit(type, detail) {
+    try {
+      window.dispatchEvent(new CustomEvent('neko-agent-event', {
+        detail: { type, ...detail, t: Date.now() },
+      }));
+    } catch { /* 事件通道失败不影响游戏 */ }
+  },
+
+  /**
+   * 事件钩子：主循环每帧调用。hp<30% 触发一次 hpLow（回升后重置），
+   * level≥10 触发一次 levelUp10（降回 10 以下自动重置，下一局可重发）。
+   */
+  _tick(g) {
+    try {
+      const p = g?.player;
+      if (!p || g.state !== 'playing') return;
+      const maxHp = Number(p.maxHp) || 0;
+      const hp = Number(p.hp) || 0;
+      if (maxHp > 0 && hp / maxHp < 0.3) {
+        if (!this._hpLowFired) {
+          this._hpLowFired = true;
+          this._emit('hpLow', { hp, maxHp, ratio: Math.round((hp / maxHp) * 1000) / 1000 });
+        }
+      } else {
+        this._hpLowFired = false;
+      }
+      const lv = Number(p.level) || 0;
+      if (lv >= 10) {
+        if (!this._lv10Fired) {
+          this._lv10Fired = true;
+          this._emit('levelUp10', { level: lv });
+        }
+      } else {
+        this._lv10Fired = false;
+      }
+    } catch { /* 钩子永不抛错 */ }
+  },
+
+  /**
+   * 【1. 状态感知】精简局势 JSON。
+   * 必含：player.x/y、hp/maxHp、最近 5 个怪物的相对坐标+类型、
+   * wave、isOverlayOpen；升级界面时附 upgradeOptions（id/name/desc）。
+   */
+  getGameState() {
+    try {
+      const g = window.__game;
+      if (!g) return { ok: false, error: 'game not ready' };
+      const p = g.player;
+      const st = {
+        ok: true,
+        state: g.state ?? null,
+        // 波次：world.currentWave 0 起算（与 HUD 同款 +1）；无 world 时退回 game.waveIndex
+        wave: ((g.world?.currentWave ?? (Number.isInteger(g.waveIndex) ? g.waveIndex : 0)) + 1) || 1,
+        puppet: !!g.agentPuppet,
+        isOverlayOpen: g.state !== 'playing',
+        player: null,
+        enemies: [],
+        upgradeOptions: [],
+      };
+      if (p) {
+        st.player = {
+          x: Math.round((Number(p.x) || 0) * 10) / 10,
+          y: Math.round((Number(p.y) || 0) * 10) / 10,
+          hp: Math.round((Number(p.hp) || 0) * 10) / 10,
+          maxHp: Math.round((Number(p.maxHp) || 0) * 10) / 10,
+          level: Number(p.level) || 0,
+          dead: !!p.dead,
+        };
+      }
+      if (g.state === 'levelup' && Array.isArray(g.currentUpgradeOptions)) {
+        st.upgradeOptions = g.currentUpgradeOptions.map((o, i) => ({
+          index: i,
+          id: o?.id ?? null,
+          name: o?.name ?? `选项${i}`,
+          desc: o?.desc ?? '',
+        }));
+      }
+      if (p && Array.isArray(g.world?.enemies?.items)) {
+        const near = [];
+        for (const e of g.world.enemies.items) {
+          if (!e || e.dead) continue;
+          const dx = e.x - p.x;
+          const dy = e.y - p.y;
+          near.push({ type: e.def?.id ?? 'unknown', dx: Math.round(dx), dy: Math.round(dy), d2: dx * dx + dy * dy });
+        }
+        near.sort((a, b) => a.d2 - b.d2);
+        st.enemies = near.slice(0, 5).map(({ d2, ...rest }) => rest);
+      }
+      return st;
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  },
+
+  /**
+   * 【2. 行动指令】字符串 DSL：
+   *   move(x, y)         —— 移动到地图坐标（到位自动停）
+   *   stop()             —— 停止移动
+   *   chooseUpgrade(i)   —— 升级三选一选第 i 个（0/1/2）
+   *   buyShopItem(i)     —— 商店买第 i 个槽位
+   */
+  doAction(actionStr) {
+    try {
+      if (typeof actionStr !== 'string' || !actionStr.trim()) {
+        return { ok: false, error: 'actionStr required, e.g. "move(320, 180)"' };
+      }
+      const m = actionStr.trim().match(/^(move|stop|chooseUpgrade|buyShopItem)\s*\(\s*(.*?)\s*\)$/i);
+      if (!m) return { ok: false, error: `unknown action: ${actionStr.slice(0, 60)}` };
+      const name = m[1].toLowerCase();
+      const args = m[2] ? m[2].split(',').map((s) => Number(s.trim())) : [];
+      const g = window.__game;
+      if (!g) return { ok: false, error: 'game not ready' };
+
+      if (name === 'move') {
+        const [x, y] = args;
+        if (!g.player) return { ok: false, error: 'no player (not in a run)' };
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { ok: false, error: 'move(x, y) needs two finite numbers' };
+        }
+        g.player.agentMoveTarget = { x, y };
+        return { ok: true, action: 'move', target: { x, y } };
+      }
+      if (name === 'stop') {
+        if (g.player) g.player.agentMoveTarget = null;
+        return { ok: true, action: 'stop' };
+      }
+      if (name === 'chooseupgrade') {
+        const i = args[0];
+        if (g.state !== 'levelup') return { ok: false, error: `not in levelup (state=${g.state})` };
+        const opts = Array.isArray(g.currentUpgradeOptions) ? g.currentUpgradeOptions : [];
+        if (!Number.isInteger(i) || i < 0 || i >= opts.length) {
+          return { ok: false, error: `index out of range (0..${opts.length - 1})` };
+        }
+        const picked = opts[i];
+        g._applyUpgradePick(picked);
+        return { ok: true, action: 'chooseUpgrade', picked: picked?.name ?? picked?.id ?? i };
+      }
+      if (name === 'buyshopitem') {
+        const i = args[0];
+        if (g.state !== 'shop') return { ok: false, error: `not in shop (state=${g.state})` };
+        if (!g.shop || typeof g.shop.buy !== 'function') return { ok: false, error: 'no shop instance' };
+        if (!g.player) return { ok: false, error: 'no player' };
+        if (!Number.isInteger(i) || i < 0) return { ok: false, error: 'buyShopItem(i) needs a slot index ≥ 0' };
+        const res = g.shop.buy(g.player, i);
+        return { ok: true, action: 'buyShopItem', slot: i, result: res ?? null };
+      }
+      return { ok: false, error: 'unreachable action branch' };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  },
+
+  /**
+   * 【3. 木偶模式】true：键盘完全接管（Input.agentBlocked），角色只听
+   * doAction；false：玩家立即抢回控制权（并清除未完成的移动意图）。
+   */
+  setPuppetMode(on) {
+    try {
+      const flag = !!on;
+      Input.agentBlocked = flag;
+      const g = window.__game;
+      if (g) {
+        g.agentPuppet = flag;
+        if (!flag && g.player) g.player.agentMoveTarget = null;
+      }
+      this._emit('puppet', { enabled: flag });
+      return { ok: true, puppet: flag };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  },
+};

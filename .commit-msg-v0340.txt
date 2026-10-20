@@ -1,0 +1,6 @@
+v0.3.40：window.NekoAgent 猫娘代打接口
+
+getGameState() 精简局势 JSON / doAction(move|stop|chooseUpgrade|
+buyShopItem) / setPuppetMode 键盘接管 / hp<30% 与 lv≥10 全局事件
+neko-agent-event（TTS 钩子）；全方法 try/catch 绝不抛错；游戏运行时
+221 文件同步（version 0.3.40）

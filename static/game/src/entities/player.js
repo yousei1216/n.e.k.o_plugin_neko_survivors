@@ -655,7 +655,21 @@ export class Player extends Entity {
     this.timeAlive += dt;
 
     // ---- 移动 ----
-    const axis = input.moveAxis();
+    // 第一百六十四轮：NekoAgent 外部接管 —— player.agentMoveTarget 由
+    // window.NekoAgent.doAction('move(x,y)') 设置，角色朝目标走，到位
+    // （<8px）自动清除；'stop()' 直接置 null。木偶模式下键盘轴已被
+    // Input.agentBlocked 清零，移动完全由此字段驱动。
+    let axis = input.moveAxis();
+    if (this.agentMoveTarget) {
+      const adx = this.agentMoveTarget.x - this.x;
+      const ady = this.agentMoveTarget.y - this.y;
+      const ad = Math.hypot(adx, ady);
+      if (ad < 8) {
+        this.agentMoveTarget = null;   // 到位即停，防原地抖动
+      } else {
+        axis = { x: adx / ad, y: ady / ad };
+      }
+    }
     const speedMul = this.stats.moveSpeedMultiplier;
     // 第十六轮：两处角色技能加成
     //   mulFor('moveSpeed')  → 库洛 / 开发猫猫 的最终乘算（statMul）

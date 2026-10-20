@@ -4,6 +4,11 @@
 // ============================================================
 
 export class Input {
+  // 第一百六十四轮：NekoAgent 木偶模式总闸 —— true 时真实键盘输入被
+  // 完全接管（keys 持续清空），角色只听 window.NekoAgent 的指令；
+  // 置回 false 玩家立即抢回控制权。静态属性：Input 不持有 game 引用。
+  static agentBlocked = false;
+
   constructor(canvas) {
     this.canvas = canvas;
     this.keys = new Set();
@@ -12,9 +17,14 @@ export class Input {
     this.anyInput = false;
 
     this._onKeyDown = (e) => {
-      // 避免空格/方向键滚动页面
+      // 木偶模式：吞掉一切键盘（含 ESC/空格），防页面滚动照旧
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         e.preventDefault();
+      }
+      if (Input.agentBlocked) {
+        if (this.keys.size) this.keys.clear();
+        if (this.justPressed.size) this.justPressed.clear();
+        return;
       }
       if (!this.keys.has(e.code)) this.justPressed.add(e.code);
       this.keys.add(e.code);
@@ -50,6 +60,8 @@ export class Input {
 
   /** 移动轴向量（已归一化） */
   moveAxis() {
+    // 木偶模式下键盘轴恒为零（keys 已被 _onKeyDown 持续清空，这里双保险）
+    if (Input.agentBlocked) return { x: 0, y: 0 };
     let x = 0, y = 0;
     if (this.isDown('KeyA') || this.isDown('ArrowLeft')) x -= 1;
     if (this.isDown('KeyD') || this.isDown('ArrowRight')) x += 1;
