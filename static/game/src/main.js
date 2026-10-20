@@ -560,6 +560,19 @@ export class Game {
   _beginWave(index) {
 
     this.waveIndex = index;
+    // 第一百六十五轮：战利品防洪闸 —— bug 修复前 boss 结算卡死，玩家被迫
+    // 反复"继续游戏"重打第 10 波，每波 1~5 件宝箱战利品只进不出，商店里
+    // 堆出"慢慢一页"（用户图6）。现在每波开始时最多保留 12 件（10 件正常
+    // 领取余量），最旧的自动折价换成材料，toast 说明去向。
+    {
+      const pend = this.world?.pendingItemRewards;
+      if (Array.isArray(pend) && pend.length > 12) {
+        const sold = pend.splice(0, pend.length - 12);
+        const mats = sold.reduce((s, r) => s + (Number(r?.sellValue) || 4), 0);
+        if (this.player && mats > 0) this.player.materials += mats;
+        this.ui?.toast?.(`战利品栏堆了太多！${sold.length} 件旧战利品自动折价 +${mats} 材料`, '', 5000);
+      }
+    }
     this.world.startWave(index);
     // 第一百五十三轮：无限模式标志同步给 world —— 变异体概率判定用
     //（普通 10% / 无限 20%）。每波同步一次，读档/当场开启都自然生效。
@@ -1103,8 +1116,14 @@ export class Game {
           // 普通boss掉落里。"（此前池子含 yamato，20 波 boss 随机抽中它时
           // 看起来就像"维吉尔的刀又掉了一把"。）同时排除已持有的
           //（bossDropOnly 全是 maxStacks=1，抽到了也只能领失败白摆着）。
+          // 【0.3.41 修复·重大】这里的 `p` 从来就没被定义过 —— 上轮改池子
+          // 时把 this.player 误写成了 p，boss 一死这句就 ReferenceError，
+          // 而 world 侧的 try/catch 把异常静默吞掉：onBossKilled 中断，
+          // 后面的 _bossKillPending / _autoCollectBossLoot 全都不执行 ——
+          // 表现就是用户报的"打死 10 波 boss 不结算、90 秒跑完、无红装"。
+          // 改回 this.player，并用可选链保证老存档/极端情况下不炸。
           const pool = ITEMS.filter((it) =>
-            it.bossDropOnly && it.id !== 'yamato' && !p.hasItem?.(it.id));
+            it.bossDropOnly && it.id !== 'yamato' && !this.player?.hasItem?.(it.id));
           if (pool.length > 0) {
             const def = this.rng.pick(pool);
             this.world.pendingItemRewards.push({
@@ -2613,7 +2632,11 @@ window.NekoAgent = {
           dead: !!p.dead,
         };
       }
-      if (g.state === 'levelup' && Array.isArray(g.currentUpgradeOptions)) {
+      // 【0.3.41 修复】STATE.LEVEL_UP 是 'level_up'（带下划线）——之前写成
+      // 'levelup'，getGameState 在真实升级界面永远不给选项、chooseUpgrade
+      // 永远被守卫拦下（行为探针当时造假状态没暴露）。与 STATE 枚举对齐。
+      if ((g.state === 'level_up' || g.state === 'levelup')
+        && Array.isArray(g.currentUpgradeOptions)) {
         st.upgradeOptions = g.currentUpgradeOptions.map((o, i) => ({
           index: i,
           id: o?.id ?? null,
@@ -2672,7 +2695,10 @@ window.NekoAgent = {
       }
       if (name === 'chooseupgrade') {
         const i = args[0];
-        if (g.state !== 'levelup') return { ok: false, error: `not in levelup (state=${g.state})` };
+        // 【0.3.41 修复】同上：真实状态是 'level_up'（兼容无下划线旧写法）
+        if (g.state !== 'level_up' && g.state !== 'levelup') {
+          return { ok: false, error: `not in levelup (state=${g.state})` };
+        }
         const opts = Array.isArray(g.currentUpgradeOptions) ? g.currentUpgradeOptions : [];
         if (!Number.isInteger(i) || i < 0 || i >= opts.length) {
           return { ok: false, error: `index out of range (0..${opts.length - 1})` };

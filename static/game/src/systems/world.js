@@ -1176,7 +1176,12 @@ export class World {
       this.camera.shake(22, 0.9);
       // 通知外层（用于猫娘吐槽 / 成就等），World 本身不关心谁在听
       if (typeof this.onBossKilled === 'function') {
-        try { this.onBossKilled(enemy); } catch { /* 监听方的问题不该影响战斗 */ }
+        try { this.onBossKilled(enemy); } catch (e) {
+          // 第一百六十五轮：不再静默吞 —— 上游一个未定义变量（p is not
+          // defined）在这里被无声吞掉，boss 打死了却不结算、不掉红，
+          // 查了整整一轮才定位。console.error 留痕，战斗照常不中断。
+          console.error('[world] onBossKilled 回调异常（已隔离）:', e);
+        }
       }
     } else if (enemy.elite) {
       this.fx.explosion(enemy.x, enemy.y, 80, enemy.color);

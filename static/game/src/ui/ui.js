@@ -170,7 +170,8 @@ export class UI {
     // 让符卡的显示高于金币数。不然都看不到符卡名字。"
     document.body.classList.toggle('flandre-hud', !!game.world?.flandreFight);
     if (this._lastHud.mat !== p.materials) {
-      e.materials.textContent = String(Math.floor(p.materials));
+      // 第一百六十五轮：材料缩写（用户："1100金币显示1.1k"）+ NaN 兜底
+      e.materials.textContent = this._fmtMats(p.materials);
       this._lastHud.mat = p.materials;
     }
 
@@ -219,6 +220,22 @@ export class UI {
         + `${def.short} <b>${fmtStat(k, s[k])}</b></span>`;
     }).join('');
     this._bindTips(this.el.stats);
+  }
+
+  /**
+   * 材料数缩写（第一百六十五轮）：≥1000 显示 1.1k（≥100k 显示 123k，
+   * ≥1e6 显示 1.2m）；非有限值（NaN 等脏数据）显示 0 兜底 —— 用户报过
+   * "金币过多右上角显示 NaN"，显示层不再外溢。
+   */
+  _fmtMats(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '0';
+    if (n >= 1000000) return `${(Math.round(n / 100000) / 10)}m`;
+    if (n >= 1000) {
+      const k = n / 1000;
+      return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+    }
+    return String(Math.floor(n));
   }
 
   /**
@@ -719,10 +736,30 @@ export class UI {
         : '';
 
       // 已持有道具
+      // 第一百六十五轮：道具行 hover 显示效果（用户图5 反馈："下面的道具
+      // （23种）的道具放上去什么都不显示，我是想要那个显示道具效果"）——
+      // 与商店道具卡同款"当前累计"算法：线性乘区 ×数量、诅咒乘算复合，
+      // 买了 10 个直接显示 10 倍效果，不用玩家自己算。属性行走的是同一个
+      // _bindTips 委托，加了 data-tip 即自动生效。
+      const fmtN = (x) => Math.round(x * 100) / 100;
       const itemRows = [...player.items.entries()].map(([id, n]) => {
         const def = getItemDef(id);
         if (!def) return '';
-        return `<div class="sp-row"><span class="sp-k" style="color:${def.color}">${def.name}</span><span class="sp-v">×${n}</span></div>`;
+        const lines = [String(def.desc ?? '')];
+        if (n > 0) {
+          lines.push(`── 当前累计（已持有 ${n} 个）──`);
+          for (const [k, v] of Object.entries(def.mods || {})) {
+            lines.push(`${STAT_DEFS[k]?.name ?? k} +${fmtN(v * n)}`);
+          }
+          for (const [k, v] of Object.entries(def.pct || {})) {
+            lines.push(`${STAT_DEFS[k]?.name ?? k} ${v * n >= 0 ? '+' : ''}${fmtN(v * n)}%`);
+          }
+          for (const [k, v] of Object.entries(def.curse || {})) {
+            const remain = Math.round((1 - v) ** n * 1000) / 10;
+            lines.push(`${STAT_DEFS[k]?.name ?? k} -${Math.round(v * 100)}%（乘算 ×${n} → 剩余 ${remain}%）`);
+          }
+        }
+        return `<div class="sp-row has-tip" data-tip="${tipEsc(lines.join('\n'))}"><span class="sp-k" style="color:${def.color}">${def.name}</span><span class="sp-v">×${n}</span></div>`;
       }).join('');
       const items = itemRows
         ? `<div class="sp-sec"><div class="sp-title">道具（${player.items.size} 种）</div>${itemRows}</div>`
@@ -995,7 +1032,7 @@ export class UI {
               <h2>第 ${waveIndex + 1} 波结束 · 商店</h2>
               <div class="sub" style="margin:0">买武器和道具，或者把两把相同武器合成更强的。</div>
             </div>
-            <div class="shop-money"><span class="mat-icon"></span>${Math.floor(player.materials)}</div>
+            <div class="shop-money"><span class="mat-icon"></span>${this._fmtMats(player.materials)}</div>
           </div>
 
           <div class="shop-body">
