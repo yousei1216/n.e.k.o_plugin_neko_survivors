@@ -541,6 +541,9 @@ export class Renderer {
     ctx.stroke();
 
     // 大格线，增加纵深感
+    // 第一百六十三轮：手机端跳过大格线（用户卡顿死命令的一部分 ——
+    // 贴图地面本就离屏缓存，网格是仅剩的每帧矢量背景绘制，砍一半）。
+    if (!MOBILE) {
     const big = cell * 4;
     const bx = ((-camera.cx + W / 2) % big + big) % big;
     const by = ((-camera.cy + H / 2) % big + big) % big;
@@ -556,6 +559,7 @@ export class Renderer {
       ctx.lineTo(W, Math.floor(y) + 0.5);
     }
     ctx.stroke();
+    }
 
     // ---- 不可通行地形描边（第十二轮）----
     this._drawTerrain(ctx, camera, W, H);
@@ -918,7 +922,7 @@ export class Renderer {
         // 用户："画一条半透明的、轻微弯曲的动态曲线，让它看起来是
         // '连着玩家在甩'，而不是凭空绕着玩家飞。"
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         ctx.strokeStyle = 'rgba(255,210,58,0.42)';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -953,7 +957,7 @@ export class Renderer {
           const ang = Math.atan2(pos.y - p.y, pos.x - p.x);
           const SEGS = 6, SWEEP = 1.05;
           ctx.save();
-          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
           ctx.strokeStyle = w.def.color;
           ctx.lineCap = 'round';
           for (let sIdx = 0; sIdx < SEGS; sIdx++) {
@@ -1238,7 +1242,7 @@ export class Renderer {
           ctx.save();
           // 'lighter' 让叠色像"被打亮"而不是糊上一层不透明色，
           // 配合下面的 alpha 能保留贴图本身的明暗细节
-          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
           ctx.globalAlpha = flash * (tint === '#ffffff' ? 0.55 : 0.42);
           ctx.drawImage(sil, dx, dy, dw, dh);
           ctx.restore();
@@ -2179,7 +2183,7 @@ export class Renderer {
 
     const ang = 1.56 * (t - born);
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';   // 原版 BLEND_MODE_ADDITIVE
+    ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';   // 原版 BLEND_MODE_ADDITIVE
     ctx.globalAlpha = alpha;
     this._blitMagicCircle(ctx, purple, anchor.x, anchor.y, 288, ang);    // 0.8×
     this._blitMagicCircle(ctx, yellow, anchor.x, anchor.y, 360, -ang);   // 1.0× 反向
@@ -2245,7 +2249,7 @@ export class Renderer {
     const pink = this._tintedSprite('fx', 'mist_glow', 'rgb(255,128,255)');
     if (!pink) return;
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';   // 原版 BLEND_MODE_ADDITIVE
+    ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';   // 原版 BLEND_MODE_ADDITIVE
     for (const o of fight.mistOrbs) {
       const p = Math.max(0, Math.min(1, o.t / o.life));
       const r = 256 * (1 - p);                       // Attract 收缩
@@ -2278,7 +2282,7 @@ export class Renderer {
     const star = this._tintedSprite('fx', 'star_24', 'rgb(214,240,255)') || starFlare;
     if (!glow || !starFlare) return;
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';   // 原版 BLEND_MODE_ADDITIVE
+    ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';   // 原版 BLEND_MODE_ADDITIVE
     for (const m of fight.mistAmbient ?? []) {
       const a = 0.35 + 0.15 * Math.sin(m.phase + t * m.speed);
       if (a <= 0.02) continue;
@@ -2508,7 +2512,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(b.x, b.y);
         ctx.rotate(b.angle);
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         ctx.strokeStyle = b.color;
         ctx.lineCap = 'round';
         for (let i = 0; i < 3; i++) {
@@ -2528,7 +2532,7 @@ export class Renderer {
       const pts = b.trail.filter((t) => t.a > 0);
       if (pts.length > 1) {
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         const n = Math.min(4, pts.length);
         for (let i = 0; i < n; i++) {
           const f = 1 - (i + 1) / (n + 1);        // 越靠后越小越淡
@@ -2545,7 +2549,7 @@ export class Renderer {
       // 曳光弹 / 通用：连续光带（第九轮原样，曳光弹加宽加亮）
       if (b.trail.length > 1) {
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         const pts = b.trail.filter((t) => t.a > 0);
@@ -2575,7 +2579,7 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(b.x, b.y);
-    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
 
     // 外发光：缓存精灵（数量最多的绘制对象，省每帧渐变）
     if (!this._fxSaturated()) {
@@ -2687,7 +2691,7 @@ export class Renderer {
       ctx.rotate(b.angle);
       const L = b.laserLength ?? 120;
       const w = b.radius;
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
       // 外层柔光（宽而淡）
       ctx.globalAlpha = 0.35;
       ctx.fillStyle = b.color;
@@ -2790,7 +2794,7 @@ export class Renderer {
     const tailLen = b.radius * 3.2;
     ctx.save();
     ctx.rotate(b.angle);
-    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
     // 用缓存的渐变条代替每帧新建 linearGradient。
     // drawImage 到 [-tailLen, 0] 这一段，宽高按半径缩放。
     const tailH = b.radius * 1.1;
@@ -3047,7 +3051,7 @@ export class Renderer {
   // 整体加法混合，暗色地板上像在发光。内核不支持 conic 时退回实线
   //（旧内核只是少了渐隐，三层结构仍在）。
   _bladeArc(ctx, r, a0, a1, fade, phaseShift = 0) {
-    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
     ctx.lineCap = 'round';
     const span = a1 - a0;
     const useConic = typeof ctx.createConicGradient === 'function';
@@ -3097,7 +3101,7 @@ export class Renderer {
         // 饱和时跳过（满屏特效里只是糊）。
         if (!this._fxSaturated()) {
           ctx.save();
-          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
           ctx.globalAlpha = fade * 0.26;
           ctx.strokeStyle = fx.color;
           ctx.lineWidth = 15 * fade + 3;
@@ -3117,7 +3121,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(fx.x, fx.y);
         ctx.rotate(fx.angle);
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
 
         // 中心白核：快速膨胀然后消失。
         // 用缓存的径向精灵代替 createRadialGradient —— 形状固定、只有颜色变，
@@ -3168,7 +3172,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(fx.x, fx.y);
         const rr = fx.radius * (0.35 + k * 1.15);
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         // 外环
         ctx.globalAlpha = fade * 0.85;
         ctx.strokeStyle = fx.color;
@@ -3218,7 +3222,7 @@ export class Renderer {
         //   3. 顿帧：出现后满长钉住 0.05s（k<0.28），然后尖端迅速缩回
         //      （不是平滑淡出）。
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         const dx = fx.ex - fx.x;
         const dy = fx.ey - fx.y;
         const len = Math.hypot(dx, dy) || 1;
@@ -3320,7 +3324,7 @@ export class Renderer {
         // 圆心一记闪光十字星"叮"一下即逝。节奏前快后慢（音波撞空气）。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         const R = fx.radius;
         const ek = 1 - Math.pow(1 - k, 2.6);   // 前半段极快，后半段骤减
 
@@ -3394,7 +3398,7 @@ export class Renderer {
         // 并且用加色混合，让它在弹幕堆里也能"亮"出来。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         const r = fx.radius * (0.35 + k * 0.85);
 
         // 外圈冲击环：给爆炸一个明确的"边界"，否则边缘会糊
@@ -3430,7 +3434,7 @@ export class Renderer {
         //   3. 随机分叉的细支流
         // 抖动每帧重算是有意的：闪电本来就该闪，静态的闪电反而假。
         ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
 
@@ -3525,7 +3529,7 @@ export class Renderer {
         // 现在按线宽分两组批量画，6 次 stroke → 2 次，调用数砍掉一半以上。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
         ctx.globalAlpha = fade;
         // 中心白闪
         ctx.fillStyle = '#ffffff';
@@ -4200,7 +4204,7 @@ export class Renderer {
           ctx.arc(px, py, 14, 0, TAU);
           ctx.fill();
           // 前方炽热光晕（加法混合，压在落点方向）
-          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
           ctx.globalAlpha = 0.35 * ramp;
           const gGlow = ctx.createRadialGradient(px, py, 4, px, py, 46);
           gGlow.addColorStop(0, 'rgba(255,190,90,0.7)');
@@ -4414,7 +4418,7 @@ export class Renderer {
     // 晴岚：亮度 +15%（加法混合淡白）
     if (d.id === 'breeze') {
       ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
       ctx.fillStyle = `rgba(255,252,235,${0.10 * ramp})`;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
@@ -4425,7 +4429,7 @@ export class Renderer {
       ctx.save();
       ctx.fillStyle = `rgba(255,120,30,${0.08 * ramp})`;
       ctx.fillRect(0, 0, W, H);
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
       ctx.fillStyle = `rgba(255,210,110,${0.07 * ramp})`;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
@@ -4440,7 +4444,7 @@ export class Renderer {
       const pulse = 0.8 + 0.2 * Math.sin(t * 1.3);
       g.addColorStop(0, `rgba(255,240,180,${0.5 * ramp * pulse})`);
       g.addColorStop(1, 'rgba(255,240,180,0)');
-      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
@@ -4504,13 +4508,22 @@ export class Renderer {
       if (!this._hudShell || this._hudShellW !== W || this._hudShellH !== H) {
         const barEl = document.querySelector('.hud-hp-bar');
         if (barEl) {
+          // 第一百六十三轮：Letterbox 等比缩放下，getBoundingClientRect()
+          // 返回的是**视口坐标**（含 #app 整体缩放与位移），而 Canvas 的
+          // 绘制坐标是 #app 本地坐标。以 canvas 自身 rect 为参照换算回
+          // 本地：k = 视口宽 / CSS 宽。桌面无变换时 k=1、cr 偏移为 0，
+          // 数值与旧逻辑逐位一致（桌面零影响）。
+          const cr = this.canvas.getBoundingClientRect();
+          const k = (cr.width / (this.canvas.clientWidth || cr.width)) || 1;
+          const lx = (v) => (v - cr.left) / k;
+          const ly = (v) => (v - cr.top) / k;
           const r = barEl.getBoundingClientRect();
-          const shell = { x: r.left, y: r.top, w: r.width, h: r.height };
+          const shell = { x: lx(r.left), y: ly(r.top), w: r.width / k, h: r.height / k };
           const ghostEl = document.getElementById('hud-hp-ghost');
           if (ghostEl) {
             const g = ghostEl.getBoundingClientRect();
-            shell.textX = g.left;
-            shell.textY = g.top + g.height / 2;
+            shell.textX = lx(g.left);
+            shell.textY = ly(g.top + g.height / 2);
           }
           this._hudShell = shell;
           this._hudShellW = W;

@@ -4,6 +4,8 @@
 // ============================================================
 
 import { RNG, randomSeed } from './core/rng.js';
+// 第一百六十三轮：移动端主循环限帧 30fps（仅手机，桌面恒 false 不受限）
+import { MOBILE } from './core/mobile.js';
 import { Input } from './core/input.js';
 import { Camera } from './core/camera.js';
 import { Renderer } from './systems/renderer.js';
@@ -676,6 +678,12 @@ export class Game {
   _loop = (now) => {
     if (!this.running) return;
     this._rafId = requestAnimationFrame(this._loop);
+
+    // 第一百六十三轮：移动端限帧 30fps（用户死命令："直接把游戏主循环
+    // 限制在 30 帧（30fps）。2D 游戏 30 帧完全可玩，但能救 50% 的性能"）。
+    // 间隔不足 33ms 的帧直接跳过 —— 不更新、不渲染、不推进 _lastTime，
+    // 下一次真正执行的帧用完整间隔算 dt（>100ms 的部分仍被钳到 0.1）。
+    if (MOBILE && now - this._lastTime < 32) return;
 
     let dt = (now - this._lastTime) / 1000;
     this._lastTime = now;

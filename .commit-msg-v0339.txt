@@ -1,0 +1,6 @@
+v0.3.39：手机端 Letterbox 等比缩放 · Canvas 渲染降载
+
+mobile.html 固定 1280x720 虚拟逻辑分辨率整体等比缩放居中；血条 DOM
+测量按 canvas rect 换算（Letterbox 对位）；25 处 lighter 手机端降为
+source-over、大格线跳过、主循环限帧 30fps；游戏运行时 221 文件同步
+（version 0.3.39）
