@@ -395,6 +395,19 @@ export class Pet extends Entity {
     const amount = max * PET_HEAL_RATIO;
     // force：芙兰战 noHeal 唯一合法豁免（第四十九轮明确保留小小猫娘半血治疗）
     const healed = player.heal(amount, { force: true });
+    // ---- 第一百八十四轮（用户："1p猫娘倒地次数是最少的，2-3-4p猫娘倒地
+    // 明显多……要不让小小猫娘的回血触发的时候也回复其他3个猫娘的血"）——
+    // 治疗以前只喂 P1，4P 的 2~4P 局内零回复，倒地次数差距的直接来源。
+    // 现在触发时全队（活着、非倒地）各回 20% 自身最大生命。
+    let teamHealed = 0;
+    for (const pl of (world.players?.() ?? [player])) {
+      if (!pl || pl === player || pl.dead || pl.downed) continue;
+      const m2 = pl.stats?.get?.('maxHp') ?? 0;
+      if (m2 > 0 && pl.hp > 0) teamHealed += pl.heal(m2 * PET_HEAL_RATIO, { force: true });
+    }
+    if (teamHealed > 0) {
+      world.fx?.damageText(player.x, player.y - 52, `全队 +${Math.round(teamHealed)}`, false, '#6ee7b7');
+    }
     this.healCd = PET_HEAL_COOLDOWN;
     this.healsGiven++;
     this.healAnim = 0.7;
