@@ -191,7 +191,16 @@ export class NekoPilot {
       const p = this.entity ?? g.player;
       if (!p) return;
       if (this.entity) {
-        if (p.dead || p.downed) return;   // 倒地等救援，AI 不动作
+        // 第一百八十四轮：倒地不再干等 —— 15% 龟速爬向活着的队友
+        //（用户："猫娘ai倒地状态ai优先往活着的那个人那移动"）
+        if (p.dead) return;
+        if (p.downed) {
+          const mate = this.entity ? g.player : g.world?.player2;
+          if (mate && !mate.dead && !mate.downed) {
+            p.agentMoveTarget = { x: mate.x, y: mate.y };
+          }
+          return;   // 爬行由 player.update 的倒地段执行，其余决策照旧跳过
+        }
         if (g.state === 'result') return; // 结算交给 P1 的 pilot
         if (p.pendingLevelUps > 0) {
           // P2 升级自动化（不走选卡 UI）：简化包 = 生存向 +6 上限/+8% 伤害
@@ -277,6 +286,16 @@ export class NekoPilot {
   _combat(g, vergilMode, ent) {
     const p = ent ?? g.player;
     if (!p || p.dead) return;
+    // ---- 第一百八十四轮：倒地 = 龟速爬向活着的队友 ----
+    // player.update 倒地段会以 15% 移速执行 agentMoveTarget（不能攻击）；
+    // AI 在这里只负责把目标设成活人，让倒地者主动凑向救援。
+    if (p.downed) {
+      const mate = (p === g.player) ? g.world?.player2 : g.player;
+      if (mate && !mate.dead && !mate.downed) {
+        p.agentMoveTarget = { x: mate.x, y: mate.y };
+      }
+      return;
+    }
     // 节流：每 4 帧重算一次目标（~0.13s）——太慢会被噩梦怪海围死
     if (++this._aimT % 4 !== 1) return;
 

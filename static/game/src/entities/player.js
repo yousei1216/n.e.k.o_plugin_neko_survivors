@@ -774,8 +774,11 @@ export class Player extends Entity {
     this.timeAlive += dt;
 
     // ---- 第一百七十一轮：倒地状态（救援环版）----
-    // 不能动/开火/被敌人选为目标；紫条在 3s 无救援后开始回涨，
+    // 不能开火/被敌人选为目标；紫条在 3s 无救援后开始回涨，
     // 倒地次数越多回涨越快（原版机制：次数越多越难救）。
+    // 第一百八十四轮：**倒地可以 15% 移速龟速爬行**（用户："倒地的人可
+    // 以以15%的移速移动吧，不能攻击但是可以龟速移动"）—— 真人用键盘/
+    // AI 用 agentMoveTarget，爬向活着的队友等救援。
     if (this.downed) {
       if (this.invuln > 0) this.invuln -= dt;
       if (this.hurtFlash > 0) this.hurtFlash -= dt;
@@ -784,6 +787,22 @@ export class Player extends Entity {
       if (this._rescueIdle >= 3) {
         this.rescueProgress = Math.min(this.rescueNeed,
           (this.rescueProgress ?? this.rescueNeed) + this.rescueRegain * dt);
+      }
+      // ---- 龟速爬行（15% 移速，不能攻击）----
+      let axis = input?.moveAxis?.() ?? { x: 0, y: 0 };
+      if (this.agentMoveTarget) {
+        const adx = this.agentMoveTarget.x - this.x;
+        const ady = this.agentMoveTarget.y - this.y;
+        const ad = Math.hypot(adx, ady);
+        if (ad < 8) this.agentMoveTarget = null;
+        else axis = { x: adx / ad, y: ady / ad };
+      }
+      if (axis.x || axis.y) {
+        const crawl = this.baseSpeed * 0.15 * (world?.weather?.moveMul ?? 1);
+        this.x += axis.x * crawl * dt;
+        this.y += axis.y * crawl * dt;
+        this.faceX = Math.abs(axis.x) > 0.1 ? Math.sign(axis.x) : this.faceX;
+        this.clampToWorld?.(world);
       }
       return;
     }
