@@ -3255,6 +3255,42 @@ try {
   // 与 party/flandre 任一开局参数搭配使用。
   if (q.get('probe') === '1' && (party >= 1 || q.has('flandre') || q.has('cont'))) {
     const cv = canvas;
+    // ---- 184 轮：vergil=1（与 party 组合）—— 8s 时直接走正式入口进维
+    // 吉尔战（保留 4P 阵容），并在 dump 里挂帧时长 profiler 定位卡顿。
+    if (q.has('vergil')) {
+      setTimeout(() => { try { game._startVergil(); } catch { /* */ } }, 8000);
+      setTimeout(() => {
+        try {
+          let last = performance.now(); const dts = [];
+          const prof = (now) => { dts.push(now - last); last = now; if (dts.length < 3000) requestAnimationFrame(prof); };
+          requestAnimationFrame(prof);
+          for (const t of [14000, 20000, 26000]) {
+            setTimeout(() => {
+              try {
+                const g2 = game;
+                const w = g2.world;
+                const sorted = [...dts].sort((a, b) => a - b);
+                const snap = {
+                  t, state: g2.state, samples: dts.length,
+                  avgMs: dts.length ? Math.round(dts.reduce((a, b) => a + b, 0) / dts.length * 10) / 10 : 0,
+                  p95Ms: sorted.length ? Math.round(sorted[Math.floor(sorted.length * 0.95)] * 10) / 10 : 0,
+                  maxMs: sorted.length ? Math.round(sorted[sorted.length - 1] * 10) / 10 : 0,
+                  counts: {
+                    bullets: w?.enemyBullets?.items?.length ?? 0,
+                    parryFx: w?.vergilFight?.parryFx?.length ?? 0,
+                    parrySparks: w?.vergilFight?.parrySparks?.length ?? 0,
+                    waves: w?.vergilFight?.waves?.length ?? 0,
+                    pickups: w?.pickups?.items?.length ?? 0,
+                    enemies: w?.enemies?.items?.length ?? 0,
+                  },
+                };
+                fetch('http://127.0.0.1:8033/probe?name=perf-' + t, { method: 'POST', body: JSON.stringify(snap) });
+              } catch { /* */ }
+            }, t);
+          }
+        } catch { /* */ }
+      }, 8500);
+    }
     for (const t of [4000, 8000, 12000, 16000, 20000, 24000]) {
       setTimeout(() => {
         try {

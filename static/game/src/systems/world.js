@@ -1048,8 +1048,12 @@ export class World {
     // 第一百四十六轮：维吉尔战钩子 —— 格挡领域斩碎远程弹。
     // 用户规格：P1/P2 游荡（不施法）时自动格挡，子弹不扣血直接销毁；
     // 近战不触发（近距离拼刀他挡不住 —— melee 不走这里，走下面的正常伤害）。
+    // ---- 第一百八十四轮（用户实测 4AI"连维吉尔 33% 血都打不到"）——
+    // 146 轮注释说近战照常，实现却把 melee 也拦了：guarding 期一切输出
+    // 归零，游荡占比 60%+ → 有效 DPS 打对折再打折。现在按规格放行近战
+    // （weapon 缺省的 AOE 来源照拦）。
     const vf = this.vergilFight;
-    if (vf && target === vf.boss && vf.guarding) {
+    if (vf && target === vf.boss && vf.guarding && weapon?.def?.kind !== 'melee') {
       vf.parryAt(opts.fromX ?? target.x, opts.fromY ?? target.y);
       this.fx.damageText(target.x, target.y - target.radius, '格挡', false, '#8fd9f0');
       return { dodged: true, dealt: 0, parried: true };

@@ -471,6 +471,7 @@ export class VergilFight {
 
     // ---- 格挡特效推进 + 涟漪窗口 ----
     this._parrySfxT = Math.max(0, this._parrySfxT - dtReal);
+    this._parryFxT = Math.max(0, (this._parryFxT ?? 0) - dtReal);
     this._parryWindow -= dtReal;
     if (this._parryWindow <= 0) {
       this._parryWindow = 0.3;
@@ -833,6 +834,12 @@ export class VergilFight {
    */
   parryAt(x, y) {
     if (!this.guarding) return false;
+    // ---- 第一百八十四轮（用户实测真机"开头就卡顿"）—— 4 只 AI 贴脸
+    // 输出后，每秒几十发弹被挡 → 每发一次斩击线+火花+伤害字+音效，真机
+    // 渲染直接被刷爆。0.05s 全局节流：特效照放但不堆积；格挡判定本身
+    // （返回 true）不受节流影响。
+    if ((this._parryFxT ?? 0) > 0) return true;
+    this._parryFxT = 0.05;
     this._parryCount++;
     this.parryFx.push({ x, y, seed: (Math.random() * 1e9) | 0, t: 0, life: 0.1 });
     const n = 3 + ((Math.random() * 2) | 0);

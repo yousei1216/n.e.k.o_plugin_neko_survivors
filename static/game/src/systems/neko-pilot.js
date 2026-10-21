@@ -548,17 +548,20 @@ export class NekoPilot {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy) || 1;
         // ---- 第一百八十四轮（用户："猫娘ai打维吉尔会一直卡远程射击位，
-        // 而维吉尔可以格挡远程伤害……战胜维吉尔的概率可以说是0"）——
-        // 维吉尔 phase≤2 游荡态自动格挡**所有远程**（近战不拦）——卡在
-        // 远程位=全程零输出。现在读 fight.guarding：格挡期全队压到近战位
-        // （95~150，拼刀他挡不住）；出招/硬直/3阶段回到远程安全环绕。
+        // 而维吉尔可以格挡远程伤害"）—— guarding 只拦**远程**（meleee 拼刀
+        // 照常结算，v0.3.80 已修）。站位按武器类型分：
+        //   · 有近战 → guarding 期贴身 95~150 拼刀（唯一有效输出窗口）
+        //   · 纯远程 → guarding 期退到 260~330 保存血量（打不进别白挨砍），
+        //     等 cast/pause 窗口（非 guarding）全队压射程内全力输出。
         const guarding = vf?.guarding === true && !ff;
-        const inner = guarding ? 95 : 170;
-        const outer = guarding ? 150 : 330;
-        if (d < inner) { tx = p.x + (dx / d) * (guarding ? 80 : 150); ty = p.y + (dy / d) * (guarding ? 80 : 150); }
-        else if (d > outer) { tx = b.x + (dx / d) * (guarding ? 130 : 260); ty = b.y + (dy / d) * (guarding ? 130 : 260); }
+        const hasMelee = (p.weapons || []).some((w) => w?.def?.kind === 'melee');
+        const inner = guarding ? (hasMelee ? 95 : 260) : 170;
+        const outer = guarding ? (hasMelee ? 150 : 330) : 330;
+        const closeIn = guarding ? hasMelee : true;
+        if (d < inner) { tx = p.x + (dx / d) * (closeIn ? inner - 15 : 240); ty = p.y + (dy / d) * (closeIn ? inner - 15 : 240); }
+        else if (d > outer) { tx = b.x + (dx / d) * (closeIn ? 130 : 300); ty = b.y + (dy / d) * (closeIn ? 130 : 300); }
         else { // 环绕切向移动，不吃直线弹幕
-          const tang = guarding ? 90 : 150;
+          const tang = closeIn ? (guarding ? 90 : 150) : 120;
           tx = p.x + (-dy / d) * tang; ty = p.y + (dx / d) * tang;
         }
         // ---- 第一百八十四轮（用户："4ai猫娘都不躲芙兰弹幕"）----
@@ -889,8 +892,14 @@ export class NekoPilot {
       if (armorGap && Number(o?.mods?.armor) > 0) s += 25;
       // 血量选项绝对优先：maxHp 是加法（+6），前期一条命的价值远超输出
       if (early && Number(o?.mods?.maxHp) > 0) s += 100;
-      // 带 curse / 负面 pct 的选项（>18% 伤害换 -10% 血那种）一票否决
-      if (o?.pct && Object.values(o.pct).some((v) => Number(v) < 0)) s -= 1000;
+      // 带 curse / 负面 pct 的选项（>18% 伤害换 -10% 血那种）一票否决。
+      // ---- 184 轮（用户："升级的时候有高品质负面属性的升级也可以点"）
+      // —— 改成看**等效生命值**：EHP = maxHp × (1 + min(1, armor/30))
+      // （30 甲=50% 减伤≈2倍血），EHP>50 的一击线足够，负面升级正常
+      // 参与评分；血薄时照旧否决。
+      const maxHpU = p.stats?.get?.('maxHp') ?? p.maxHp ?? 0;
+      const ehpU = maxHpU * (1 + Math.min(1, (p.stats?.get?.('armor') ?? 0) / 30));
+      if (o?.pct && Object.values(o.pct).some((v) => Number(v) < 0) && ehpU <= 50) s -= 1000;
       if (s > bestS) { bestS = s; bestI = i; }
     });
     globalThis.NekoAgent?.doAction?.(`chooseUpgrade(${bestI})`);
@@ -943,10 +952,14 @@ export class NekoPilot {
           : 0;
         const slotBase = slotIdx * 4;
         const slotEnd = slotIdx === 0 ? 4 : Math.min(shop.offers.length, slotBase + 4);
-        for (let round = 0; round < 3 && bought < buyCap; round++) {
+        // ---- 184 轮（用户："金钱还是很容易有几百余额，让她们1-10回合
+        // 余额不超过30，11-20不超过100。该花就花"）—— 硬预算：低于 10 波
+        // 压到 30，11 波起 100。刷新门槛与兜底扫货都按这个水位走。
+        const matCap = (g.waveIndex ?? 0) < 10 ? 30 : 100;
+        for (let round = 0; round < 5 && bought < buyCap; round++) {
           if (round > 0) {
             // 囤钱刷新：钱趴着 = 发育不良（用户实测 1k+ 金币暴毙局）
-            if (p.materials < 120) break;
+            if (p.materials < matCap + 40) break;
             const rr = shop.reroll?.(p);
             if (!rr?.ok) break;
             this._log(`囤钱刷新货架（剩 ${Math.floor(p.materials)}）`);
@@ -964,7 +977,12 @@ export class NekoPilot {
           // 贪婪神像类：没有 curse 字段但 pct 带负值（伤害-8% 换收获），
           // 风筝流输出就是命，同样不买
           const hasNegPct = o.data?.pct && Object.values(o.data.pct).some((v) => Number(v) < 0);
-          if (hasCurse || hasNegPct) continue;
+          // ---- 184 轮（用户："负面道具不是不可以买，但要保障一击线不能
+          // 太低，比如猫娘ai自己算一下自己的等效生命值高于40-50再买扣血
+          // 上限的道具，不至于买了满血一下就死了"）—— EHP>50 放行负面。
+          const maxHpS = p.stats?.get?.('maxHp') ?? p.maxHp ?? 0;
+          const ehpOk = maxHpS * (1 + Math.min(1, (p.stats?.get?.('armor') ?? 0) / 30)) > 50;
+          if ((hasCurse || hasNegPct) && !ehpOk) continue;
           // 血量/移速道具见到必买（10 血基底的命根子 + 风筝流的腿）
           const isHpItem = ['warm_milk', 'healing_herb', 'cat_taffy', 'wool_armor', 'steel_plate', 'running_shoes', 'feather'].includes(o.data?.id);
           // 同名武器允许持有 2 把（游戏机制：两把同名可合成升级），
@@ -988,6 +1006,25 @@ export class NekoPilot {
             this._log(`商店购入【${o.data?.name ?? o.data?.id ?? slot}】(-${o.price})${rushWeapons && isWeapon ? '（6 武器冲刺）' : ''}`);
           }
           }
+        }
+        // ---- 兜底扫货：刷新买完仍超预算 → 挑自己格子里最贵的非诅咒
+        // 直接买（该花就花，钱趴着=发育不良；负面道具吃上面的 EHP 门槛）。
+        let guard = 0;
+        while (p.materials > matCap && guard++ < 6) {
+          let pick = -1, pickPrice = 0;
+          for (let slot = slotBase; slot < slotEnd; slot++) {
+            const o = shop.offers[slot];
+            if (!o || o.sold || o.price > p.materials) continue;
+            const oc = o.data?.curse && Object.keys(o.data.curse).length > 0;
+            const onp = o.data?.pct && Object.values(o.data.pct).some((v) => Number(v) < 0);
+            if ((oc || onp) && !ehpOk) continue;
+            if (o.price > pickPrice) { pickPrice = o.price; pick = slot; }
+          }
+          if (pick < 0) break;
+          const r = shop.buy(p, pick);
+          if (!r || r.ok === false) break;
+          bought++;
+          this._log(`兜底扫货【${shop.offers[pick]?.data?.name ?? pick}】(-${shop.offers[pick]?.price})`);
         }
       }
     } catch { /* 商店买不成不影响推波 */ }
