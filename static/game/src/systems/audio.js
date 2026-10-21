@@ -978,6 +978,20 @@ export class AudioSystem {
         this._tone({ type: 'sine', freq: 1560, dur: 0.22, gain: 0.08, delay: 0.14 });
         break;
 
+      // ---- 第一百七十三轮：用户自制音效续（E:\猫娘姐妹\音效）----
+      case 'catStep':
+        // "猫的步伐"：悠怡锁血触发瞬间的后空翻（cat_step.ogg）
+        if (this._playSeFile('cat_step')) break;
+        this._tone({ type: 'sine', freq: 1240, freqEnd: 620, dur: 0.18, gain: 0.11 });
+        break;
+
+      case 'knockdown':
+        // "倒地"：duo 模式玩家被击倒瞬间（knockdown.ogg）
+        if (this._playSeFile('knockdown')) break;
+        this._tone({ type: 'sawtooth', freq: 220, freqEnd: 60, dur: 0.45, gain: 0.16 });
+        this._noise({ dur: 0.3, gain: 0.12, freq: 500, freqEnd: 120 });
+        break;
+
       case 'petPurge':
         // "开消弹"：小小猫娘**主动**消弹（tryManualPurge）出鞘一声；
         // 受击自动消弹（autoPurge）不出声 —— 用户只给了主动这条

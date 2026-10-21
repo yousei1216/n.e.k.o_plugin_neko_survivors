@@ -27,6 +27,7 @@
 // ============================================================
 
 import { getCharSkill } from '../data/char-skills.js';
+import { audio } from './audio.js';
 
 /**
  * 角色技能运行时。
@@ -126,8 +127,14 @@ export class CharRuntime {
    * 调用点在 Player.takeDamage 里、`hp -= toHp` **之前**：
    * 必须在那之前，否则血已经掉到 0、dead 已经置位，
    * 再想救回来就得撤销一堆副作用（死亡回调、掉落……）。
+   *
+   * 第一百七十三轮（用户）："触发锁血的时候自动后空翻（往受击完全
+   * 相反的方向跳）大概0.5秒移动200px，之后再进入3秒锁血。然后触发
+   * 后空翻的时候播放音效猫的步伐.ogg"
+   * —— 后空翻 0.5s / 200px（≈400px/s 的强制位移，无视玩家输入），
+   *    落地后锁血无敌还有 3 秒（invuln 总量 3.5s，后空翻也在保护内）。
    */
-  tryLethalSave() {
+  tryLethalSave(fromX, fromY) {
     if (this.id !== 'yui') return false;
     const pa = this.params;
     if (this.lethalUsedThisRound >= (pa.lethalPerRound ?? 1)) return false;
@@ -137,11 +144,25 @@ export class CharRuntime {
 
     const p = this.player;
     p.hp = 1;                                  // 锁在 1 滴
-    p.invuln = Math.max(p.invuln, pa.lethalInvuln ?? 3);
+    // 无敌总量 = 后空翻 0.5s + 锁血 3s（用户："之后再进入3秒锁血"）
+    p.invuln = Math.max(p.invuln, 0.5 + (pa.lethalInvuln ?? 3));
     p.speedBonusMul = pa.lethalSpeedMul ?? 1.4;
-    this.lethalSpeedTimer = pa.lethalSpeedTime ?? 3;
+    this.lethalSpeedTimer = (pa.lethalSpeedTime ?? 3) + 0.5;
     // 视觉反馈：一圈金环 + 屏幕轻震，让玩家明确知道"刚才那下本该死了"
     p.lethalFlash = 0.6;
+
+    // ---- 后空翻：往受击完全相反的方向跳 0.5s / 200px ----
+    // fromX/fromY 缺省（真伤/环境伤害没来源）就背对移动方向随便翻，
+    // 朝地图外不行 —— 兜底用"远离场心"方向，保证总有地方去。
+    const sx = Number.isFinite(fromX) ? fromX : p.x * 2;
+    const sy = Number.isFinite(fromY) ? fromY : p.y * 2;
+    let dx = p.x - sx, dy = p.y - sy;
+    const d = Math.hypot(dx, dy);
+    if (d < 1) { dx = 1; dy = 0; }             // 来源正好在脚下：翻向 +x
+    else { dx /= d; dy /= d; }
+    // ≈400px/s × 0.5s = 200px（用户口径"大概0.5秒移动200px"）
+    p._backflip = { t: 0.5, vx: dx * 400, vy: dy * 400 };
+    audio.play('catStep');                     // 猫的步伐.ogg
     return true;
   }
 

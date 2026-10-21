@@ -12,6 +12,7 @@ import { getCharacter } from '../data/characters.js';
 import { getItem } from '../data/items.js';
 import { xpForLevel } from '../data/upgrades.js';
 import { WeaponInstance } from './weapon.js';
+import { audio } from '../systems/audio.js';
 import { getCharSkill } from '../data/char-skills.js';
 import { attachCharRuntime } from '../systems/char-runtime.js';
 
@@ -549,7 +550,9 @@ export class Player extends Entity {
     // 所以判定条件用的是 **toHp**（真正会扣到血上的那部分），
     // 而不是 final。护盾吃掉的伤害不算数。
     if (this.charRt && toHp > 0 && toHp >= this.hp && this.hp > 0) {
-      if (this.charRt.tryLethalSave()) {
+      // 第一百七十三轮：把伤害来源坐标传给锁血 —— 后空翻要"往受击
+      // 完全相反的方向跳"，得知道是哪边打来的
+      if (this.charRt.tryLethalSave(sourceX, sourceY)) {
         // 统计口径：这一下**本该**扣掉 hp-1（锁血后剩 1 点），
         // 所以按差额记入承受伤害，而不是记满 toHp ——
         // 否则"承受伤害"的统计会比玩家实际掉的血虚高一大截。
@@ -717,6 +720,8 @@ export class Player extends Entity {
     this.dead = false;
     this.hp = 0;
     this.invuln = 1.5;   // 倒地瞬间保护，防止被连续追击直接判负
+    // 第一百七十三轮：倒地音效（用户："给倒地增加音效倒地.ogg"）
+    audio.play('knockdown');
     this.onDown?.();
   }
 
@@ -807,9 +812,22 @@ export class Player extends Entity {
       // 第一百七十一轮：P2 的减速键 = 小键盘 0（input 桩带 p2SkillSlow）
       if (input.isDown('ShiftLeft') || input.isDown('ShiftRight') || input.p2SkillSlow?.()) speed *= 0.5;
     }
+    // ---- 第一百七十三轮：悠怡「猫的步伐」后空翻位移接管 ----
+    // 触发锁血瞬间挂上的 _backflip：0.5s 内无视玩家输入、强制朝受击
+    // 反方向位移 200px。武器照常开火（只是脚不由己），位移钳制沿用
+    // 下面的地形/边界检查，不会翻出场地。
+    if (this._backflip) {
+      this._backflip.t -= dt;
+      if (this._backflip.t <= 0) this._backflip = null;   // 翻完交还控制权
+    }
     this.vx = axis.x * speed;
     this.vy = axis.y * speed;
-    this.isMoving = axis.x !== 0 || axis.y !== 0;
+    if (this._backflip) {
+      // 后空翻速度覆盖玩家输入轴（放在轴赋值之后，权重最高）
+      this.vx = this._backflip.vx;
+      this.vy = this._backflip.vy;
+    }
+    this.isMoving = axis.x !== 0 || axis.y !== 0 || !!this._backflip;
 
     if (this.isMoving) {
       this.walkPhase += dt * 11;
