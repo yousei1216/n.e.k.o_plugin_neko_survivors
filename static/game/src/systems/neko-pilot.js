@@ -354,12 +354,15 @@ export class NekoPilot {
 
     const enemies = world?.enemies?.items;
     let fleeX = 0, fleeY = 0, nearest = null, nearestD = Infinity;
+    let bossE = null, bossD = Infinity;   // 普通波的 boss（交战拉力用）
     if (Array.isArray(enemies)) {
       for (const e of enemies) {
         if (!e || e.dead || e.isChest) continue;
         const dx = p.x - e.x, dy = p.y - e.y;
         const d = Math.hypot(dx, dy) || 1;
         if (d < nearestD) { nearestD = d; nearest = e; }
+        // 第一百八十四轮：标记波次 boss（"几乎不打 boss"修复的拉力目标）
+        if ((e.def?.boss || e.isBoss) && d < bossD) { bossD = d; bossE = e; }
         // 弹幕怪的警戒圈更大（子弹飞得远）
         const R = e.def?.behavior === 'bullet' ? threatR + 120 : threatR;
         if (d < R) {
@@ -739,7 +742,19 @@ export class NekoPilot {
         }
       }
     } catch { /* 地形异常不影响走位 */ }
-    if (this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
+    // ---- 第一百八十四轮（用户："维吉尔砍谁也不动，4个人都在四角挂机"）----
+    // 迟滞在 boss 战会**死锁**：维吉尔战 enemies 空 → flee=0 → 切向环绕点
+    // 几乎不随帧变化 → 到位后 mix 与旧 _tgt 永远 <26 → 每帧 return 不更新
+    // agentMoveTarget = 站桩到底。boss 战环绕本身是连续运动，跳过迟滞。
+    // ---- 第一百八十四轮（用户："几乎不打 boss……90 秒到了几乎受到的
+    // 伤害 1% 都没有"）—— 普通波的 boss 交战拉力：目标点 32% 权重混向
+    // boss —— 风筝姿态保留（威胁排斥照算），但整体站位被慢慢拉进武器
+    // 射程，90 秒不再空过。迟滞对有 boss 的波同样跳过（拉力是缓慢位移，
+    // 会被 <26px 迟滞吃掉）。
+    if (bossE && !vergilMode) {
+      mix = { x: mix.x * 0.68 + bossE.x * 0.32, y: mix.y * 0.68 + bossE.y * 0.32 };
+    }
+    if (!vergilMode && !bossE && this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
     // ---- 第一百八十三轮：最终落点也 clamp 进 boss 场地 ----
     // spawn 警告避让/地形避让都可能把落点推到空气墙外 —— boss 战里一切
     // 目标以场地为界（用户："她疑似还在用原本的地图移动"）。
