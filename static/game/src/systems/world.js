@@ -914,6 +914,11 @@ export class World {
   }
 
   updateSpawning(dt, player, waveElapsed) {
+    // ---- 第一百八十轮：天彗龙吼叫眩晕 —— 3 秒内完全停止刷怪 ----
+    // 用户规格："龙吼叫眩晕3秒期间不刷怪。防止新刷的怪在3秒内杀死玩家。"
+    // 冻结由 main 侧控制 world.update 的 dt 实现（dt=0），这里再兜一层
+    // 显式开关，防以后有人绕过 dt 直接调 updateSpawning。
+    if (this.spawnPaused) return;
     // 第一百七十二轮：警告倒计时**每帧都要走**（包括 isSpawnFinished
     // 之后 —— 预算刷完了，最后一批警告还得落地），先记 dt 再结算。
     this._lastDt = dt;

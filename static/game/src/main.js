@@ -12,6 +12,7 @@ import { Renderer } from './systems/renderer.js';
 import { World } from './systems/world.js';
 import { Shop } from './systems/shop.js';
 import { WeatherSystem } from './systems/weather.js';
+import { CometDisaster } from './systems/comet.js';
 import { Player } from './entities/player.js';
 import { PICKUP_TYPE } from './entities/pickup.js';
 import { Pet } from './entities/pet.js';
@@ -558,6 +559,10 @@ export class Game {
     // 流一个字不动；实体通过 world.weather / player.world 读旗标。
     this.weather = new WeatherSystem(this.rng);
     this.world.weather = this.weather;
+    // 第一百八十轮：天彗龙乱入状态机（跨局持久，resetRun 清"全局一次"标记）
+    this.comet = this.comet || new CometDisaster();
+    this.comet.resetRun();
+    this.world.comet = this.comet;
     this.player.world = this.world;
     this.shop = new Shop(this.rng);
     this.shop.difficultyId = this.difficultyId;   // 噩梦分段涨价（第七轮）
@@ -659,6 +664,10 @@ export class Game {
   _beginWave(index) {
 
     this.waveIndex = index;
+    // 第一百八十轮：天彗龙乱入判定 —— 第 6 波起 10%、每波 +5%，
+    // 每回合判一次、全局一局一次；命中后 5 秒前摇进演出。
+    //（测试按钮 forceTrigger 走同一 pending 通道。）
+    this.comet?.roll?.(index + 1, this.rng);
     // 第一百六十五轮：战利品防洪闸 —— bug 修复前 boss 结算卡死，玩家被迫
     // 反复"继续游戏"重打第 10 波，每波 1~5 件宝箱战利品只进不出，商店里
     // 堆出"慢慢一页"（用户图6）。现在每波开始时最多保留 12 件（10 件正常
@@ -887,9 +896,19 @@ export class Game {
       p.aimAt = null;
     }
 
-    // 波次计时
-    this.waveTimer += dt;
-    this.waveTimeLeft = Math.max(0, this.waveDuration - this.waveTimer);
+    // ---- 第一百八十轮：天彗龙乱入 ----
+    // 状态机先跑：roar/boom 眩晕期间冻结世界（dt=0 给 world.update、
+    // 波次计时暂停、updateSpawning 有 spawnPaused 兜底），玩家照常可动。
+    const cometFreeze = this.comet.update(dt, this);
+
+    // 波次计时（天彗龙演出期间暂停 —— 演出时间不算波时）
+    if (!cometFreeze) {
+      this.waveTimer += dt;
+      this.waveTimeLeft = Math.max(0, this.waveDuration - this.waveTimer);
+    } else {
+      this.world.spawnPaused = true;
+    }
+    if (!cometFreeze) this.world.spawnPaused = false;
 
     // 补充本帧的武器音配额（第十轮）。
     // 必须在 p.update() **之前** —— 武器是在玩家更新里开火的，
@@ -1006,8 +1025,9 @@ export class Game {
       if (say) this.pet?.say(say, 4200, this.world, 'weather');
     }
 
-    // 更新世界（阎魔刀次元斩期间怪物慢放 ×0.05 —— 玩家照常速）
-    this.world.update(dt * (this.playerUlt ? 0.05 : 1), p, this.waveTimer);
+    // 更新世界（阎魔刀次元斩期间怪物慢放 ×0.05 —— 玩家照常速；
+    // 天彗龙 boom/roar 眩晕期间 ×0 —— 全场静止 3 秒，玩家可动）
+    this.world.update(dt * (cometFreeze ? 0 : (this.playerUlt ? 0.05 : 1)), p, this.waveTimer);
 
     // 相机跟随
     this.camera.follow(p.x, p.y, dt);
@@ -1488,6 +1508,8 @@ export class Game {
     const p = this.player;
     this.waveEnding = true;
     audio.play('waveClear');
+    // 第一百八十轮：天彗龙 BGM 保留至回合结束 —— 此刻停，下一场景点回原曲
+    this.comet?.onWaveEnd?.();
 
     // ---- 第一百七十轮（2P）：波次结束重置倒下次数（救援刀数恢复
     // 首档 5 刀）；倒地的人自动满血复活（用户："过了这回合倒地的人
@@ -2228,6 +2250,10 @@ export class Game {
       // 第一百六十六轮：猫娘代打切换开关（显示当前状态，点了切换并
       // 重开暂停菜单刷新文案）
       pilotOn: !!window.NekoAgent?.pilot?.on,
+      // 第一百八十轮：天彗龙乱入测试按钮 —— 本回合 5 秒后 100% 触发
+      onForceComet: () => {
+        if (this.comet) this.comet.forceTrigger(this.waveIndex + 1);
+      },
       onTogglePilot: () => {
         const pl = window.NekoAgent?.pilot;
         if (!pl) return;

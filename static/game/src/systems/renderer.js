@@ -240,6 +240,16 @@ export class Renderer {
     // 好几个地方调用了，加参数会牵动一圈。
     this.world = world;
 
+    // ---- 第一百八十轮：天彗龙屏幕震动（背景一起晃，压迫感拉满）----
+    if (world.comet && world.comet.shake > 0) {
+      ctx.save();
+      ctx.translate((Math.random() * 2 - 1) * world.comet.shake,
+        (Math.random() * 2 - 1) * world.comet.shake);
+      this._cometShakeRestore = true;
+    } else {
+      this._cometShakeRestore = false;
+    }
+
     // ---- 背景 ----
     this._drawBackground(ctx, camera, W, H);
 
@@ -383,10 +393,17 @@ export class Renderer {
       }
     }
 
+    // ---- 第一百八十轮：天彗龙世界层（地面黑影/火雨/彗尾/龙本体/
+    //      冲击波/声波环）—— 压在实体与伤害数字之上、屏幕 UI 之下 ----
+    if (world.comet) world.comet.drawWorld(ctx);
+
     ctx.restore();
 
     // ---- 屏幕空间叠加 ----
     this._drawScreenOverlay(ctx, world, player, W, H);
+
+    // ---- 第一百八十轮：天彗龙屏幕层（白闪/撕裂暗纹/？？？袭击横幅）----
+    if (world.comet) world.comet.drawScreen(ctx, W, H);
 
     // ---- 第一百四十一轮：维吉尔战屏幕层（大招暗幕/红边/白闪/Boss 血条）----
     if (world.vergilFight) world.vergilFight.renderScreen(ctx, W, H);
@@ -395,6 +412,9 @@ export class Renderer {
     // 血条（底座/渐变/延迟伤害残影/护盾流光/描边数字）+ 经验条
     // （渐变光带/猫爪节点/呼吸充能/高光滑点/Lv 弹跳）。DOM 版退役。
     this._drawHudBars(ctx, player, W, H);
+
+    // ---- 第一百八十轮：震动 translate 的配对 restore ----
+    if (this._cometShakeRestore) ctx.restore();
   }
 
   // =========================================================

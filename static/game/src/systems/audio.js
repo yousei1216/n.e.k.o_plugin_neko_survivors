@@ -992,6 +992,26 @@ export class AudioSystem {
         this._noise({ dur: 0.3, gain: 0.12, freq: 500, freqEnd: 120 });
         break;
 
+      // ---- 第一百八十轮：天彗龙乱入（E:\猫娘姐妹\音效 → assets/sfx/*.ogg）----
+      case 'cometTinnitus':
+        // "耳鸣"：中心大爆炸白闪瞬间（comet_tinnitus.ogg）
+        if (this._playSeFile('comet_tinnitus')) break;
+        this._tone({ type: 'sine', freq: 8000, dur: 1.2, gain: 0.06 });
+        break;
+
+      case 'cometRoarVoice':
+        // "吼叫"：落地站姿吼叫 3 秒（comet_roar.ogg）
+        if (this._playSeFile('comet_roar')) break;
+        this._tone({ type: 'sawtooth', freq: 90, freqEnd: 40, dur: 1.4, gain: 0.2 });
+        this._noise({ dur: 1.2, gain: 0.14, freq: 300, freqEnd: 80 });
+        break;
+
+      case 'cometTakeoff':
+        // "起飞"：吼完再次升空（comet_takeoff.ogg），播完龙已离场
+        if (this._playSeFile('comet_takeoff')) break;
+        this._tone({ type: 'sawtooth', freq: 140, freqEnd: 900, dur: 1.1, gain: 0.14 });
+        break;
+
       case 'petPurge':
         // "开消弹"：小小猫娘**主动**消弹（tryManualPurge）出鞘一声；
         // 受击自动消弹（autoPurge）不出声 —— 用户只给了主动这条
