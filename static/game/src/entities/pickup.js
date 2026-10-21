@@ -159,7 +159,14 @@ export class Pickup extends Entity {
         world.fx.sparkle(this.x, this.y, doubled ? '#ffe08a' : '#ffc857');
         break;
       case PICKUP_TYPE.HEAL:
+        // ---- 第一百八十四轮（用户："地图上的血包（+4血那个）和回血宝箱
+        // 会共享吗？不共享的话设置共享"）—— 此前只回拾取者，4P 里 3 个
+        // 队友永远捡不到治疗。现在与经验共享同口径：谁吸到，全队各回
+        // value（活着且非倒地）。
         player.heal(this.value);
+        for (const other of (world.players?.() ?? [player])) {
+          if (other && other !== player && !other.dead && !other.downed) other.heal(this.value);
+        }
         world.fx.sparkle(this.x, this.y, '#ff5f6d');
         break;
     }
