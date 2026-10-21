@@ -414,8 +414,73 @@ export class Renderer {
     // （渐变光带/猫爪节点/呼吸充能/高光滑点/Lv 弹跳）。DOM 版退役。
     this._drawHudBars(ctx, player, W, H);
 
+    // ---- 第一百八十三轮：2P 离屏指示器 ----
+    // P2 跑出 1P 视口时，屏幕边缘显示粉色 P2 徽章 + 指向箭头 + 名字，
+    // 告诉 1P "AI 猫娘可能去了哪"（呼吸闪烁提醒）。
+    this._drawP2Offscreen(ctx, world, camera, W, H);
+
     // ---- 第一百八十轮：震动 translate 的配对 restore ----
     if (this._cometShakeRestore) ctx.restore();
+  }
+
+  /** 2P 离屏指示器（小地图同款配色：白心 + P2 专属粉 #ff9ec7） */
+  _drawP2Offscreen(ctx, world, camera, W, H) {
+    const p2 = world?.player2;
+    if (!p2 || p2.dead) return;
+    const margin = 58;                     // 贴边距离
+    const bottomSafe = H - 74;             // 底部 HUD 条让位
+    const sx = p2.x - camera.cx + W / 2;   // P2 的屏幕坐标
+    const sy = p2.y - camera.cy + H / 2;
+    if (sx >= margin && sx <= W - margin && sy >= margin && sy <= bottomSafe) return;
+
+    const cx = Math.min(W - margin, Math.max(margin, sx));
+    const cy = Math.min(bottomSafe, Math.max(margin, sy));
+    const ang = Math.atan2(sy - cy, sx - cx);   // 从徽章指向真实方位
+
+    const blink = 0.72 + 0.28 * Math.sin(performance.now() / 260);
+    ctx.save();
+    ctx.globalAlpha = blink;
+    // 指向箭头（三角，从徽章边缘指向 P2 真实方向）
+    const ar = 24;
+    const tipX = cx + Math.cos(ang) * ar;
+    const tipY = cy + Math.sin(ang) * ar;
+    const bx = cx + Math.cos(ang) * (ar - 13);
+    const by = cy + Math.sin(ang) * (ar - 13);
+    const px = -Math.sin(ang) * 7;
+    const py = Math.cos(ang) * 7;
+    ctx.fillStyle = '#ff9ec7';
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(bx + px, by + py);
+    ctx.lineTo(bx - px, by - py);
+    ctx.closePath();
+    ctx.fill();
+    // 徽章圆
+    ctx.beginPath();
+    ctx.arc(cx, cy, 17, 0, TAU);
+    ctx.fillStyle = '#ff9ec7';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(20,6,14,0.8)';
+    ctx.stroke();
+    // P2 字样
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('P2', cx, cy + 1);
+    // 角色名小字
+    const name = p2.def?.name ?? '';
+    if (name) {
+      ctx.globalAlpha = blink * 0.8;
+      ctx.font = '10px "Microsoft YaHei", sans-serif';
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(name, cx, cy + 29);
+      ctx.fillStyle = '#ffd9ea';
+      ctx.fillText(name, cx, cy + 29);
+    }
+    ctx.restore();
   }
 
   // =========================================================
@@ -5105,6 +5170,22 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(pp.x, pp.y, 5.5, 0, TAU);
     ctx.stroke();
+
+    // ---- 2P 点（第一百八十三轮）：duo 的 P2 在小地图上同样一个白点，
+    //      外圈用 P2 专属粉（猫娘代打开关同色 #ff9ec7）区分敌我之外的身份 ----
+    const p2m = world.player2;
+    if (p2m && !p2m.dead) {
+      const pp2 = toMap(p2m.x, p2m.y);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(pp2.x, pp2.y, 3, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = '#ff9ec7';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pp2.x, pp2.y, 5, 0, TAU);
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
