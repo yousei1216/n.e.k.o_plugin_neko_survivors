@@ -902,13 +902,14 @@ export class Game {
     const cometFreeze = this.comet.update(dt, this);
 
     // 波次计时（天彗龙演出期间暂停 —— 演出时间不算波时）
+    // 第一百八十二轮：眩晕改"局部冻结"——世界照常跑（弹幕/掉落飞），
+    // 只把敌我双方个体 dt=0（world.enemyFrozen + 玩家 stunDt）。
     if (!cometFreeze) {
       this.waveTimer += dt;
       this.waveTimeLeft = Math.max(0, this.waveDuration - this.waveTimer);
-    } else {
-      this.world.spawnPaused = true;
     }
-    if (!cometFreeze) this.world.spawnPaused = false;
+    this.world.spawnPaused = !!cometFreeze;
+    this.world.enemyFrozen = !!cometFreeze;
 
     // 补充本帧的武器音配额（第十轮）。
     // 必须在 p.update() **之前** —— 武器是在玩家更新里开火的，
@@ -1028,9 +1029,10 @@ export class Game {
       if (say) this.pet?.say(say, 4200, this.world, 'weather');
     }
 
-    // 更新世界（阎魔刀次元斩期间怪物慢放 ×0.05 —— 玩家照常速；
-    // 天彗龙 boom/roar 眩晕期间 ×0 —— 全场静止 3 秒，玩家可动）
-    this.world.update(dt * (cometFreeze ? 0 : (this.playerUlt ? 0.05 : 1)), p, this.waveTimer);
+    // 更新世界（阎魔刀次元斩期间怪物慢放 ×0.05 —— 玩家照常速。
+    // 第一百八十二轮：天彗龙眩晕**不再全冻世界** —— 弹幕照常飞，
+    // 敌人个体冻结在 world.update 内部（enemyFrozen → e.update(0)）。
+    this.world.update(dt * (this.playerUlt ? 0.05 : 1), p, this.waveTimer);
 
     // 相机跟随
     this.camera.follow(p.x, p.y, dt);

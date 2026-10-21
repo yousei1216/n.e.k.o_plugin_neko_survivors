@@ -166,6 +166,33 @@ function cometSfx(audio, kind) {
       g2.gain.exponentialRampToValueAtTime(0.0001, now + dur);
       o.connect(g2); g2.connect(audio._sfxBus ?? actx.destination);
       o.start(now); o.stop(now + dur);
+    } else if (kind === 'blast') {
+      // 二次大爆的低沉砰：正弦下潜 + 短噪声，0.35s
+      const dur = 0.35;
+      const len = Math.floor(actx.sampleRate * dur);
+      const buf = actx.createBuffer(1, len, actx.sampleRate);
+      const dd = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) dd[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource();
+      src.buffer = buf;
+      const lp = actx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(900, now);
+      lp.frequency.exponentialRampToValueAtTime(180, now + dur);
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0.16, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      src.connect(lp); lp.connect(g); g.connect(audio._sfxBus ?? actx.destination);
+      src.start(now); src.stop(now + dur);
+      const o = actx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(110, now);
+      o.frequency.exponentialRampToValueAtTime(38, now + dur);
+      const g2 = actx.createGain();
+      g2.gain.setValueAtTime(0.2, now);
+      g2.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g2); g2.connect(audio._sfxBus ?? actx.destination);
+      o.start(now); o.stop(now + dur);
     } else if (kind === 'alarm') {
       // 袭击警报：低沉两连鸣（三角波 480→240Hz ×2），带一点不安的颤
       for (let i = 0; i < 2; i++) {
@@ -301,11 +328,20 @@ export class CometDisaster {
         if (b.y >= b.landY) {
           b.landed = true;
           b.t = 0;
+          b.fuse = 0.5;            // 第一百八十二轮：0.5 秒后二次大爆
           this._boltImpact(main, b);
+        }
+      } else if (!b.second) {
+        // 引信倒计时 → 二次大爆（伤害与弹幕本身相同——"轮流爆炸"）
+        b.fuse -= dt;
+        if (b.fuse <= 0) {
+          b.second = true;
+          b.t = 0;
+          this._boltBlast(main, b);
         }
       }
     }
-    this.bolts = this.bolts.filter((b) => b.t < (b.landed ? 0.45 : 12));
+    this.bolts = this.bolts.filter((b) => (b.second ? b.t < 0.5 : (b.landed ? true : b.t < 12)));
     for (const r of this.rings) r.t += dt;
     this.rings = this.rings.filter((r) => r.t < r.life);
     for (const s of this.trail) s.t += dt;
@@ -359,8 +395,15 @@ export class CometDisaster {
           this.phase = 'boom'; this.t = 0;
           this.shake = 18;
           this.flash = 1;
-          this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.7, t: 0, life: T_BOOM, warm: true });
-          // 第一百八十一轮：耳鸣先"刺穿"（立即、音量 0.5），BGM 延 0.55s 再进
+          // ---- 第一百八十二轮：灾难级冲击演出 ----
+          // 主冲击波 + 错时连环（"不停往外扩散"）+ 地面爆炸浪（黑红厚浪，
+          // 扩散慢—— 古龙落地该有的份量）
+          this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.7, t: 0, life: T_BOOM, warm: true, kind: 'shock' });
+          this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.7, t: 0, life: T_BOOM, warm: true, kind: 'shock', delay: 0.16 });
+          this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.55, t: 0, life: T_BOOM, warm: true, kind: 'shock', delay: 0.32 });
+          this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.72, t: 0, life: 1.5, kind: 'ground' });
+          this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.6, t: 0, life: 1.3, kind: 'ground', delay: 0.4 });
+          // 耳鸣先"刺穿"（立即、音量 0.5），BGM 延 0.55s 再进
           try { main?.audio?.play('cometTinnitus'); } catch { /* */ }
           setTimeout(() => { try { this._startBgm(); } catch { /* */ } }, 550);
           this._dealBoom(main);
@@ -447,16 +490,32 @@ export class CometDisaster {
     }
   }
 
-  /** 火球落地：小爆炸圈 + 伤害结算（敌我不分真伤） */
+  /** 火球落地：小火爆 + 引信点亮（0.5s 后二次大爆） */
   _boltImpact(main, b) {
-    this.rings.push({ x: b.x, y: b.landY, r: 0, rMax: 110, t: 0, life: 0.4, warm: true });
+    this.rings.push({ x: b.x, y: b.landY, r: 0, rMax: 110, t: 0, life: 0.4, warm: true, kind: 'bolt' });
+    this._boltDamage(main, b.x, b.landY, 110);
+  }
+
+  /**
+   * 二次大爆（第一百八十二轮）：落地 0.5 秒后原地炸出大红球——
+   * 伤害与弹幕本身相同（用户："伤害和弹幕本身一样"）。落地时间天然
+   * 错开，整片弹幕墙轮流炸开（参考素材 9.png 的红球连爆墙）。
+   */
+  _boltBlast(main, b) {
+    this.rings.push({ x: b.x, y: b.landY, r: 0, rMax: 220, t: 0, life: 0.5, warm: true, kind: 'bolt' });
+    this._boltDamage(main, b.x, b.landY, 220);
+    this.shake = Math.max(this.shake, 6);   // 连爆的细碎震感
+    try { cometSfx(main?.audio, 'blast'); } catch { /* */ }
+  }
+
+  /** 火弹伤害结算（敌我不分真伤；R=爆圈半径，血量下限 1） */
+  _boltDamage(main, x, y, R) {
     const world = main?.world;
     if (!world) return;
-    const R = 110;   // 第一百八十一轮：与放大后的爆炸视觉半径一致
     // 玩家：20% 当前生命真伤，血量最少剩 1（绝不直接炸死）
     for (const p of (world.players?.() ?? [])) {
       if (!p || p.dead) continue;
-      if (Math.hypot(p.x - b.x, p.y - b.landY) <= R + p.radius) {
+      if (Math.hypot(p.x - x, p.y - y) <= R + p.radius) {
         const dmg = Math.max(1, Math.round(p.hp * BOLT_PLAYER_PCT));
         p.hp = Math.max(1, p.hp - dmg);
         p.invuln = Math.max(p.invuln ?? 0, 0.4);
@@ -468,7 +527,7 @@ export class CometDisaster {
     // 敌人：20% maxHp + 500 真伤
     for (const e of world.enemies?.items ?? []) {
       if (!e || e.dead) continue;
-      if (Math.hypot(e.x - b.x, e.y - b.landY) <= R + e.radius) {
+      if (Math.hypot(e.x - x, e.y - y) <= R + e.radius) {
         const dmg = Math.round(e.maxHp * BOLT_ENEMY_PCT) + BOLT_ENEMY_FLAT;
         try { e.takeDamage(dmg, { pierceArmor: true }); } catch { /* */ }
       }
@@ -499,14 +558,16 @@ export class CometDisaster {
   }
 
   // ---------------------------------------------------------
-  // 渲染 · 世界层（黑影/龙/火雨/冲击波/龙吼）—— 相机变换内调用
+  // 渲染 · 世界层（黑影/龙/火雨/冲击波/龙吼/眩晕星星）—— 相机变换内调用
+  // 第一百八十二轮：传入 world —— 眩晕星星要画在玩家头顶。
   // ---------------------------------------------------------
-  drawWorld(ctx) {
+  drawWorld(ctx, world) {
     if (this.phase === 'idle' || this.phase === 'done') return;
     const flying = this.phase === 'fly1' || this.phase === 'fly2';
     const diving = this.phase === 'dive';
     const roaring = this.phase === 'roar';
     const taking = this.phase === 'takeoff';
+    const stunned = this.phase === 'boom' || roaring;   // 眩晕窗口
 
     // ---- 地面黑影 ----
     // 第一百八十一轮：两轮高空飞过的**影子删了**（用户："把贴图变成纯黑
@@ -530,19 +591,46 @@ export class CometDisaster {
     for (const b of this.bolts) {
       ctx.save();
       if (b.landed) {
-        // 落地爆：白核 + 红橙能量涌 + 大半径（第一百八十一轮 60→110）
-        const k = b.t / 0.45;
-        ctx.globalAlpha = 1 - k;
-        const rad = 110 * (0.4 + k * 0.9);
-        const g = ctx.createRadialGradient(b.x, b.landY, 0, b.x, b.landY, rad);
-        g.addColorStop(0, 'rgba(255,252,230,1)');
-        g.addColorStop(0.35, 'rgba(255,190,70,0.9)');
-        g.addColorStop(0.7, 'rgba(255,90,30,0.6)');
-        g.addColorStop(1, 'rgba(255,40,20,0)');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(b.x, b.landY, rad, 0, Math.PI * 2);
-        ctx.fill();
+        if (b.second) {
+          // ---- 二次大红球（0.5s）：白热核 → 亮红 → 深红外涌 ----
+          const k = b.t / 0.5;
+          ctx.globalAlpha = 1 - k * 0.9;
+          const rad = 220 * (0.3 + k * 0.9);
+          const g = ctx.createRadialGradient(b.x, b.landY, 0, b.x, b.landY, rad);
+          g.addColorStop(0, 'rgba(255,255,245,1)');
+          g.addColorStop(0.3, 'rgba(255,120,50,0.95)');
+          g.addColorStop(0.65, 'rgba(220,30,15,0.75)');
+          g.addColorStop(1, 'rgba(60,5,5,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(b.x, b.landY, rad, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // ---- 落地小火 + 引信红光（fuse<0.25 时膨胀预警，然后"轰"）----
+          const k = Math.min(1, b.t / 0.45);
+          const warn = b.fuse !== undefined && b.fuse < 0.25;
+          ctx.globalAlpha = 1 - k * 0.5;
+          const rad = 110 * (0.4 + k * 0.9) * (warn ? 1.15 : 1);
+          const g = ctx.createRadialGradient(b.x, b.landY, 0, b.x, b.landY, rad);
+          g.addColorStop(0, 'rgba(255,252,230,1)');
+          g.addColorStop(0.35, 'rgba(255,190,70,0.9)');
+          g.addColorStop(0.7, 'rgba(255,90,30,0.6)');
+          g.addColorStop(1, 'rgba(255,40,20,0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(b.x, b.landY, rad, 0, Math.PI * 2);
+          ctx.fill();
+          if (warn) {
+            // 引信预兆：向内收缩的红圈（蓄力感）
+            const wk = 1 - b.fuse / 0.25;
+            ctx.globalAlpha = 0.8;
+            ctx.strokeStyle = '#ff2010';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(b.x, b.landY, 200 * (1 - wk) + 60, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
       } else {
         // 下落能量弹（第一百八十一轮重做，参考素材 3.png）：
         //   白/黄高亮核心 + 红色外围能量光环 + 环绕电弧短线 + 长拖尾
@@ -615,21 +703,89 @@ export class CometDisaster {
     if (roaring) this._drawRoar(ctx);
     if (taking) this._drawTakeoff(ctx);
 
-    // ---- 冲击波 / 声波环 ----
+    // ---- 冲击波 / 声波环 / 地面爆炸波 ----
+    // 第一百八十二轮：ring 支持 kind —— 'shock' 白红冲击波（默认 warm），
+    // 'ground' 灾难级地面爆炸浪（黑红外圈 + 白热内圈 + 火粒外抛，扩散慢、
+    // 厚实），'bolt' 弹幕二次爆的小红球。delay 支持：错时连环。
     for (const r of this.rings) {
-      const k = r.t / r.life;
+      if (r.delay && r.t < r.delay) continue;
+      const rt = r.t - (r.delay ?? 0);
+      const k = rt / r.life;
+      if (k > 1) continue;
       const rad = r.rMax * (1 - Math.pow(1 - k, 2.2));   // easeOut
       ctx.save();
-      ctx.globalAlpha = (1 - k) * (r.warm ? 0.85 : 0.6);
-      ctx.strokeStyle = r.warm
-        ? (k < 0.35 ? '#ffffff' : '#ff6a3c')
-        : 'rgba(255,220,210,0.95)';
-      ctx.lineWidth = r.warm ? Math.max(1, 20 * (1 - k)) : Math.max(1, 10 * (1 - k));
-      ctx.beginPath();
-      ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
-      ctx.stroke();
+      if (r.kind === 'ground') {
+        // 地面爆炸浪：黑红厚外圈 + 白热内圈，双层
+        ctx.globalAlpha = (1 - k) * 0.9;
+        ctx.strokeStyle = '#1a0505';
+        ctx.lineWidth = Math.max(2, 46 * (1 - k));
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = '#ff3020';
+        ctx.lineWidth = Math.max(1, 14 * (1 - k));
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = (1 - k) * 0.95;
+        ctx.strokeStyle = k < 0.3 ? '#ffffff' : '#ffb060';
+        ctx.lineWidth = Math.max(1, 7 * (1 - k));
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, Math.max(1, rad - 20), 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.globalAlpha = (1 - k) * (r.warm ? 0.85 : 0.6);
+        ctx.strokeStyle = r.kind === 'bolt'
+          ? (k < 0.4 ? '#ffffff' : '#ff4020')
+          : (r.warm ? (k < 0.35 ? '#ffffff' : '#ff6a3c') : 'rgba(255,220,210,0.95)');
+        ctx.lineWidth = r.kind === 'bolt'
+          ? Math.max(1, 12 * (1 - k))
+          : (r.warm ? Math.max(1, 20 * (1 - k)) : Math.max(1, 10 * (1 - k)));
+        ctx.beginPath();
+        ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
     }
+
+    // ---- 眩晕星星（第一百八十二轮）：眩晕窗口内，每个活玩家头顶
+    //      一圈小星星绕转（经典回合制眩晕图标）----
+    if (stunned && world) {
+      const players = world.players?.() ?? [];
+      for (const p of players) {
+        if (!p || p.dead || p.downed) continue;
+        const headY = (p.y ?? 0) - (p.radius ?? 12) - 26;
+        const R = 20;
+        for (let i = 0; i < 5; i++) {
+          const a = this.age * 2.6 + (i * Math.PI * 2) / 5;
+          const sx = (p.x ?? 0) + Math.cos(a) * R;
+          const sy = headY + Math.sin(a) * R * 0.42;   // 椭圆轨道 = 环绕感
+          const depth = Math.sin(a) > 0 ? 1 : 0.55;    // 转到"后面"的星星变小变淡
+          ctx.save();
+          ctx.globalAlpha = 0.55 + 0.45 * depth;
+          this._drawStar(ctx, sx, sy, 4.5 * depth + 1.5, '#ffe680');
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  /** 五角星（眩晕圈用） */
+  _drawStar(ctx, x, y, r, color) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const rr = i % 2 === 0 ? r : r * 0.45;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const px = Math.cos(a) * rr;
+      const py = Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   /** 飞行/俯冲的龙：fly.png 顶端是头 → 旋转让头对准速度方向 */
@@ -752,14 +908,44 @@ export class CometDisaster {
   drawScreen(ctx, W, H) {
     if (this.phase === 'idle' || this.phase === 'done') return;
 
-    // ---- 全屏白闪（boom）：纯白覆盖，alpha 1→0 —— 条纹暗幕删了
-    //（用户："白屏效果是条纹效果的，再调调"）----
-    if (this.flash > 0) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, this.flash);
-      ctx.fillStyle = '#fff7e8';
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
+    // ---- 大爆炸屏幕表现（第一百八十二轮重做）----
+    // 起手 0.12s 纯白致盲 → 转为"中心红、白色冲击环不停往外扩散"，
+    // 红黑基调（天彗龙本体黑、攻击红—— 用户："所有攻击都是红色的"）。
+    if (this.phase === 'boom') {
+      const k = this.t / T_BOOM;
+      if (this.flash > 0.78) {
+        // 起手纯白帧
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, (this.flash - 0.78) / 0.22);
+        ctx.fillStyle = '#fff7ea';
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      } else {
+        // 中心红色氛围（径向：中心红热 → 边缘暗红黑）
+        const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.62);
+        g.addColorStop(0, `rgba(255,60,30,${0.34 * (1 - k)})`);
+        g.addColorStop(0.55, `rgba(120,10,10,${0.30 * (1 - k)})`);
+        g.addColorStop(1, `rgba(10,0,0,${0.42 * (1 - k)})`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+        // 白色冲击环从屏幕中心不停往外扩（每 0.3s 一圈，boom 期共 3 圈）
+        const maxR = Math.hypot(W, H) * 0.62;
+        for (let i = 0; i < 3; i++) {
+          const rt = this.t - i * 0.3;
+          if (rt < 0) continue;
+          const kk = rt / 0.85;
+          if (kk > 1) continue;
+          const rad = maxR * (1 - Math.pow(1 - kk, 2));
+          ctx.save();
+          ctx.globalAlpha = (1 - kk) * 0.75;
+          ctx.strokeStyle = kk < 0.25 ? '#ffffff' : '#ff7a50';
+          ctx.lineWidth = Math.max(1, 26 * (1 - kk));
+          ctx.beginPath();
+          ctx.arc(W / 2, H / 2, rad, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
     }
 
     // ---- ？？？袭击横幅（右下角小地图上方）----

@@ -1524,9 +1524,12 @@ export class World {
 
     // ---- 敌人 ----
     // 第一百七十轮：仇恨 = 距离最近的活玩家（倒地的不算），谁近打谁
+    // 第一百八十二轮：天彗龙眩晕 —— enemyFrozen 时敌人个体 dt=0（原地
+    // 僵住、不攻击不移动），但弹幕/掉落/拾取物照常飞行（用户："可以只是
+    // 玩家和怪动不了吗"—— 是眩晕不是时停）。
     for (const e of this.enemies.items) {
       if (e.dead) continue;
-      e.update(dt, this.nearestPlayerTo(e.x, e.y), this);
+      e.update(this.enemyFrozen ? 0 : dt, this.nearestPlayerTo(e.x, e.y), this);
     }
 
     // ---- 玩家子弹 ----

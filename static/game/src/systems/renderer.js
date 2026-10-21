@@ -394,8 +394,9 @@ export class Renderer {
     }
 
     // ---- 第一百八十轮：天彗龙世界层（地面黑影/火雨/彗尾/龙本体/
-    //      冲击波/声波环）—— 压在实体与伤害数字之上、屏幕 UI 之下 ----
-    if (world.comet) world.comet.drawWorld(ctx);
+    //      冲击波/声波环/眩晕星星）—— 压在实体与伤害数字之上、屏幕 UI 之下
+    //      （第一百八十二轮：传入 world —— 眩晕星星要画在玩家头顶）----
+    if (world.comet) world.comet.drawWorld(ctx, world);
 
     ctx.restore();
 
