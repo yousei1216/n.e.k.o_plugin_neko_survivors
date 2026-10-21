@@ -547,12 +547,19 @@ export class NekoPilot {
       if (b && !b.dead) {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy) || 1;
-        // 第一百八十三轮：环绕 240~360 → 170~330 —— 更贴身，武器射程内
-        // 的输出窗口更长（用户："攻击欲望调高一些"）
-        if (d < 170) { tx = p.x + (dx / d) * 150; ty = p.y + (dy / d) * 150; }
-        else if (d > 330) { tx = b.x + (dx / d) * 260; ty = b.y + (dy / d) * 260; }
+        // ---- 第一百八十四轮（用户："猫娘ai打维吉尔会一直卡远程射击位，
+        // 而维吉尔可以格挡远程伤害……战胜维吉尔的概率可以说是0"）——
+        // 维吉尔 phase≤2 游荡态自动格挡**所有远程**（近战不拦）——卡在
+        // 远程位=全程零输出。现在读 fight.guarding：格挡期全队压到近战位
+        // （95~150，拼刀他挡不住）；出招/硬直/3阶段回到远程安全环绕。
+        const guarding = vf?.guarding === true && !ff;
+        const inner = guarding ? 95 : 170;
+        const outer = guarding ? 150 : 330;
+        if (d < inner) { tx = p.x + (dx / d) * (guarding ? 80 : 150); ty = p.y + (dy / d) * (guarding ? 80 : 150); }
+        else if (d > outer) { tx = b.x + (dx / d) * (guarding ? 130 : 260); ty = b.y + (dy / d) * (guarding ? 130 : 260); }
         else { // 环绕切向移动，不吃直线弹幕
-          tx = p.x + (-dy / d) * 150; ty = p.y + (dx / d) * 150;
+          const tang = guarding ? 90 : 150;
+          tx = p.x + (-dy / d) * tang; ty = p.y + (dx / d) * tang;
         }
         // ---- 第一百八十四轮（用户："4ai猫娘都不躲芙兰弹幕"）----
         // 环绕目标点此前**完全不用** flee 向量 —— 普通波的风筝靠它，

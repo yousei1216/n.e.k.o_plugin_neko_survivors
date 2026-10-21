@@ -422,7 +422,14 @@ export class VergilFight {
     }
 
     // ---- 玩家死亡 → 结算 ----
-    if (p.dead) { this.finish('death'); return; }
+    // ---- 第一百八十四轮（4P 多人兼容，用户："1p倒下就判定战败了，没有
+    // 倒地"）—— 战败判定从"只看 P1"改成"**全队**失去战斗力"（每个玩家
+    // 都 dead 或 downed）—— P1 倒下时只要还有队友站着，战斗就继续，
+    // 队友可以救起 P1 或接替输出。单人局行为不变（team 只有 P1）。
+    {
+      const team = this.main.world?.players?.() ?? [p];
+      if (team.every((pl) => !pl || pl.dead || pl.downed)) { this.finish('death'); return; }
+    }
     // ---- Boss 被打死 → 胜利演出 ----
     // 第一百四十五轮：win 状态下不再重复进这里 —— 此前每帧在 _win() 后
     // return，状态机的 win 分支（1.4 秒后 finish）永远执行不到，
@@ -643,10 +650,16 @@ export class VergilFight {
     }
   }
 
-  /** 扣血：5% maxHp 固定真伤，无视无敌帧；0.2s 内置 CD 收在函数里 */
+  /** 扣血：5% maxHp 固定真伤，无视无敌帧；0.2s 内置 CD 收在函数里。
+   *  ---- 第一百八十四轮（4P，用户："椅子基本只打1p"）—— 攻击目标从
+   *  固定 P1 改成"活着且非倒地"的玩家**随机分散**：1/4 血压不再全部
+   *  压在 P1 头上。单人局永远选中 P1，行为不变。 */
   _hitPlayer() {
     if (this.hitCd > 0) return false;
-    const p = this.main.player;
+    const all = this.main.world?.players?.() ?? [this.main.player];
+    const alive = all.filter((pl) => pl && !pl.dead && !pl.downed);
+    const r = this.main.rng ?? Math.random;
+    const p = alive.length ? alive[Math.floor(r() * alive.length) % alive.length] : this.main.player;
     if (p.dead) return false;
     p.takeDamage(0, this.bx, this.by, {
       ignoreIFrames: true,
