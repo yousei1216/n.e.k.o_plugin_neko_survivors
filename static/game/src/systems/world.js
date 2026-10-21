@@ -86,6 +86,8 @@ export class World {
     // 刷怪
     this.spawnQueue = [];
     this.spawnTimer = 0;
+    // 第一百七十二轮：刷怪预告列表（先出闪烁警告圈，1 秒后才落地）
+    this.spawnWarnings = [];
     this.spawnInterval = 0.5;
     this.spawnAccumulator = 0;
     this.budgetUsed = 0;
@@ -274,6 +276,8 @@ export class World {
     this.elitesTotal = this.elitesToSpawn;
     this.bossSpawned = false;
     this.spawnTimer = 0.4;
+    // 新波开始：上一波的残余警告清干净（波次结算不该有跨波预告）
+    this.spawnWarnings.length = 0;
     // 预算按时间均匀释放（预算变多时缩短间隔，保证波内刷得完）
     this.spawnInterval = this.waveDuration / Math.max(6, this.budgetTotal * 1.15);
 
@@ -747,6 +751,62 @@ export class World {
     this._killAges.length = 0;
   }
 
+  // =========================================================
+  // 第一百七十二轮：刷怪预告（两阶段刷怪）
+  // ---------------------------------------------------------
+  // 用户："让ai猫娘能提前知道哪里会刷怪……知道哪里提前刷了就不过去，
+  // 不知道一刷新就来个亲嘴。""给刷怪的地方提前画个小圈……提前闪烁
+  // 1秒的小圈？"
+  //
+  // 原理：刷怪点本来就是 `_spawnPosition(player)` 实时随机的（种子化
+  // rng，但受当前时间/预算/空地影响，提前推演不现实）——所以改成
+  // **先预告、后登场**：选好点先挂一个 1 秒的警告（spawnWarnings，
+  // 玩家看得见闪烁圈，AI 读同一份列表绕开），1 秒后怪才真正落地。
+  //
+  // · 普通怪警告 1.0s，精英 1.4s（更醒目）
+  // · Boss 不预告（它有自己的入场演出，且固定从上方来）
+  // · rng 消耗顺序：选种/选点在入队时、变异/异常在落地时 —— 和原版
+  //   一样的随机量，只是多了一个 1 秒的"缓冲带"
+  // =========================================================
+  _queueSpawnOne(player) {
+    const entry = this._pickSpawnEntry();
+    const pos = this._spawnPosition(player);
+    // 找不到空地就不刷（见 _spawnPosition 的说明）
+    if (!pos) return null;
+    this.spawnWarnings.push({ x: pos.x, y: pos.y, t: 1.0, entryId: entry.id, elite: false });
+    return null;
+  }
+
+  /** 精英也走预告（圈更大更久，给玩家足够的逃离窗口） */
+  _queueSpawnElite(player) {
+    const def = this.rng.pick(getEliteEnemies());
+    if (!def) return;
+    const pos = this._spawnPosition(player, 520, 720);
+    if (!pos) return;
+    this.spawnWarnings.push({ x: pos.x, y: pos.y, t: 1.4, entryId: def.id, elite: true });
+  }
+
+  /**
+   * 警告倒计时 → 真正落地。返回本帧落地的怪（ mostly null，一帧可能
+   * 多个警告到期）。落地时的变异/行为异常判定保持原顺序。
+   */
+  _settleSpawnWarnings() {
+    let spawnedAny = false;
+    for (let i = this.spawnWarnings.length - 1; i >= 0; i--) {
+      const w = this.spawnWarnings[i];
+      w.t -= this._lastDt ?? 0.033;
+      if (w.t > 0) continue;
+      this.spawnWarnings.splice(i, 1);
+      // 落地瞬间的变异掷骰（原 _spawnOne 的逻辑原样搬来）
+      const mutChance = this.endless ? 0.20 : 0.10;
+      const mutate = this.currentWave >= 5 && this.rng.next() < mutChance;
+      const e = this.spawnEnemyById(w.entryId, w.x, w.y, mutate);
+      if (e && !e.mutant) this._rollQuirk(e);
+      spawnedAny = spawnedAny || !!e;
+    }
+    return spawnedAny;
+  }
+
   _spawnOne(player) {    const entry = this._pickSpawnEntry();
     const pos = this._spawnPosition(player);
     // 找不到空地就不刷（见 _spawnPosition 的说明）
@@ -844,6 +904,10 @@ export class World {
   }
 
   updateSpawning(dt, player, waveElapsed) {
+    // 第一百七十二轮：警告倒计时**每帧都要走**（包括 isSpawnFinished
+    // 之后 —— 预算刷完了，最后一批警告还得落地），先记 dt 再结算。
+    this._lastDt = dt;
+    this._settleSpawnWarnings();
     if (this.isSpawnFinished) return;
 
     this.spawnTimer -= dt;
@@ -906,11 +970,13 @@ export class World {
     // 第九十三轮：场上存活敌人硬上限（ENEMY_ALIVE_CAP，不含宝箱怪/死亡待扫）。
     // 被上限挡住的预算**不消耗**（budgetUsed 不加），场上一空继续排队刷 ——
     // "万一玩家发育不好也有活路"：屏幕不糊满、帧率不崩，波次只是清得慢。
-    const headroom = Math.max(0, ENEMY_ALIVE_CAP - this.aliveEnemyCount());
+    // headroom 把"已预告未落地"的警告也算进去 —— 否则预告堆着还没落地
+    // 时 headroom 虚高，一口气挂 6 个新警告，落地时瞬间超上限。
+    const headroom = Math.max(0, ENEMY_ALIVE_CAP - this.aliveEnemyCount() - this.spawnWarnings.length);
     while (spawned < Math.min(wanted, maxPerTick)
       && this.budgetUsed < this.budgetTotal
       && spawned < headroom) {
-      this._spawnOne(player);
+      this._queueSpawnOne(player);   // 第一百七十二轮：先预告，1 秒后落地
       this.budgetUsed++;
       spawned++;
     }
@@ -924,7 +990,7 @@ export class World {
       const idx = this.elitesTotal - this.elitesToSpawn;   // 已刷出几只
       const threshold = Math.min(0.95, 0.25 + (idx + 1) * 0.15);
       if (this.waveProgress > threshold) {
-        this._spawnElite(player);
+        this._queueSpawnElite(player);   // 第一百七十二轮：精英同样预告
         this.elitesToSpawn--;
       }
     }

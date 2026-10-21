@@ -266,6 +266,11 @@ export class Renderer {
     // ---- 世界边界 ----
     this._drawWorldBounds(ctx, world);
 
+    // ---- 第一百七十二轮：刷怪预告圈（世界坐标，压在实体之下）----
+    // 用户："给刷怪的地方提前画个小圈……提前闪烁1秒的小圈？"
+    // 闪烁 + 收缩的红色警戒圈：1 秒后这里会落地一只怪。
+    if (world.spawnWarnings?.length) this._drawSpawnWarnings(ctx, world);
+
     // ---- 第五十四轮：芙兰战的空气墙可视化 ----
     // 常显竞技场边界 + 撞墙时玩家周围的淡红圆环（main 里钳制时点亮 wallFlash）
     if (world.flandreFight) this._drawFlandreWalls(ctx, player);
@@ -656,6 +661,43 @@ export class Renderer {
     }
     ctx.stroke();
     ctx.restore();
+  }
+
+  /** 第一百七十二轮：刷怪预告 —— 闪烁收缩的红色警戒圈（1 秒后落地成怪） */
+  _drawSpawnWarnings(ctx, world) {
+    const now = performance.now() / 1000;
+    for (const w of world.spawnWarnings) {
+      // 进度 0→1（t 从满秒数倒数到 0）
+      const total = w.elite ? 1.4 : 1.0;
+      const p = Math.min(1, Math.max(0, 1 - w.t / total));
+      // 闪烁：频率随进度加快（越接近落地闪得越急），alpha 抖动
+      const blink = 0.5 + 0.5 * Math.abs(Math.sin(now * (6 + p * 10)));
+      const alpha = 0.30 + 0.45 * blink;
+      // 收缩：外圈从 46px 收到 20px（精英 58→26），像"怪要从这里钻出来"
+      const r = (w.elite ? 58 : 46) * (1 - p * 0.55);
+      const color = w.elite ? '#ffb84d' : '#ff5d5d';
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      // 外圈
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // 内虚线圈（旋转感）：给"危险区"的读感
+      ctx.setLineDash([6, 5]);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, r * 0.62, now * 2, now * 2 + Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 中心点
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   _drawWorldBounds(ctx, world) {

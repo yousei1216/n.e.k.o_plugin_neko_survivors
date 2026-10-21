@@ -415,9 +415,27 @@ export class NekoPilot {
     // 威胁向量帧间微小变化 → 目标点左右横跳（实测"鬼畜般高速抖动"）。
     // 新目标先和旧目标按 4:6 混合；混合后位移 <26px 就不更新 —— 角色继续
     // 朝旧目标走，只有真正有意义的方向变化才会改道。
-    const mix = this._tgt
+    let mix = this._tgt
       ? { x: tx * 0.4 + this._tgt.x * 0.6, y: ty * 0.4 + this._tgt.y * 0.6 }
       : { x: tx, y: ty };
+    // ---- 第一百七十二轮：刷怪预告避让 ----
+    // 用户："知道哪里提前刷了就不过去，不知道一刷新就来个亲嘴。"
+    // world.spawnWarnings = 1 秒后落地成怪的位置 —— 目标点若落在某个
+    // 警告的 240px 危险半径内，就沿"远离警告"方向把落点推出去，
+    // 宁可多走两步也不站到刷新点上。
+    try {
+      const warns = g.world?.spawnWarnings;
+      if (Array.isArray(warns) && warns.length) {
+        for (const w of warns) {
+          const dx = mix.x - w.x, dy = mix.y - w.y;
+          const d = Math.hypot(dx, dy) || 1;
+          if (d < 240) {
+            const push = (240 - d) + 60;   // 推出危险半径再多让 60px
+            mix = { x: mix.x + (dx / d) * push, y: mix.y + (dy / d) * push };
+          }
+        }
+      }
+    } catch { /* 预告列表异常不影响走位 */ }
     if (this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
     this._tgt = mix;
     // 直设实体自己的 agentMoveTarget（第一百七十一轮修复，不走全局 doAction）
