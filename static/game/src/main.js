@@ -2364,6 +2364,13 @@ export class Game {
     // 变回单人"的根因）。重开局的 P2 满血满状态、倒地次数清零。
     if (this._duoEnabled) {
       this._spawnPartner(this.player.characterId, this._duoPartnerId);
+      // ---- 第一百七十四轮：AI 队友重绑 ——
+      // _spawnPartner 造的是**新** P2 实体，pilot2 还牵着旧的（duo watch
+      // 团灭自动重试后，队友 AI 会失联挂机）。新 P2 一落地就把大脑接上。
+      const np2 = this.world.player2;
+      if (np2 && window.NekoAgent?.pilot2?.on) {
+        window.NekoAgent.pilot2.start(this, { entity: np2 });
+      }
     }
 
     // 波次 BGM 已由 _applyRunData → _beginWave 按波数点好（含 Boss 波）。

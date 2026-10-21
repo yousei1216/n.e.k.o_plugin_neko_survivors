@@ -101,6 +101,9 @@ export class NekoPilot {
     this.win = false;
     this.gaveUp = false;
     this.attempt = 1;
+    // ---- 第一百七十四轮：同回合重试计数（团灭重试 5 次上限）
+    this._retryWave = null;
+    this._retryN = 0;
     this._lastPush = -999;
     this._events = [];
     this.startedAt = Date.now();
@@ -112,7 +115,7 @@ export class NekoPilot {
       }
       g.ui?.clearOverlay?.();
       g.startRun(this.characterId);
-      window.NekoAgent?.setPuppetMode?.(true);
+      globalThis.NekoAgent?.setPuppetMode?.(true);
       this._log(`代打开始：${this.characterId} · ${this.difficulty} · 最多 ${this.maxAttempts} 次尝试`);
       g._nekoSay?.(pick(TAKEOVER_LINES));
     } catch (e) {
@@ -139,7 +142,7 @@ export class NekoPilot {
     try { if (g?.player) this._hpSnapshot = g.player.hp / Math.max(1, g.player.maxHp); } catch { /* */ }
     this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
     try {
-      window.NekoAgent?.setPuppetMode?.(true);
+      globalThis.NekoAgent?.setPuppetMode?.(true);
       this._log(`代打中途接管（第 ${(g?.waveIndex ?? 0) + 1} 波）`);
       g?._nekoSay?.(pick(TAKEOVER_LINES));
     } catch { /* */ }
@@ -149,7 +152,7 @@ export class NekoPilot {
   /** 停止代打，控制权立刻还给玩家 */
   stop(g) {
     this.on = false;
-    try { window.NekoAgent?.setPuppetMode?.(false); } catch { /* */ }
+    try { globalThis.NekoAgent?.setPuppetMode?.(false); } catch { /* */ }
     try {
       if (g?.player) {
         // 还原交出时的血量比例（第一百六十八轮防漏洞，见 adopt）
@@ -554,7 +557,7 @@ export class NekoPilot {
       if (o?.pct && Object.values(o.pct).some((v) => Number(v) < 0)) s -= 1000;
       if (s > bestS) { bestS = s; bestI = i; }
     });
-    window.NekoAgent?.doAction?.(`chooseUpgrade(${bestI})`);
+    globalThis.NekoAgent?.doAction?.(`chooseUpgrade(${bestI})`);
   }
 
   // ---------------------------------------------------------
@@ -646,8 +649,18 @@ export class NekoPilot {
   }
 
   // ---------------------------------------------------------
-  // 结算：20 波活着 = 通关；否则换一条命重开
+  // 结算：20 波活着 = 通关；团灭 = **重试当前回合**（第一百七十四轮）
   // ---------------------------------------------------------
+  // 用户原话："看2个猫娘模式疑似团灭之后变回1个猫娘玩了，回合也变成1，
+  // 是用了单人猫娘模式重开吗？让猫娘ai不管一个人玩还是2个人玩团灭了都
+  // 继续维持当前模式重试当前回合而不是回到第一回合吧。可以设置重试5次
+  // 还过不去判定失败不重试第六次了。"
+  //
+  // 旧实现：死亡 → startRun(单人) → 模式丢失 + 回到第 1 波（就是用户
+  // 看到的"变回1个猫娘 + 回合变成1"）。
+  // 新实现：死亡 → g.retryWave()（快照重试：当前回合、装备/等级保留、
+  // duo 由 retryWave 里的 _spawnPartner + pilot2 重绑保留）。
+  // 同一回合重试 5 次仍过不去 → 判定失败，不再试第 6 次。
   _settle(g) {
     const reached = (g.waveIndex ?? 0) + 1;
     if (!g.player?.dead && reached >= 20) {
@@ -657,25 +670,36 @@ export class NekoPilot {
       try { g._endRun(true); } catch { /* */ }
       return;
     }
-    // 死亡 / 意外结算：重开
-    if (this.attempt >= this.maxAttempts) {
+    // 换了波就清零本回合的重试计数（"重试 5 次"按**同一回合**算）
+    if (this._retryWave !== g.waveIndex) {
+      this._retryWave = g.waveIndex;
+      this._retryN = 0;
+    }
+    // 第 5 次重试仍倒在同一回合 → 判定失败，不重试第 6 次
+    if ((this._retryN ?? 0) >= 5) {
       this.gaveUp = true;
-      this._log(`✗ ${this.maxAttempts} 次尝试均未通关（最远第 ${reached} 波），代打放弃`);
+      this._log(`✗ 第 ${reached} 波重试 ${this._retryN} 次仍未通过，判定失败（不重试第 6 次）`);
       this.stop(g);
       return;
     }
-    this.attempt++;
-    this._lastPush = -999;   // 防抖标志跨局重置（每局都从 waveIndex=0 开始，
-    //                            不重置会把新一局第 1 波的推波误拦成"已推过"）
-    this._hpSnapshot = null;   // 新局满血，旧快照作废
+    // ---- 自动重试当前回合（快照重试：模式保留、不回第一回合）----
+    this._retryN = (this._retryN ?? 0) + 1;
+    this._hpSnapshot = null;
     this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
-    this._log(`第 ${this.attempt - 1} 次尝试倒在第 ${reached} 波 → 重开（${this.attempt}/${this.maxAttempts}）`);
+    this._log(`第 ${reached} 波团灭 → 重试当前回合（本回合第 ${this._retryN}/5 次）`);
     try {
       g.ui?.clearOverlay?.();
-      g.startRun(this.characterId);
-      window.NekoAgent?.setPuppetMode?.(true);
+      const retried = g.retryWave?.();
+      if (!retried) {
+        // 没有快照（比如开局第一秒就没了）：兜底重开 —— duo 维持 duo
+        // watch（两个 AI 的模式），单人维持单人。
+        this._log('无波次快照，兜底重开（保留模式）');
+        if (g.__duo && typeof g.onDuoWatch === 'function') g.onDuoWatch();
+        else g.startRun(this.characterId);
+      }
+      globalThis.NekoAgent?.setPuppetMode?.(true);
     } catch (e) {
-      this._log(`重开失败：${e?.message ?? e}`);
+      this._log(`重试失败：${e?.message ?? e}`);
       this.stop(g);
     }
   }
