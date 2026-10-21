@@ -72,10 +72,116 @@ function cometImg(file) {
   }
   return e.img && !e.failed ? e.img : null;
 }
+
+/**
+ * 黑色剪影缓存（第一百八十一轮）：把贴图烘焙成纯黑 alpha 剪影。
+ * 用户规格："落地前的两轮飞来飞去把它的影子删了，把贴图变成纯黑然后
+ * 半透明（就是让它变成影子，显得本体在高空飞行）。"
+ * 只烘焙一次，之后 drawImage 复用；贴图未就绪返回 null。
+ */
+const _silhouetteCache = new Map();
+function silhouetteOf(file) {
+  const src = cometImg(file);
+  if (!src) return null;
+  let e = _silhouetteCache.get(file);
+  if (!e) {
+    e = { canvas: null };
+    try {
+      if (typeof document !== 'undefined') {
+        const c = document.createElement('canvas');
+        c.width = src.width;
+        c.height = src.height;
+        const cctx = c.getContext('2d');
+        cctx.drawImage(src, 0, 0);
+        cctx.globalCompositeOperation = 'source-in';
+        cctx.fillStyle = '#000';
+        cctx.fillRect(0, 0, c.width, c.height);
+        e.canvas = c;
+      }
+    } catch { e.canvas = null; }
+    _silhouetteCache.set(file, e);
+  }
+  return e.canvas;
+}
+
 /** 预加载：pending 摇中后立刻开始拉图，飞影出场时大概率已就绪 */
 export function preloadCometAssets() {
   cometImg('fly.png');
   cometImg('roar.png');
+}
+
+// ============================================================
+// 轻量合成音（第一百八十一轮）：龙飞呼啸 / 火弹嘶鸣 / 袭击警报
+// 素材包里没有这三个音 —— 用共享的 AudioContext 现场合成，
+// 每种音自带节流，永不抛错（缺 ctx 就安静跳过）。
+// ============================================================
+function cometSfx(audio, kind) {
+  try {
+    const actx = audio?.ctx;
+    if (!actx || actx.state === 'closed') return;
+    const now = actx.currentTime;
+    if (kind === 'whoosh') {
+      // 超音速呼啸：白噪声 + 带通中心频率快速上扫 200→2600Hz，0.9s
+      const dur = 0.9;
+      const len = Math.floor(actx.sampleRate * dur);
+      const buf = actx.createBuffer(1, len, actx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource();
+      src.buffer = buf;
+      const bp = actx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.Q.value = 1.2;
+      bp.frequency.setValueAtTime(220, now);
+      bp.frequency.exponentialRampToValueAtTime(2600, now + dur * 0.75);
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.34, now + 0.12);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      src.connect(bp); bp.connect(g); g.connect(audio._sfxBus ?? actx.destination);
+      src.start(now); src.stop(now + dur);
+    } else if (kind === 'bolt') {
+      // 火弹嘶鸣：短促下扫噪声 + 尖啸正弦，0.22s（节流由调用方管）
+      const dur = 0.22;
+      const len = Math.floor(actx.sampleRate * dur);
+      const buf = actx.createBuffer(1, len, actx.sampleRate);
+      const dd = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) dd[i] = Math.random() * 2 - 1;
+      const src = actx.createBufferSource();
+      src.buffer = buf;
+      const hp = actx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 900;
+      const g = actx.createGain();
+      g.gain.setValueAtTime(0.12, now);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      src.connect(hp); hp.connect(g); g.connect(audio._sfxBus ?? actx.destination);
+      src.start(now); src.stop(now + dur);
+      const o = actx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(1500, now);
+      o.frequency.exponentialRampToValueAtTime(320, now + dur);
+      const g2 = actx.createGain();
+      g2.gain.setValueAtTime(0.07, now);
+      g2.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g2); g2.connect(audio._sfxBus ?? actx.destination);
+      o.start(now); o.stop(now + dur);
+    } else if (kind === 'alarm') {
+      // 袭击警报：低沉两连鸣（三角波 480→240Hz ×2），带一点不安的颤
+      for (let i = 0; i < 2; i++) {
+        const o = actx.createOscillator();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(480, now + i * 0.42);
+        o.frequency.exponentialRampToValueAtTime(236, now + i * 0.42 + 0.34);
+        const g = actx.createGain();
+        g.gain.setValueAtTime(0.0001, now + i * 0.42);
+        g.gain.exponentialRampToValueAtTime(0.16, now + i * 0.42 + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.42 + 0.38);
+        o.connect(g); g.connect(audio._sfxBus ?? actx.destination);
+        o.start(now + i * 0.42); o.stop(now + i * 0.42 + 0.4);
+      }
+    }
+  } catch { /* 合成失败 = 安静，绝不影响演出 */ }
 }
 
 export class CometDisaster {
@@ -152,7 +258,7 @@ export class CometDisaster {
     try {
       const el = new Ctor('assets/sfx/comet_bgm.ogg');
       el.loop = true;
-      el.volume = 0.75;
+      el.volume = 0.6;   // 第一百八十一轮：降到 0.6 —— 耳鸣要先"刺穿"耳朵
       this._bgm = el;
     } catch { this._bgm = null; }
     return this._bgm;
@@ -214,7 +320,8 @@ export class CometDisaster {
           this.t = 0;
           this.cx = 0; this.cy = 0;   // 地图中心（世界原点）
           this.dir = (main?.rng?.next?.() ?? Math.random()) < 0.5 ? 1 : -1;
-          // 小小猫娘语音台词（气泡 + 官方 TTS 通道）
+          // 袭击警报（合成）+ 小小猫娘语音台词（气泡 + 官方 TTS 通道）
+          cometSfx(main?.audio, 'alarm');
           try { main?._nekoSay?.('天上好像有什么东西来了？！'); } catch { /* */ }
         }
         return false;
@@ -253,8 +360,9 @@ export class CometDisaster {
           this.shake = 18;
           this.flash = 1;
           this.rings.push({ x: this.cx, y: this.cy, r: 0, rMax: this.half * 0.7, t: 0, life: T_BOOM, warm: true });
+          // 第一百八十一轮：耳鸣先"刺穿"（立即、音量 0.5），BGM 延 0.55s 再进
           try { main?.audio?.play('cometTinnitus'); } catch { /* */ }
-          this._startBgm();
+          setTimeout(() => { try { this._startBgm(); } catch { /* */ } }, 550);
           this._dealBoom(main);
         }
         return false;
@@ -294,6 +402,9 @@ export class CometDisaster {
     this.dir = second ? -this.dir : ((main?.rng?.next?.() ?? Math.random()) < 0.5 ? 1 : -1);
     this._boltAcc = 0;
     this._lastT = this.t;
+    this._boltSfxT = 0;
+    // 超音速呼啸（合成）
+    cometSfx(main?.audio, 'whoosh');
   }
 
   _tickFly(main, second) {
@@ -316,19 +427,32 @@ export class CometDisaster {
         y: -this.half * 0.5,
         landY: (Math.random() * 2 - 1) * this.half * 0.9,
         vy: 620 + Math.random() * 380,
-        r: 9 + Math.random() * 8,
+        // 第一百八十一轮：火球放大 2 倍（参考素材 3.png 的能量弹体量）
+        r: 16 + Math.random() * 10,
         t: 0,
         landed: false,
+        // 电弧粒子：每颗火球挂 2~3 段随机旋转短线（渲染时展开）
+        arcs: Array.from({ length: 2 + (Math.random() * 2 | 0) }, () => ({
+          a: Math.random() * Math.PI * 2,
+          spin: (Math.random() * 2 - 1) * 7,
+          len: 10 + Math.random() * 14,
+        })),
       });
+      // 火弹嘶鸣（合成，节流 0.28s 防密集吵耳）
+      this._boltSfxT = (this._boltSfxT ?? 0) + interval;
+      if (this._boltSfxT >= 0.28) {
+        this._boltSfxT = 0;
+        cometSfx(main?.audio, 'bolt');
+      }
     }
   }
 
   /** 火球落地：小爆炸圈 + 伤害结算（敌我不分真伤） */
   _boltImpact(main, b) {
-    this.rings.push({ x: b.x, y: b.landY, r: 0, rMax: 70, t: 0, life: 0.4, warm: true });
+    this.rings.push({ x: b.x, y: b.landY, r: 0, rMax: 110, t: 0, life: 0.4, warm: true });
     const world = main?.world;
     if (!world) return;
-    const R = 70;
+    const R = 110;   // 第一百八十一轮：与放大后的爆炸视觉半径一致
     // 玩家：20% 当前生命真伤，血量最少剩 1（绝不直接炸死）
     for (const p of (world.players?.() ?? [])) {
       if (!p || p.dead) continue;
@@ -384,13 +508,15 @@ export class CometDisaster {
     const roaring = this.phase === 'roar';
     const taking = this.phase === 'takeoff';
 
-    // ---- 地面黑影（飞影/俯冲期间的高空投影）----
-    if (flying || diving) {
-      const k = Math.min(1, this.t / T_FLY);
+    // ---- 地面黑影 ----
+    // 第一百八十一轮：两轮高空飞过的**影子删了**（用户："把贴图变成纯黑
+    // 然后半透明……显得本体在高空飞行"——剪影本身就是影子，地面投影
+    // 反而暴露"飞得很低"）。只保留俯冲（dive）的影子 —— 那是冲着地面来
+    // 的，投影有压迫感。
+    if (diving) {
+      const k = Math.min(1, this.t / T_DIVE);
       const margin = this.half + 260;
-      let sx;
-      if (diving) sx = this.dir * (this.half - (this.t / T_DIVE) * (this.half + 200));
-      else sx = this.dir > 0 ? -margin + k * margin * 2 : margin - k * margin * 2;
+      const sx = this.dir * (this.half - (this.t / T_DIVE) * (this.half + 200));
       ctx.save();
       ctx.globalAlpha = 0.28;
       ctx.fillStyle = '#000';
@@ -404,33 +530,67 @@ export class CometDisaster {
     for (const b of this.bolts) {
       ctx.save();
       if (b.landed) {
+        // 落地爆：白核 + 红橙能量涌 + 大半径（第一百八十一轮 60→110）
         const k = b.t / 0.45;
         ctx.globalAlpha = 1 - k;
-        const g = ctx.createRadialGradient(b.x, b.landY, 0, b.x, b.landY, 60 * (0.5 + k));
-        g.addColorStop(0, 'rgba(255,240,180,0.95)');
-        g.addColorStop(0.5, 'rgba(255,120,40,0.7)');
+        const rad = 110 * (0.4 + k * 0.9);
+        const g = ctx.createRadialGradient(b.x, b.landY, 0, b.x, b.landY, rad);
+        g.addColorStop(0, 'rgba(255,252,230,1)');
+        g.addColorStop(0.35, 'rgba(255,190,70,0.9)');
+        g.addColorStop(0.7, 'rgba(255,90,30,0.6)');
         g.addColorStop(1, 'rgba(255,40,20,0)');
         ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(b.x, b.landY, 60 * (0.5 + k), 0, Math.PI * 2);
+        ctx.arc(b.x, b.landY, rad, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        // 下落火球 + 长拖尾
-        const tl = Math.min(90, b.vy * 0.12);
-        const g = ctx.createLinearGradient(b.x, b.y - tl, b.x, b.y + b.r);
-        g.addColorStop(0, 'rgba(255,60,20,0)');
-        g.addColorStop(1, 'rgba(255,200,90,0.95)');
-        ctx.strokeStyle = g;
-        ctx.lineWidth = b.r * 1.4;
+        // 下落能量弹（第一百八十一轮重做，参考素材 3.png）：
+        //   白/黄高亮核心 + 红色外围能量光环 + 环绕电弧短线 + 长拖尾
+        const tl = Math.min(150, b.vy * 0.2);
+        // 拖尾：粗、红橙渐变、圆头
+        const tg = ctx.createLinearGradient(b.x, b.y - tl, b.x, b.y + b.r);
+        tg.addColorStop(0, 'rgba(255,60,20,0)');
+        tg.addColorStop(0.6, 'rgba(255,120,40,0.55)');
+        tg.addColorStop(1, 'rgba(255,200,90,0.85)');
+        ctx.strokeStyle = tg;
+        ctx.lineWidth = b.r * 1.7;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(b.x, b.y - tl);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
-        ctx.fillStyle = '#ffd27a';
+        // 外围红色能量光环
+        const halo = ctx.createRadialGradient(b.x, b.y, b.r * 0.3, b.x, b.y, b.r * 2.2);
+        halo.addColorStop(0, 'rgba(255,120,50,0.5)');
+        halo.addColorStop(1, 'rgba(255,40,20,0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        // 白/黄高亮核心
+        const core = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        core.addColorStop(0, 'rgba(255,255,240,1)');
+        core.addColorStop(0.55, 'rgba(255,230,140,0.95)');
+        core.addColorStop(1, 'rgba(255,150,60,0.4)');
+        ctx.fillStyle = core;
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
         ctx.fill();
+        // 环绕电弧短线（随机旋转，亮红）
+        ctx.strokeStyle = 'rgba(255,170,80,0.85)';
+        ctx.lineWidth = 2;
+        for (const a of (b.arcs ?? [])) {
+          a.a += a.spin * 0.016;
+          const r1 = b.r * 1.4;
+          const x1 = b.x + Math.cos(a.a) * r1;
+          const y1 = b.y + Math.sin(a.a) * r1;
+          const x2 = b.x + Math.cos(a.a + 0.5) * (r1 + a.len);
+          const y2 = b.y + Math.sin(a.a + 0.5) * (r1 + a.len);
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
       }
       ctx.restore();
     }
@@ -484,8 +644,9 @@ export class CometDisaster {
       x = sx + (this.cx - sx) * k;
       y = -this.half * 0.42 + (this.cy - (-this.half * 0.42)) * k;
     } else {
+      // 第一百八十一轮：高空航线再抬高一点（"飞的太低了"）
       x = this.dir > 0 ? -margin + k * margin * 2 : margin - k * margin * 2;
-      y = -this.half * 0.45 + Math.sin(this.age * 2.2) * 60;
+      y = -this.half * 0.55 + Math.sin(this.age * 2.2) * 50;
     }
     const speedAngle = diving
       ? Math.atan2(this.cy - (-this.half * 0.42), this.cx - this.dir * (this.half + 200))
@@ -493,22 +654,44 @@ export class CometDisaster {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(speedAngle + Math.PI / 2);   // 素材头朝上 → 转到速度方向
-    const w = diving ? 340 : 300;
-    if (img) {
-      const h = w * (img.height / img.width);
-      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    const w = diving ? 400 : 380;
+    if (diving) {
+      // 俯冲：本体显形（彩色贴图）
+      if (img) {
+        const h = w * (img.height / img.width);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      } else {
+        const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+        g.addColorStop(0, '#3a0000');
+        g.addColorStop(1, '#ff3020');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(w / 2, 0);
+        ctx.lineTo(-w / 2, -w * 0.18);
+        ctx.lineTo(-w / 2, w * 0.18);
+        ctx.closePath();
+        ctx.fill();
+      }
     } else {
-      // 贴图未就绪：锐角三角保底（红黑渐变）
-      const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-      g.addColorStop(0, '#3a0000');
-      g.addColorStop(1, '#ff3020');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.moveTo(w / 2, 0);
-      ctx.lineTo(-w / 2, -w * 0.18);
-      ctx.lineTo(-w / 2, w * 0.18);
-      ctx.closePath();
-      ctx.fill();
+      // 两轮高空飞过：纯黑半透明剪影（离屏烘焙，本体在高空的观感）
+      const sil = silhouetteOf('fly.png');
+      ctx.globalAlpha = 0.45;
+      if (sil) {
+        const h = w * (sil.height / sil.width);
+        ctx.drawImage(sil, -w / 2, -h / 2, w, h);
+      } else if (img) {
+        const h = w * (img.height / img.width);
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      } else {
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(w / 2, 0);
+        ctx.lineTo(-w / 2, -w * 0.18);
+        ctx.lineTo(-w / 2, w * 0.18);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
@@ -533,7 +716,8 @@ export class CometDisaster {
     ctx.restore();
   }
 
-  /** 起飞：向上加速离场 + 尾焰 */
+  /** 起飞：向上加速离场 + 尾焰（尺寸与落地吼叫一致 —— 用户报"落地后
+   *  很大，起飞变小了"的穿帮；初尺寸统一 460，远去再用 scale 缩小） */
   _drawTakeoff(ctx) {
     const img = cometImg('fly.png');
     const k = this.t / T_TAKEOFF;
@@ -542,7 +726,7 @@ export class CometDisaster {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(Math.PI);   // 头朝上
-    const w = 340 * (1 - k * 0.35);
+    const w = 460 * (1 - k * 0.25);   // 初始与落地吼叫同宽，飞远渐缩
     if (img) {
       const h = w * (img.height / img.width);
       ctx.globalAlpha = 1 - k * 0.5;
@@ -568,26 +752,13 @@ export class CometDisaster {
   drawScreen(ctx, W, H) {
     if (this.phase === 'idle' || this.phase === 'done') return;
 
-    // ---- 全屏白闪（boom）----
+    // ---- 全屏白闪（boom）：纯白覆盖，alpha 1→0 —— 条纹暗幕删了
+    //（用户："白屏效果是条纹效果的，再调调"）----
     if (this.flash > 0) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, this.flash);
       ctx.fillStyle = '#fff7e8';
       ctx.fillRect(0, 0, W, H);
-      ctx.restore();
-    }
-
-    // ---- 屏幕撕裂暗纹（boom 期间 20 条错位暗条，轻量"扭曲"）----
-    if (this.phase === 'boom') {
-      const k = this.t / T_BOOM;
-      ctx.save();
-      ctx.globalAlpha = 0.22 * (1 - k);
-      ctx.fillStyle = '#1a0505';
-      const band = H / 20;
-      for (let i = 0; i < 20; i++) {
-        const off = Math.sin(this.age * 40 + i * 1.7) * 26 * (1 - k);
-        ctx.fillRect(off, i * band, W, band * 0.6);
-      }
       ctx.restore();
     }
 

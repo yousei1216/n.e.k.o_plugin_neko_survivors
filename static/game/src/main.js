@@ -996,8 +996,11 @@ export class Game {
       } catch { /* */ }
     }
 
-    // 更新玩家
-    p.update(dt, this.input, this.camera, this.world);
+    // 更新玩家（第一百八十一轮：天彗龙 boom/roar 眩晕对**玩家也生效**
+    // —— 用户："玩家没有吃到眩晕，这个眩晕对玩家也要有效"。dt=0 = 定住；
+    // AI 的 moveAxis 由 agentBlocked 一并清零，演出期间谁都动不了。）
+    const stunDt = cometFreeze ? 0 : dt;
+    p.update(stunDt, this.input, this.camera, this.world);
 
     // ---- 第一百七十一轮：2P 真人键位（右侧小键盘）----
     // duo 模式 P2 可以由第二位真人用小键盘 ↑↓←→（8/2/4/6）操控；
@@ -1006,9 +1009,9 @@ export class Game {
     // 小键盘 0 = 芙兰战减速、小键盘 . = 消弹（与 P1 的 Q/空格同效果）。
     const p2 = this.world.player2;
     if (p2) {
-      const p2axis = this.input.moveAxisP2();
+      const p2axis = cometFreeze ? { x: 0, y: 0 } : this.input.moveAxisP2();
       if (p2axis.x !== 0 || p2axis.y !== 0) p2.agentMoveTarget = null;
-      p2.update(dt, { moveAxis: () => p2axis, p2SkillSlow: () => this.input.p2SkillSlow(), p2SkillClear: () => this.input.p2SkillClear() }, this.camera, this.world);
+      p2.update(stunDt, { moveAxis: () => p2axis, p2SkillSlow: () => this.input.p2SkillSlow(), p2SkillClear: () => this.input.p2SkillClear() }, this.camera, this.world);
     }
 
     // ---- 第一百六十轮：四重存在（莱万汀分身）----

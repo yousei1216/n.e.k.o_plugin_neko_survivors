@@ -79,6 +79,9 @@ export const SE_LIB = {
   // 的档位：shoot1 = 普通模式 4 个 Boss 的弹幕齐射声；shoot2 = 开背虾
   // 三阶段的水柱（_fireWaterJet）。
   shoot1: 0.7, shoot2: 0.7,
+  // 第一百八十一轮：天彗龙事件音（自家素材 70% 档；耳鸣特意给到 0.5
+  // 让它在 BGM 前先"刺穿"耳朵 —— 用户实测"没听到耳鸣音效播放"）。
+  comet_tinnitus: 0.5, comet_roar: 0.7, comet_takeoff: 0.7,
 };
 
 /**
