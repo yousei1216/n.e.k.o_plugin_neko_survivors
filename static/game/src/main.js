@@ -2472,6 +2472,12 @@ export class Game {
     // 141 轮：维吉尔战同理（noSpawn/noAttack/演出层不残留到结算页）
     if (this.vergil) this._teardownVergil();
 
+    // 第一百八十四轮：天彗龙的 BGM 是独立 audio 元素（不进 audio 的场景
+    // 通道），audio.stopMusic() 管不到 —— 团灭时如果事件正在放，结算页
+    // 会一直压着 comet_bgm 双重奏（用户实测："团灭了之后天彗龙的bgm一直
+    // 持续没停过"）。这里显式停掉，换回普通结算曲。
+    this.comet?.stopBgm?.();
+
     audio.stopMusic();
     // 结算曲（用户要求："end是输了或者结束的曲子"）。
     // 必须放在 stopMusic() 之后：stopMusic 会把文件 BGM 的状态清空，
