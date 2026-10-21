@@ -1635,11 +1635,17 @@ export class Game {
     p.gainMaterials(clearBonus);
 
     // 每波结束回满血：否则拿不到回血道具的话，下一波开局就可能被秒
-    const healed = p.maxHp - p.hp;
-    if (healed > 0.5) {
-      p.hp = p.maxHp;
-      audio.play('heal');
+    // ---- 第一百八十四轮（1~4P）：**全员**回满 —— 之前只回 P1（p），
+    // 队友上波剩一滴这波还是一滴（用户实测）。倒地的顺手满血复活。
+    let healed = 0;
+    for (const pl of this.world.players()) {
+      const gap = pl.maxHp - pl.hp;
+      if (gap > 0.5) {
+        pl.hp = pl.maxHp;
+        healed += gap;
+      }
     }
+    if (healed > 0.5) audio.play('heal');
 
     // 结算本波
     const waveReached = this.waveIndex + 1;
@@ -3164,6 +3170,64 @@ try {
             fetch('http://127.0.0.1:8033/probe?name=state-' + t, { method: 'POST', body: JSON.stringify(snap) });
           } catch { /* */ }
         }, t);
+      }
+      // ?probe=1&rescue=1：救援行为验证 —— 6s 时强制打倒一只猫娘，
+      // 之后每 2s dump 其余 AI 与倒地者的距离（应持续缩小 = 在去救）。
+      if (q.get('rescue') === '1') {
+        setTimeout(() => {
+          try {
+            const victim = game.world.partners()[2];
+            if (victim && !victim.downed) {
+              victim.down();
+              game.world.partners().forEach((pl) => { pl.hp = pl.maxHp; });   // 其余满血排除回血干扰
+            }
+          } catch { /* */ }
+        }, 6000);
+        for (const t of [8000, 10000, 12000]) {
+          setTimeout(() => {
+            try {
+              const g2 = game;
+              const victim = g2.world.partners().find((pl) => pl.downed);
+              const rescuers = g2.world.partners().filter((pl) => !pl.downed && !pl.dead).map((pl) => ({
+                id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
+                tgt: pl.agentMoveTarget ? { x: Math.round(pl.agentMoveTarget.x), y: Math.round(pl.agentMoveTarget.y) } : null,
+                distToVictim: victim ? Math.round(Math.hypot(pl.x - victim.x, pl.y - victim.y)) : null,
+              }));
+              fetch('http://127.0.0.1:8033/probe?name=rescue-' + t, {
+                method: 'POST',
+                body: JSON.stringify({ t, victimDown: !!victim, victim: victim ? { id: victim.characterId, x: Math.round(victim.x), y: Math.round(victim.y) } : null, rescuers }),
+              });
+            } catch { /* */ }
+          }, t);
+        }
+      }
+      // ?probe=1&chest=1：拆箱走位验证 —— 6s 时在 P1 旁 300px 放一个
+      // 静止宝箱，之后每 2s dump 各 AI 与宝箱的距离（应缩到 58/150 内）。
+      if (q.get('chest') === '1') {
+        setTimeout(() => {
+          try {
+            game.world.spawnChest(game.player, { x: game.player.x + 300, y: game.player.y });
+          } catch { /* */ }
+        }, 6000);
+        for (const t of [6500, 8000, 10000, 12000]) {
+          setTimeout(() => {
+            try {
+              const g2 = game;
+              const chest = g2.world.enemies.items.find((e) => e.isChest && !e.dead && !e.def);
+              fetch('http://127.0.0.1:8033/probe?name=chest-' + t, {
+                method: 'POST',
+                body: JSON.stringify({
+                  t,
+                  chest: chest ? { x: Math.round(chest.x), y: Math.round(chest.y), hp: Math.round(chest.hp), maxHp: chest.maxHp, dead: chest.dead } : null,
+                  mates: g2.world.partners().filter((pl) => !pl.dead).map((pl) => ({
+                    id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
+                    distToChest: chest ? Math.round(Math.hypot(pl.x - chest.x, pl.y - chest.y)) : null,
+                  })),
+                }),
+              });
+            } catch { /* */ }
+          }, t);
+        }
       }
     }
   }

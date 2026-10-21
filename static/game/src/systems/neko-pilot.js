@@ -379,18 +379,25 @@ export class NekoPilot {
 
     // ---- 第一百七十一轮：救援优先 ----
     // duo 下队友倒地：第一时间跑去队友身边 —— 武器弹穿过倒地队友即救援。
-    // 第一百八十四轮：**救援门槛大砍**（用户："猫娘ai从不救人……一倒也
-    // 从来不救"）。之前的"最近怪 >350/500 才算安全"几乎永远不满足——
-    // 倒地队友身边必然有怪在徘徊，nearestD 长期小于阈值，救援被跳过，
-    // 唯一一次"救援"还是炮台弹误打误撞。现在：只要自己没被**贴脸围死**
-    // （最近怪 >140），救人优先级就高于一切走位——1 倒只需几发弹，
-    // 冲过去路上武器照常开火，收益远大于继续风筝。真被围死（<140）
-    // 才自保，救不了不算 AI 的错。
-    if (g.__duo && nearestD > 140) {
-      const mate = this._mateOf(g, p, true);
-      if (mate) {
+    // 第一百八十四轮（4P 实测再砍）：**救援是队友倒地后的全场最高优先级**。
+    // 上一版门槛 nearestD>140 仍不够 —— 混战中最近怪几乎永远 <140（用户
+    // 实测"没怎么见到有救人位，大部分猫娘一倒就结束"）—— 救援窗口就在
+    // 紫条回涨耗尽前那十几秒，全被这个门槛吃掉了。现在：
+    //   · 默认门槛砍到 70（只剩"真被贴脸围死"才自保）；
+    //   · 倒地人数 ≥2 时**完全无视门槛** —— 4P 里队友连倒就是团灭倒计时，
+    //     边打边冲，路上武器照常开火（武器火力本身就是清路+救援两用）。
+    const downedMates = (g.world?.players?.() ?? []).filter((pl) => pl && pl !== p && pl.downed && !pl.dead);
+    const rescueGate = downedMates.length >= 2 ? 0 : 70;
+    if (g.__duo && downedMates.length > 0 && nearestD > rescueGate) {
+      // 救最近的一个（多个倒地时依次救，爬行/倒地者也会互相爬近）
+      let best = null, bestD = Infinity;
+      for (const m of downedMates) {
+        const d = Math.hypot(m.x - p.x, m.y - p.y);
+        if (d < bestD) { bestD = d; best = m; }
+      }
+      if (best) {
         // 直设自己的 agentMoveTarget（同上，不走全局 doAction）
-        p.agentMoveTarget = { x: mate.x + 30, y: mate.y + 20 };
+        p.agentMoveTarget = { x: best.x + 30, y: best.y + 20 };
         return;
       }
     }
@@ -404,6 +411,36 @@ export class NekoPilot {
         return k === 'ranged' || k === 'element' || k === 'turret';
       });
     } catch { /* */ }
+
+    // ---- 第一百八十四轮：拆箱目标（用户："近战流派的猫娘不会靠近宝箱去
+    // 拆，挂机在攻击范围外，自动攻击也打不了箱子"）—— 宝箱固定不动，
+    // 而走位决策只看会动的怪：近战 AI 永远在猫爪半径外干瞪眼，武器够
+    // 不着箱子。现在：附近有**静止宝箱**且自己没被贴脸围死（>90）时，
+    // 主动走到攻击距离内（近战贴 58 = 猫爪攻击边缘；远程 150）站桩拆箱。
+    // 宝箱怪是会跑的 flee 怪，索敌自然会打，不归这里管。boss 战跳过。
+    if (!vergilMode && nearestD > 90) {
+      let chest = null, chestD = Infinity;
+      if (Array.isArray(enemies)) {
+        for (const e of enemies) {
+          if (!e || e.dead || !e.isChest || e.def) continue;   // 只管静止宝箱
+          const d = Math.hypot(e.x - p.x, e.y - p.y);
+          if (d < chestD) { chestD = d; chest = e; }
+        }
+      }
+      if (chest && chestD < 420) {
+        const stand = hasRanged ? 150 : 58;
+        if (chestD > stand + 8) {
+          // 直奔箱子（救援已在上面的分支 return；这里优先于风筝/巡逻，
+          // 路上武器照常开火，扫到谁打谁）
+          p.agentMoveTarget = { x: chest.x, y: chest.y };
+          return;
+        }
+        // 已进攻击距离：清移动目标站桩 —— 走近后宝箱就是"最近的敌人"，
+        // 武器自动开火自然转火拆箱
+        p.agentMoveTarget = null;
+        return;
+      }
+    }
 
     let tx, ty;
     if (vergilMode) {
