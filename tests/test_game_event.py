@@ -150,6 +150,6 @@ def test_manifest_and_bridge_pins():
     assert 'permissions = ["action:call"]' in toml    # surface 允许调 action
     bridge = (root / "static" / "game" / "src" / "plugin-bridge.js").read_text(encoding="utf-8")
     assert "hosted-ui/action/" in bridge           # 同源 action 通道
-    assert "deriveBase" in bridge                  # 基址运行时推导（防前缀丢失）
+    assert "deriveBase" in bridge or "candidateBases" in bridge  # 基址运行时推导（防前缀丢失；176轮重构改名）
     assert "new URL(path, location.origin)" in bridge  # URL 绝对化
     assert "fetch('/static" not in bridge          # 不再跨域读静态模型资源
