@@ -126,9 +126,11 @@ export class Bullet extends Entity {
         } else if (!ally._rescueGate || ally._rescueGate >= 0.19) {
           // gate 刚置位（≈0.2）= 这一发真的计了数；残留 gate = 0.2s 内的
           // 重复命中，不算数也不刷字（第一百七十五轮：进度飘字）
+          // 第一百七十八轮：进度取整显示（回涨是连续小数，直接减会出
+          // "救援 +1（1.3700000000000003/5）"这种一长串）
           world.fx?.sparkle?.(ally.x, ally.y, '#7cf3c4');
           world.fx?.damageText?.(ally.x, ally.y - ally.radius - 10,
-            `救援 +1（${ally.rescueNeed - ally.rescueProgress}/${ally.rescueNeed}）`, false, '#7cf3c4');
+            `救援 +1（${Math.round(ally.rescueNeed - ally.rescueProgress)}/${ally.rescueNeed}）`, false, '#7cf3c4');
         }
         return;
       }

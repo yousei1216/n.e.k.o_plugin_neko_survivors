@@ -112,6 +112,11 @@ export class Turret extends Entity {
         radius: 5,
         color: def.color,
         owner: this.weapon,          // 归属到放它的那把武器
+        // 第一百七十八轮：**炮台弹归属到主人** —— 原来不传 ownerPlayer，
+        // spawnBullet 回落成 world.player（P1）：duo 下 P2 的炮台弹伤害
+        // 记到 P1 头上，更糟的是"打倒倒地的 P2"会被当成 P1 的救援刀
+        //（AI 猫娘被自己的炮台"救"起来的根因）。
+        ownerPlayer: this.ownerPlayer,
         ownerTurret: this,
         kind: 'turret',
         behavior: 'shot',

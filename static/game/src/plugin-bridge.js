@@ -23,35 +23,59 @@
  * 绝对化 —— 杜绝任何"相对路径被页面基址吃掉前缀"的可能。
  * （用户抓包：请求打到了 hosted-ui/action/game_event —— 少了插件前缀；
  *   无论根因是缓存还是解析，这一版都会把完整 URL 打进控制台。）
+ *
+ * 第一百七十六轮：**跨源桥** —— 用户实测宿主内置版（48911 的
+ * /static/game/games/neko-survivors）里官方猫娘完全哑巴（聊天框没有
+ * 波次播报、语音台词全哑）。根因：内置版的页面路径不是 /plugin/...，
+ * 同源也不代理插件 action → 探活 404 → 桥整个禁用。这跟多人模式
+ * 没有任何关系（单人在内置版一样哑），纯粹是"换了个页面环境，桥没跟上"。
+ * 修法：非插件面板环境时，跨源直连本机插件管理器（48916）——实测它对
+ * action/ui-info 响应带 Access-Control-Allow-Origin: <origin> 反射，
+ * 浏览器跨源 fetch 放行。探活逐候选尝试，命中即锁定。
  */
-function deriveBase() {
+function candidateBases() {
+  const list = [];
+  // ① 插件面板 iframe：同源相对路径（原有路径，优先）
   try {
     const m = location.pathname.match(/^(\/plugin\/[^/]+)\/ui\//);
-    if (m) return m[1];
-  } catch { /* 忽略，走兜底 */ }
-  return '/plugin/neko_survivors';
+    if (m) list.push((p) => new URL(p, location.origin).href);
+  } catch { /* 忽略 */ }
+  // ② 内置版 / 本地页：跨源直连本机插件管理器（48916）
+  for (const host of ['127.0.0.1', 'localhost']) {
+    list.push((p) => `http://${host}:48916${p}`);
+  }
+  return list;
 }
 
-const BASE = deriveBase();
+function pluginPath(action) {
+  return `/plugin/neko_survivors/hosted-ui/action/${action}`;
+}
+
 const ABS = (path) => new URL(path, location.origin).href;
-const ACTION_URL = (action) => ABS(`${BASE}/hosted-ui/action/${action}`);
-const PROBE_URL = ABS(`${BASE}/ui-info`);
 
 export const pluginBridge = {
   enabled: false,
+  /** 命中的候选 URL 构造器（init 探活后锁定） */
+  _resolve: null,
   /** 各事件的上报时间（秒），客户端侧限频 */
   _last: new Map(),
 
-  /** 探测是否跑在插件面板里（同源探活，失败即禁用） */
+  /** 探测是否在插件面板里（同源）或能跨源够到本机插件管理器，命中即启用 */
   async init() {
-    try {
-      console.log('[neko-bridge] 探活 URL：', PROBE_URL, '（页面路径：', location.pathname, '）');
-      const r = await fetch(PROBE_URL, { method: 'GET' });
-      this.enabled = r.ok;
-    } catch {
-      this.enabled = false;
+    const probe = '/plugin/neko_survivors/ui-info';
+    for (const resolve of candidateBases()) {
+      const url = resolve(probe);
+      try {
+        console.log('[neko-bridge] 探活 URL：', url, '（页面路径：', location.pathname, '）');
+        const r = await fetch(url, { method: 'GET' });
+        if (r.ok) {
+          this._resolve = resolve;
+          this.enabled = true;
+          break;
+        }
+      } catch { /* 下一个候选 */ }
     }
-    console.log(`[neko-bridge] 探活结果 → ${this.enabled ? '命中，桥启用' : '未命中，桥禁用（本地/宿主环境走原通道）'}`);
+    console.log(`[neko-bridge] 探活结果 → ${this.enabled ? `命中，桥启用` : '全部未命中，桥禁用（插件管理器没开时零开销）'}`);
     return this.enabled;
   },
 
@@ -78,7 +102,7 @@ export const pluginBridge = {
 
   /** 统一限频 POST action（fire-and-forget；minGapSec<=0 表示不限） */
   _post(action, args, minGapSec, gapKey) {
-    if (!this.enabled) return;
+    if (!this.enabled || !this._resolve) return;
     const now = Date.now() / 1000;
     const key = gapKey || action;
     if (minGapSec > 0) {
@@ -89,7 +113,7 @@ export const pluginBridge = {
       }
       this._last.set(key, now);
     }
-    const url = ACTION_URL(action);
+    const url = this._resolve(`/plugin/neko_survivors/hosted-ui/action/${action}`);
     console.log(`[neko-bridge] → POST ${url}:`, args);
     fetch(url, {
       method: 'POST',
@@ -119,6 +143,14 @@ export const pluginBridge = {
       weapon_combo: '武器合成了更高品质',
       death: '这一轮没能撑住',
       win: '撑过了全部围攻，通关了',
+      // ---- 第一百七十六轮：代打/双人模式的自评场景也有正经标签 ----
+      // （duo watch 下 pilot.on 恒真，波次播报全走 pilot_wave —— 原来
+      //  落到兜底"战况更新"，官方猫娘念出来干巴巴的）
+      pilot_takeover: '要替主人上场代打了',
+      pilot_handover: '把操作还给主人了',
+      pilot_wave: '正在替主人打这一波',
+      pilot_win: '替主人通关了全部围攻',
+      pilot_lose: '替主人打这一波时输了',
     };
     const label = LABELS[event] || '战况更新';
     const bits = [];

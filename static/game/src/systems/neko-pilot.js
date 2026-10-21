@@ -14,12 +14,15 @@
 //   level_up → 打分选卡（伤害>攻速>血量>暴击…，前 5 波血量加权）
 //   shop     → 优先买远程武器（早期定风筝基调），再补 afford 道具，
 //              然后 _beginWave(+1) 推进（战利品留给防洪闸折价）
-//   result   → 20 波且活着 = 通关（_endRun(true)）；否则重开
-//              （maxAttempts 次内自动重来，全灭才放弃）
+//   result   → 20 波且活着 = 通关（_endRun(true)）；否则重试当前回合
+//              （第一百七十四轮：模式保留 + 同波 5 次上限）
 //
 // 健壮性同 NekoAgent 契约：tick 永不抛错；大脑崩溃只影响代打，
 // 绝不拖垮游戏主循环。
 // ============================================================
+
+// 第一百七十八轮：地形避让需要 blockedAt（实验室地砖/花园花坛）
+import { blockedAt } from '../data/terrain.js';
 
 /** 选卡打分表：属性 id → 权重（噩梦通关的稳健成长序）
  *  luna 基础 10 血 —— 血量/移速/护甲是风筝流的生命线，权重给足 */
@@ -439,6 +442,45 @@ export class NekoPilot {
         }
       }
     } catch { /* 预告列表异常不影响走位 */ }
+    // ---- 第一百七十八轮：地形避让（AI 不再撞墙卡死）----
+    // 用户："猫娘ai走位挺强的，比我还好，但是死是撞墙死了……她卡在上面
+    // 死了2次，自救起来还是秒死。" 实验室地砖/花园花坛这两张图的障碍
+    // 会把风筝路径掐断：目标点落进障碍 → 角色顶墙蹭蹭不动 → 怪围上来。
+    // 落点若 blocked 就沿"障碍中心 → 落点"方向推出去；推完还堵就朝
+    // 场心方向拉（场心永远不堵）。
+    try {
+      const terrain = g.world?.terrain;
+      if (terrain && ((terrain.rects?.length ?? 0) + (terrain.circles?.length ?? 0)) > 0) {
+        const pad = (p.radius ?? 12) + 18;
+        if (blockedAt(terrain, mix.x, mix.y, pad)) {
+          // 找包含/最贴近落点的障碍，拿它的中心当"外推源"；外推量按
+          // 障碍**实际尺寸**算（实验室地砖 ~290px 见方，推 90px 还在砖里）
+          let cx = 0, cy = 0, halfSpan = 0, best = Infinity;
+          for (const r of (terrain.rects ?? [])) {
+            const mx = (r.x0 + r.x1) / 2, my = (r.y0 + r.y1) / 2;
+            const d = Math.hypot(mix.x - mx, mix.y - my);
+            if (d < best) {
+              best = d; cx = mx; cy = my;
+              halfSpan = Math.max(r.x1 - r.x0, r.y1 - r.y0) / 2;   // 半宽
+            }
+          }
+          for (const c of (terrain.circles ?? [])) {
+            const d = Math.hypot(mix.x - c.cx, mix.y - c.cy);
+            if (d < best) { best = d; cx = c.cx; cy = c.cy; halfSpan = c.r; }
+          }
+          let dx = mix.x - cx, dy = mix.y - cy;
+          const d = Math.hypot(dx, dy) || 1;
+          dx /= d; dy /= d;
+          const push = halfSpan + pad + 26;   // 半宽 + 身位余量，保证出墙
+          let nx = cx + dx * push, ny = cy + dy * push;
+          if (blockedAt(terrain, nx, ny, pad)) {
+            // 外推还堵（落点在障碍另一侧/贴角落）：改朝场心拉
+            nx = mix.x * 0.4; ny = mix.y * 0.4;
+          }
+          mix = { x: nx, y: ny };
+        }
+      }
+    } catch { /* 地形异常不影响走位 */ }
     if (this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
     this._tgt = mix;
     // 直设实体自己的 agentMoveTarget（第一百七十一轮修复，不走全局 doAction）

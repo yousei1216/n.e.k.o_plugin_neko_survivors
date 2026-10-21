@@ -2066,9 +2066,14 @@ export class Game {
         const r = list[i];
         if (!r) return;
         if (p.addItem(r.id)) {
+          // 第一百七十七轮（2P）：宝箱/Boss 战利品**一人一份** ——
+          // 用户："宝箱和boss战利品也一人一份。"领的人拿一份，队友
+          //（若在且活着）也直接白拿一份同样的。
+          const mate = this.world.players?.().find?.((o) => o && o !== p && !o.dead);
+          if (mate) mate.addItem(r.id);
           list.splice(i, 1);
           audio.play('buy');
-          this.ui.toast(`留下 ${r.name}`, 'good');
+          this.ui.toast(mate ? `留下 ${r.name}（队友也拿了一份）` : `留下 ${r.name}`, 'good');
         } else {
           audio.play('error');
           this.ui.toast(`${r.name} 已达叠加上限`, 'bad');
@@ -2078,7 +2083,7 @@ export class Game {
         const list = this.world.pendingItemRewards || [];
         const r = list[i];
         if (!r) return;
-        p.materials += r.sellValue;
+        p.gainMaterials(r.sellValue);   // 走共享入账（duo 下队友同步到账）
         list.splice(i, 1);
         audio.play('buy');
         this.ui.toast(`卖掉 ${r.name}，换回 ${r.sellValue} 材料`, 'good');

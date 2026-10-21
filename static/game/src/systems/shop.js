@@ -480,14 +480,14 @@ export class Shop {
           if (auto) {
             player.materials -= offer.price;
             offer.sold = true;
-            return this._finishBuy(player, { ok: true, offer, ...auto });
+            return this._finishBuy(player, { ok: true, offer, ...auto }, slotIndex);
           }
         }
         if (owned.length > 0) {
           player.materials -= offer.price;
           offer.sold = true;
           owned[0].level++;
-          return this._finishBuy(player, { ok: true, offer, weapon: owned[0], upgraded: true });
+          return this._finishBuy(player, { ok: true, offer, weapon: owned[0], upgraded: true }, slotIndex);
         }
         return { ok: false, reason: '武器栏已满（最多 6 把），先卖掉一把' };
       }
@@ -498,7 +498,7 @@ export class Shop {
 
     if (offer.kind === 'weapon') {
       const inst = player.addWeapon(offer.data.id, 1);
-      return this._finishBuy(player, { ok: true, offer, weapon: inst });
+      return this._finishBuy(player, { ok: true, offer, weapon: inst }, slotIndex);
     }
     // 体检修复（第九十二轮）：addItem 在达 maxStacks 时返回 false
     // （player.js:206）。此前忽略返回值 → 照样扣材料、标 sold、
@@ -509,7 +509,7 @@ export class Shop {
       offer.sold = false;
       return { ok: false, reason: '已达叠加上限' };
     }
-    return this._finishBuy(player, { ok: true, offer });
+    return this._finishBuy(player, { ok: true, offer }, slotIndex);
   }
 
   /**
@@ -520,8 +520,8 @@ export class Shop {
    * （普通买、升级、自动合成）都能触发自动刷新 —— 否则
    * 用自动合成买空货架时就不会刷新，行为不一致。
    */
-  _finishBuy(player, result) {
-    const auto = this._maybeAutoReroll(player);
+  _finishBuy(player, result, slotIndex = 0) {
+    const auto = this._maybeAutoReroll(player, slotIndex);
     if (auto) result.autoReroll = auto;
     return result;
   }
@@ -530,6 +530,19 @@ export class Shop {
   get allSold() {
     if (this.offers.length === 0) return false;
     return this.offers.every((o) => !o || o.sold);
+  }
+
+  /**
+   * 买家自己的半边区间（第一百七十七轮）。
+   * duo 分池货架 = 8 格：P1 前 4 格、P2 后 4 格 —— 买空判定和免费补货
+   * 都只看**买家自己**的半边。原来用 allSold 判整排 8 格，玩家买完
+   * 自己 4 个后只要 P2（AI）没买完，商店就永远不刷新（用户实测卡住）。
+   * 返回 [from, to)；单人货架（≤4 格）就是整排。
+   */
+  _buyerRange(slotIndex) {
+    if (this.offers.length <= SHOP_SLOTS) return [0, Math.max(1, this.offers.length)];
+    const half = slotIndex >= SHOP_SLOTS ? 1 : 0;
+    return [half * SHOP_SLOTS, half * SHOP_SLOTS + SHOP_SLOTS];
   }
 
   /**
@@ -604,22 +617,32 @@ export class Shop {
    *
    * @returns {{offers:ShopOffer[]}|null} 刷新结果，没触发则 null
    */
-  _maybeAutoReroll(player) {
-    if (!this.allSold) return null;
+  _maybeAutoReroll(player, slotIndex = 0) {
+    // 第一百七十七轮：按买家自己的半边判"买空"（duo 分池下 P2 AI 没买完
+    // 不该挡住 P1 的免费补货），补货也只补这一半 —— 另一半是队友的货架。
+    const [from, to] = this._buyerRange(slotIndex);
+    let any = false;
+    for (let i = from; i < to; i++) {
+      const o = this.offers[i];
+      if (!o) continue;
+      any = true;
+      if (!o.sold) return null;   // 这半边还有货 → 不补
+    }
+    if (!any) return null;
 
     // 保留锁定（虽然买空了通常没有锁，但逻辑上保持一致）
     const kept = [];
-    for (let i = 0; i < this.offers.length; i++) {
+    for (let i = from; i < to; i++) {
       if (this.locked.has(i) && !this.offers[i].sold) kept[i] = this.offers[i];
     }
-    for (let i = 0; i < SHOP_SLOTS; i++) {
+    for (let i = from; i < to; i++) {
       if (kept[i]) { this.offers[i] = kept[i]; continue; }
       this.offers[i] = this._makeOffer(player, this.currentWave ?? 0, i);
     }
     // 体检修复（第九十二轮）：补货后锁定集合必须清空。旧代码保留旧下标，
     // 补出来的随机新商品会凭空带 🔒 并在下一家商店被 roll 保留
     // —— 每次买空白拿一次额外锁。与 roll() 的"锁兑现即清"语义对齐。
-    this.locked.clear();
+    for (let i = from; i < to; i++) this.locked.delete(i);
     return { offers: this.offers, free: true };
   }
 

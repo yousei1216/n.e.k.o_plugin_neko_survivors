@@ -644,6 +644,16 @@ export class World {
     // 第一百零八轮：敌人持有 world 引用 —— 天气（川雾/台风推挤、
     // 移速乘区）在 _move 等无 world 参数的方法里也要读得到
     e.world = this;
+    // ---- 第一百七十七轮（2P）：多人血量补偿 ----
+    // 用户："发现是多人模式就小怪基础额外+20%，精英+40%，boss加60%，
+    // 只加血量。防止2个人双倍经济碾压过快。"（材料/经验共享后全场收入
+    // 近似翻倍，用血量把战斗时长拉回来。）判定 = 双人局（world.player2
+    // 存在）；只乘血量，伤害/移速/经验/掉落一概不动。
+    if (this.player2) {
+      const duoHp = def.boss ? 1.6 : (def.elite ? 1.4 : 1.2);
+      e.maxHp = Math.round(e.maxHp * duoHp);
+      e.hp = e.maxHp;
+    }
     // 召唤出来的敌人不带出生动画延迟太长
     e.spawnAnimation = 0.2;
     // ---- 第一百六十轮：噩梦专属基础血线 ----

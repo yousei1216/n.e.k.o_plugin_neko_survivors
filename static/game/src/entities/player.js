@@ -352,7 +352,24 @@ export class Player extends Entity {
     return leveled;
   }
 
+  /**
+   * 材料（金币）入账。
+   * 第一百七十七轮（2P）：**材料全队共享** —— 用户："双人模式2人共享
+   * 金币经验，即一个人拿到多少另一个人自动拿多少。"（经验在第一百七十轮
+   * 已共享。）所有入账路径（拾取/波末结算/宠物偷钱/卖战利品）都走这里，
+   * 一处同步全覆盖。防止重复入账：给队友走 _gainMaterialsLocal。
+   */
   gainMaterials(amount) {
+    this._gainMaterialsLocal(amount);
+    try {
+      for (const other of (this.world?.players?.() ?? [])) {
+        if (other && other !== this && !other.dead) other._gainMaterialsLocal(amount);
+      }
+    } catch { /* 共享失败不影响本体到账 */ }
+  }
+
+  /** 本体入账（不带共享，供 gainMaterials 的队友侧调用） */
+  _gainMaterialsLocal(amount) {
     this.materials += amount;
   }
 
@@ -732,7 +749,11 @@ export class Player extends Entity {
     if ((this._rescueGate ?? 0) > 0) return false;
     this._rescueGate = 0.2;
     this._rescueIdle = 0;
-    this.rescueProgress = Math.max(0, (this.rescueProgress ?? this.rescueNeed) - 1);
+    // 第一百七十八轮：救援刀**强制整数** —— 紫条无救援 3 秒会回涨
+    //（regain×dt 每帧小步加 → progress 是小数），救援 -1 直接在小数上
+    // 减会算出"救援 +1（1.37/5）"这种飘字（用户实测）。四舍五入到
+    // 整数格再减，永远整数刀；回涨内部的连续值不受影响。
+    this.rescueProgress = Math.max(0, Math.round(this.rescueProgress ?? this.rescueNeed) - 1);
     if (this.rescueProgress <= 0) {
       this.downed = false;
       this.hp = Math.max(1, Math.round(this.maxHp * 0.3));

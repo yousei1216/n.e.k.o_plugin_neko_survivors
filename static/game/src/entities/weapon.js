@@ -43,8 +43,9 @@ function rescueDownedAllies(player, world, x, y, range) {
       world.fx?.damageText?.(ally.x, ally.y - ally.radius - 10, '救援成功！', false, '#7cf3c4');
     } else if (!ally._rescueGate || ally._rescueGate >= 0.19) {
       world.fx?.sparkle?.(ally.x, ally.y, '#7cf3c4');
+      // 第一百七十八轮：进度取整显示（救援计数已整数化，这里兜底取整）
       world.fx?.damageText?.(ally.x, ally.y - ally.radius - 10,
-        `救援 +1（${ally.rescueNeed - ally.rescueProgress}/${ally.rescueNeed}）`, false, '#7cf3c4');
+        `救援 +1（${Math.round(ally.rescueNeed - ally.rescueProgress)}/${ally.rescueNeed}）`, false, '#7cf3c4');
     }
   }
 }
