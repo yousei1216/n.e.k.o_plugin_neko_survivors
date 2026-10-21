@@ -27,10 +27,12 @@ import { ARENA as VIRGIL_ARENA } from './vergil.js';
 import { ARENA as FLAN_ARENA } from './flandre.js';
 
 /** 选卡打分表：属性 id → 权重（噩梦通关的稳健成长序）
- *  luna 基础 10 血 —— 血量/移速/护甲是风筝流的生命线，权重给足 */
+ *  luna 基础 10 血 —— 血量/移速/护甲是风筝流的生命线，权重给足。
+ *  第一百八十四轮（用户："1/s回血和10点护甲左右的发育优先级拉高点"）：
+ *  hpRegen 5→8、armor 6→8 —— 生存成长序贴近输出。 */
 const STAT_SCORE = {
   damage: 10, attackSpeed: 8, maxHp: 10, critChance: 6, moveSpeed: 7,
-  armor: 6, critDamage: 4, hpRegen: 5, lifesteal: 4, luck: 4,
+  armor: 8, critDamage: 4, hpRegen: 8, lifesteal: 4, luck: 4,
   harvesting: 3, pickupRange: 2, dodge: 5,
 };
 
@@ -203,13 +205,28 @@ export class NekoPilot {
         }
         if (g.state === 'result') return; // 结算交给 P1 的 pilot
         if (p.pendingLevelUps > 0) {
-          // P2 升级自动化（不走选卡 UI）：简化包 = 生存向 +6 上限/+8% 伤害
+          // P2~P4 升级自动化（不走选卡 UI）—— 第一百八十四轮改成"缺口
+          // 优先"发育包（用户："至少让她们能把回血努力做到每秒1点起步"
+          // "10点护甲左右的发育优先级拉高点"）：
+          //   ① hpRegen < 1 → 每级 +0.5（两级补到 1/s 起步线）
+          //   ② armor < 10 → 每级 +2（五级补到 10 点护甲）
+          //   ③ 缺口补齐后 → +6 生命上限 / +8% 伤害（旧包，稳步成长）
           p.pendingLevelUps--;
-          p.stats.addFlat('maxHp', 6);
-          p.stats.addPct('damage', 8);
+          const regen = p.stats.get('hpRegen') ?? 0;
+          const armor = p.stats.get('armor') ?? 0;
+          if (regen < 1) {
+            p.stats.addFlat('hpRegen', 0.5);
+            this._log(`升级：+0.5 生命回复（现 ${Math.min(1, regen + 0.5).toFixed(1)}/s，缺口补齐线 1）`);
+          } else if (armor < 10) {
+            p.stats.addFlat('armor', 2);
+            this._log(`升级：+2 护甲（现 ${Math.min(10, armor + 2)}，缺口补齐线 10）`);
+          } else {
+            p.stats.addFlat('maxHp', 6);
+            p.stats.addPct('damage', 8);
+            p.heal(6);
+            this._log('升级：+6 生命上限 / +8% 伤害（自动）');
+          }
           p.stats.dirty = true;
-          p.heal(6);
-          this._log('P2 升级：+6 生命上限 / +8% 伤害（自动）');
         }
       }
 
@@ -242,7 +259,7 @@ export class NekoPilot {
       // · duo 且无 __buff3：双 0buff（2P 实验基准）；duo 且 __buff3：
       //   两只都挂 pilotTough（用户："单ai不行就双ai一起玩"）
       {
-        const duo = window.__duo || g.__duo;
+        const duo = globalThis.__duo || g.__duo;
         const buff3 = window.__buff3 || g.__buff3;
         const nobuff = window.__nobuff || g.__nobuff;
         const crew = this.entity ? [this.entity] : (g.players?.() ?? [g.player]);
@@ -251,6 +268,8 @@ export class NekoPilot {
           if (nobuff || (duo && !buff3)) {
             ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = false;
             ent._pilotMagnet = 0; ent._pilotIframe = 0; ent._pilotEarly = false;
+            // （184 轮：0buff 实验基准保持原样 —— 用户要求先别加光环 buff，
+            // 看升级缺口包修复后的自然表现；回血走升级/道具/商店缺口补齐。）
           } else if (buff3) {
             ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = true;
             ent._pilotEarly = (g.waveIndex ?? 0) < 3;
@@ -393,10 +412,11 @@ export class NekoPilot {
     // —— 但 game 实例上**从来没有**这个字段（只有 window.__duo），条件
     // 永远为 false，救援逻辑从上线起一行都没执行过！之前"偶尔救起"全是
     // 路过武器弹恰好穿过倒地者的运气（用户："只有刚好踩着队友尸体过去
-    // 才救"）。现在与光环段同口径 window.__duo || g.__duo。
+    // 才救"）。现在与光环段同口径 globalThis.__duo || g.__duo（globalThis
+    // 在浏览器即 window，node 测试桩也安全）。
     // 用户场景（绝对安全拆 2 个箱子路过倒地者不救）正是这个短路 + 拆箱
     // 分支抢走走位的结果：拆箱门槛 420 无比宽松，救援又从不触发。
-    const duoOn = window.__duo || g.__duo;
+    const duoOn = globalThis.__duo || g.__duo;
     if (duoOn && downedMates.length > 0 && nearestD > 40) {
       let best = null, bestD = Infinity;
       for (const m of downedMates) {
@@ -772,6 +792,11 @@ export class NekoPilot {
     const opts = Array.isArray(g.currentUpgradeOptions) ? g.currentUpgradeOptions : [];
     if (opts.length === 0) return;
     const early = (g.waveIndex ?? 0) < 4;   // 前 4 波：见血必选（噩梦 10 血基底扛不住）
+    // ---- 第一百八十四轮（用户："1/s回血、10点护甲的发育优先级拉高"）：
+    // 缺口加权 —— hpRegen 没到 1/s 时回血选项权重 ×3；护甲没到 10 时
+    // 护甲选项 ×2.5。补齐后回落基础权重（不无脑堆满）。
+    const regenGap = (ent.stats?.get?.('hpRegen') ?? 0) < 1;
+    const armorGap = (ent.stats?.get?.('armor') ?? 0) < 10;
     let bestI = 0, bestS = -Infinity;
     opts.forEach((o, i) => {
       let s = 0;
@@ -781,8 +806,13 @@ export class NekoPilot {
       for (const [k, v] of Object.entries(o?.pct || {})) {
         let w = STAT_SCORE[k] ?? 2;
         if (k === 'maxHp' && early) w *= 1.8;
+        if (k === 'hpRegen' && regenGap) w *= 3;
+        if (k === 'armor' && armorGap) w *= 2.5;
         s += w * (Number(v) || 0);
       }
+      // mods 同样吃缺口加权（有的升级包把回复/护甲放 flat 里）
+      if (regenGap && Number(o?.mods?.hpRegen) > 0) s += 30;
+      if (armorGap && Number(o?.mods?.armor) > 0) s += 25;
       // 血量选项绝对优先：maxHp 是加法（+6），前期一条命的价值远超输出
       if (early && Number(o?.mods?.maxHp) > 0) s += 100;
       // 带 curse / 负面 pct 的选项（>18% 伤害换 -10% 血那种）一票否决
@@ -851,10 +881,11 @@ export class NekoPilot {
           // 同名武器允许持有 2 把（游戏机制：两把同名可合成升级），
           // 第 3 把起纯占栏，跳过
           if (isWeapon && typeof p.findWeapons === 'function' && p.findWeapons(o.data.id).length >= 2) continue;
-          // 决策：冲刺期是武器就买（近战先塞栏，之后靠合成腾位）；
-          // 满栏后远程武器见到仍买 / 血量移速必买 / 1~2 件较贵补给
+          // 决策：冲刺期武器优先（近战先塞栏，之后靠合成腾位），但回血/
+          // 护甲道具**照样买**（用户："1/s回血起步"—— 武器冲刺不该牺牲
+          // 血线）；满栏后远程武器见到仍买 / 血量移速必买 / 1~2 件较贵补给
           const want = rushWeapons
-            ? isWeapon
+            ? (isWeapon || isHpItem)
             : (isRangedWeapon
               || (isWeapon && weaponCount < 6)
               || isHpItem
@@ -945,7 +976,7 @@ export class NekoPilot {
         // 没有快照（比如开局第一秒就没了）：兜底重开 —— duo 维持 duo
         // watch（两个 AI 的模式），单人维持单人。
         this._log('无波次快照，兜底重开（保留模式）');
-        if ((window.__duo || g.__duo) && typeof g.onDuoWatch === 'function') g.onDuoWatch();
+        if ((globalThis.__duo || g.__duo) && typeof g.onDuoWatch === 'function') g.onDuoWatch();
         else g.startRun(this.characterId);
       }
       globalThis.NekoAgent?.setPuppetMode?.(true);

@@ -2711,6 +2711,23 @@ export class Game {
       // 不存的话读档/重试本波会把"暂存的收益"清零。
       xpDebt: p.xpDebt ?? 0,
       materialDebt: p.materialDebt ?? 0,
+      // ---- 第一百八十四轮：多人模式进存档（用户："继续游戏应该是不兼容
+      // 我们的新多人模式"—— 4P 存档读回来队伍蒸发）。party=人数，mates=
+      // 每个队友的完整成长快照（角色/血量/等级/武器/道具/升级/属性修正）。
+      party: this._duoEnabled ? (this._partySize || 2) : 0,
+      p1Ai: !!window.NekoAgent?.pilot?.on,
+      mates: this._duoEnabled ? this.world.partners().map((pl, i) => ({
+        slot: i + 2,
+        characterId: pl.characterId,
+        hp: pl.hp,
+        level: pl.level,
+        xp: pl.xp,
+        xpNeeded: pl.xpNeeded,
+        weapons: pl.weapons.map((w) => ({ id: w.def.id, level: w.level })),
+        items: [...pl.items.entries()],
+        upgrades: [...pl.upgradesTaken.entries()],
+        stats: serializeStatMods(pl.stats),
+      })) : [],
     };
   }
 
@@ -2839,6 +2856,33 @@ export class Game {
     // 不重打已结算的第 N 波（否则每轮"退出→继续"白赚一遍波次收入）。
     // 第九十四轮：重试本波**绕过**这个分支（见 opts.fromRetry 的说明）——
     // 否则波次快照若带 phase:'shop'，重试会变成开店且计时器不重置。
+    // ---- 第一百八十四轮：多人队伍恢复（用户："继续游戏应该是不兼容我们
+    // 的新多人模式"）—— retryWave 不走这里（它有全量重拉逻辑，双拉会
+    // 叠出重复队友）。必须在 shop/_beginWave 之前就位：开店分池和波次
+    // 的 players() 遍历都依赖队友在场。
+    if (!opts.fromRetry && Number(data.party) >= 2 && Array.isArray(data.mates) && data.mates.length > 0) {
+      window.__duo = true;
+      this.__duo = true;
+      this._partySize = Math.min(4, Number(data.party));
+      this._duoEnabled = true;
+      for (const m of data.mates) {
+        const pl = this._spawnPartner(this.player.characterId, m.characterId, m.slot || 2);
+        if (!pl) continue;
+        pl.level = Number(m.level) || 1;
+        pl.xp = Number(m.xp) || 0;
+        if (Number(m.xpNeeded) > 0) pl.xpNeeded = Number(m.xpNeeded);
+        try { restoreStatMods(pl.stats, m.stats); } catch { /* 老档无字段按裸装 */ }
+        pl.weapons = [];
+        for (const w of (Array.isArray(m.weapons) ? m.weapons : [])) pl.addWeapon(w.id, w.level);
+        pl.items = new Map(Array.isArray(m.items) ? m.items : []);
+        pl.upgradesTaken = new Map(Array.isArray(m.upgrades) ? m.upgrades : []);
+        pl.hp = clamp(Number(m.hp) || pl.maxHp, 1, pl.stats.get('maxHp'));
+        pl._lastMaxHp = pl.stats.get('maxHp');
+      }
+      this._bindPartyPilots(this._partySize);
+      // 原局 P1 也是 AI（全员猫娘）→ 读档后同样接管
+      if (data.p1Ai) window.NekoAgent?.pilot?.adopt(this);
+    }
     if (!opts.fromRetry && data.phase === 'shop') {
       // 第一百三十六轮：商店分支同样要拿到规整后的波次 —— 否则
       // this.waveIndex 保持旧值/undefined，店里"开始下一波"会算出 NaN
@@ -3176,6 +3220,31 @@ try {
       window.NekoAgent?.pilot?.adopt(game);
     }
   }
+  // ?cont=1：自动"继续游戏"（等价点标题的继续按钮）—— 4P 存档卡死复现用
+  if (q.has('cont')) {
+    try { game.loadGame(); } catch (e) {
+      try { fetch('http://127.0.0.1:8033/probe?name=cont-error', { method: 'POST', body: String(e && e.stack || e) }); } catch { /* */ }
+    }
+  }
+  // ?savequit=1&party=N：t=3s 强制存档 + dump 存档字段，t=4s 剥掉参数
+  // 重载成 ?probe=1&cont=1 —— 全自动复现"4P 退出→继续游戏"链路。
+  if (q.has('savequit')) {
+    setTimeout(() => {
+      try {
+        game._saveGame();
+        const raw = localStorage.getItem('neko_miao_save_v1') || '(empty)';
+        let keys = '(none)';
+        try { keys = Object.keys(JSON.parse(raw)).join(','); } catch { /* */ }
+        fetch('http://127.0.0.1:8033/probe?name=save-dump', {
+          method: 'POST',
+          body: JSON.stringify({ party: game._partySize, duoEnabled: game._duoEnabled, keys }),
+        });
+      } catch { /* */ }
+    }, 3000);
+    setTimeout(() => {
+      try { location.href = location.origin + location.pathname + '?probe=1&cont=1'; } catch { /* */ }
+    }, 4000);
+  }
   // ?flandre=1：直通芙兰战测试局（同 ?vergil=1 的口子，4P 弹幕躲避
   // 调试用 —— 正常路径要打穿 20 波才能见到她）
   if (q.has('flandre')) {
@@ -3184,7 +3253,7 @@ try {
   // ?probe=1：把对局画面/状态定时 POST 给本地探针服务器（184 轮 4P
   // 修复验证用 —— headless 环境没有 CDP 截图通道，canvas 自证最干净）。
   // 与 party/flandre 任一开局参数搭配使用。
-  if (q.get('probe') === '1' && (party >= 1 || q.has('flandre'))) {
+  if (q.get('probe') === '1' && (party >= 1 || q.has('flandre') || q.has('cont'))) {
     const cv = canvas;
     for (const t of [4000, 8000, 12000, 16000, 20000, 24000]) {
       setTimeout(() => {
