@@ -703,7 +703,13 @@ export class Game {
     // 悠怡的「猫的步伐」是"每回合限1次"，库洛的毒舌判定表、
     // Neon（原"neon宴会"）的炮台叠层也都该跟着新一波清空 —— 上一波的敌人已经没了，
     // 留着那些 id 只会让 Map 越滚越大。
-    this.player?.charRt?.onRoundStart?.();
+    // 第一百八十四轮：**duo 全员**都要重置 —— 之前只重置 P1，2P 悠怡的
+    // lethalUsedThisRound 卡在 1，锁血一次之后每个新回合都直接死
+    //（用户实测："2p的悠怡的猫的步伐不会刷新，只生效过一次之后的新
+    // 回合都是直接死"）；双死重开时 P2 重建实例才"看起来好了"。
+    for (const pl of (this.world.players?.() ?? [this.player])) {
+      pl?.charRt?.onRoundStart?.();
+    }
 
     // 本波是不是 Boss 波。
     //
@@ -976,12 +982,29 @@ export class Game {
     } else if (this.world.playerUlt) {
       this.world.playerUlt = null;
     } else if (
-      p.hasItem?.('yamato') && !p.dead
-      && p.hp < p.stats.get('maxHp') * 0.5
-      && this.playerUltWave !== this.waveIndex
+      // ---- 第一百八十四轮：阎魔刀对 2P 也生效 ----
+      // 用户："如果猫的步伐不刷新，是不是阎魔刀也不刷新？刷新效果不在
+      // 2p角色身上生效？"—— 触发与每波限一次标志都只认 P1。现在 P2
+      // 自己的 yamato 自己判（p2UltWave 独立计数），演出复用同一段。
+      (
+        (p.hasItem?.('yamato') && !p.dead
+          && p.hp < p.stats.get('maxHp') * 0.5
+          && this.playerUltWave !== this.waveIndex)
+        || (() => {
+          const q = this.world.player2;
+          return !!(q && !q.dead && !q.downed
+            && q.hasItem?.('yamato')
+            && q.hp < q.stats.get('maxHp') * 0.5
+            && this.p2UltWave !== this.waveIndex);
+        })()
+      )
       && this.world.enemies.items.some((e) => !e.dead)
     ) {
-      this.playerUltWave = this.waveIndex;     // 每回合限一次
+      if (p.hasItem?.('yamato') && !p.dead && p.hp < p.stats.get('maxHp') * 0.5) {
+        this.playerUltWave = this.waveIndex;     // 每回合限一次
+      } else {
+        this.p2UltWave = this.waveIndex;         // 2P 独立的每回合限一次
+      }
       this.playerUlt = { t: 0, blades: [], launched: 0, acc: 0 };
       this.world.playerUlt = this.playerUlt;
       this.ui.toast('阎魔刀 · 次元斩！', 'good', 2500);
@@ -1548,9 +1571,17 @@ export class Game {
     //   悠怡      → 每回合结束 +2
     //   悠怡萌妹  → 每拥有 10 点（实际生效）幸运 +1
     // 两个都走 charRt，各自返回实际加了多少，便于下面小结里显示。
-    const skillHarvest = p.charRt?.onRoundEnd?.() ?? 0;
-    const luckHarvest = p.charRt?.luckHarvest?.() ?? 0;
+    // 第一百八十四轮：duo 全员都结算（2P 悠怡/萌妹的回合收益此前一直没发）
+    let skillHarvest = p.charRt?.onRoundEnd?.() ?? 0;
+    let luckHarvest = p.charRt?.luckHarvest?.() ?? 0;
     if (luckHarvest > 0) p.gainMaterials(luckHarvest);
+    for (const pl of (this.world.players?.() ?? [])) {
+      if (pl === p || !pl || pl.dead) continue;
+      skillHarvest += pl.charRt?.onRoundEnd?.() ?? 0;
+      const lk = pl.charRt?.luckHarvest?.() ?? 0;
+      if (lk > 0) pl.gainMaterials(lk);
+      luckHarvest += lk;
+    }
 
     // 波次结算奖励：稳定的材料收入，避免前期太穷
     const clearBonus = waveClearBonus(this.waveIndex);
