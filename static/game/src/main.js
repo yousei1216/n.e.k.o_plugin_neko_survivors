@@ -479,66 +479,94 @@ export class Game {
 
       // ---- 第一百七十一轮：「双猫娘同游」（2P 实验）——
       // P1 = 玩家操控（当前选中角色），P2 = AI 猫娘（**从剩下 7 个角色
-      // 随机**，不和玩家撞角色）。经验共享、金币独立、最近仇恨、双死
-      // 判负、倒地救援（黑夜君临环）。duo 下 AI 猫娘无 buff。
+      // 随机**，不和玩家撞角色）。经验共享、金币独立、最近仇恨、全队
+      // 倒地判负、倒地救援（黑夜君临环）。duo 下 AI 猫娘无 buff。
+      // ---- 第一百八十四轮：泛化 _startParty(size) —— 1~4P 一个入口。
       onDuoPlay: (id) => {
         audio.play('gameStart');
         window.__duo = true;
-        this.startRun(id, { duo: true });
-        const p2 = this.world.player2;
-        if (p2) {
-          window.NekoAgent?.pilot2?.start(this, { entity: p2 });
-          // 第一百七十九轮：台词报**中文名**（悠怡萌妹），不是内部 id（nana）
-          this._nekoSay?.(` duo 开局！${CHARACTER_MAP[p2.characterId]?.name ?? p2.characterId} 也来帮忙了喵～`);
-        }
+        this.startRun(id, { party: 2 });
+        this._bindPartyPilots(2);
+        const nmB = CHARACTER_MAP[this.world.player2?.characterId]?.name ?? '';
+        this._nekoSay?.(` duo 开局！${nmB} 也来帮忙了喵～`);
       },
 
-      // ---- 第一百七十一轮：「看2个猫娘手忙脚乱」——
-      // 1P 和 2P **都是** AI 猫娘（随机两个不同角色），玩家纯围观。
+      // ---- 第一百八十四轮：1~4P 开局 —— P1 真人 + size-1 个 AI 猫娘
+      //（都走 agentMoveTarget，不抢键盘）。
+      onPartyPlay: (id, size) => {
+        audio.play('gameStart');
+        window.__duo = true;
+        this.startRun(id, { party: size });
+        this._bindPartyPilots(size);
+        const names = this.world.partners()
+          .map((pl) => CHARACTER_MAP[pl.characterId]?.name ?? pl.characterId);
+        this._nekoSay?.(`${size} 人小队开局！猫娘阵容：${names.join('、')}，看我们的喵～`);
+      },
+
+      // ---- 第一百七十一轮：「看2个猫娘手忙脚乱」→ 184 轮「全员猫娘」——
+      // 1P 和所有队友 **都是** AI 猫娘（随机不撞角色），玩家纯围观。
       // 暂停菜单的"让猫娘玩"开关依然可用（关掉 1P 大脑就能接管）。
       onDuoWatch: () => {
         audio.play('gameStart');
         window.__duo = true;
         const ids = CHARACTERS.map((c) => c.id);
-        const a = ids[Math.floor(this.rng?.next?.() ?? Math.random()) * 0 + Math.floor(Math.random() * ids.length)];
-        let b = a;
-        while (b === a) b = ids[Math.floor(Math.random() * ids.length)];
+        const pick = (excl) => {
+          const pool = ids.filter((x) => !excl.includes(x));
+          return pool[Math.floor(Math.random() * pool.length)];
+        };
+        const a = pick([]);
+        const b = pick([a]);
         this.startRun(a, { duo: true, partnerId: b });
-        const p2 = this.world.player2;
-        if (p2) {
-          // 1P 也交给 AI：adopt 不重开局，直接接管当前局面
-          window.NekoAgent?.pilot?.adopt(this);
-          window.NekoAgent?.pilot2?.start(this, { entity: p2 });
-          // 第一百七十九轮：报最新中文名（CHARACTER_MAP 现查现用，
-          // 角色以后改名台词自动跟上；不再念 nana/yui 这种内部 id）
-          const nmA = CHARACTER_MAP[a]?.name ?? a;
-          const nmB = CHARACTER_MAP[b]?.name ?? b;
-          this._nekoSay?.(`两只猫娘上场：${nmA} 和 ${nmB}，看戏吧喵～`);
-        }
+        // 1P 也交给 AI：adopt 不重开局，直接接管当前局面
+        window.NekoAgent?.pilot?.adopt(this);
+        this._bindPartyPilots(2);
+        const nmA = CHARACTER_MAP[a]?.name ?? a;
+        const nmB = CHARACTER_MAP[b]?.name ?? b;
+        this._nekoSay?.(`两只猫娘上场：${nmA} 和 ${nmB}，看戏吧喵～`);
       },
     });
+  }
+
+  /** 第一百八十四轮：把 1~size 号队友的大脑绑到各自的实体上
+   * （startRun/retryWave/开局入口共用；pilots[i] ↔ partners()[i]）。 */
+  _bindPartyPilots(size) {
+    const fresh = this.world.partners();
+    const pilots = window.NekoAgent?.pilots;
+    if (Array.isArray(pilots)) {
+      pilots.forEach((pt, i) => {
+        const np = fresh[i];
+        if (np && pt && (pt.on || i === 0)) pt.start(this, { entity: np });
+      });
+    } else if (window.NekoAgent?.pilot2 && fresh[0]) {
+      window.NekoAgent.pilot2.start(this, { entity: fresh[0] });
+    }
   }
 
   // =========================================================
   // 开局
   // =========================================================
-  /** 第一百七十一轮：创建 P2 队友（startRun duo 与 retryWave 共用）。
-   *  partnerId 缺省 = 从除玩家所选之外的 7 个角色里随机（不撞角色） */
-  _spawnPartner(characterId, partnerId) {
+  /** 第一百七十一轮：创建队友（startRun party 与 retryWave 共用）。
+   *  partnerId 缺省 = 从除已选角色之外的池子里随机（不撞角色）。
+   *  第一百八十四轮：slot 2/3/4 —— 落到 world.player2/3/4；出生点按
+   *  槽位错开，避免四人叠在同一坐标。 */
+  _spawnPartner(characterId, partnerId, slot = 2) {
     const ids = CHARACTERS.map((c) => c.id);
-    if (!partnerId || partnerId === characterId) {
-      const pool = ids.filter((x) => x !== characterId);
+    const taken = [this.player.characterId, ...this.world.partners().map((p) => p.characterId)];
+    if (!partnerId || taken.includes(partnerId)) {
+      const pool = ids.filter((x) => !taken.includes(x));
       partnerId = pool[Math.floor(Math.random() * pool.length)];
     }
-    this._duoPartnerId = partnerId;
     const p2 = new Player(partnerId, this.rng);
     p2.isP2 = true;
     this.player.duoMode = true;
     p2.duoMode = true;
     p2.world = this.world;
-    p2.x = this.player.x + 60;
-    p2.y = this.player.y + 40;
-    this.world.player2 = p2;
+    const offs = [[60, 40], [-60, 40], [60, -40]][Math.min(3, slot) - 2] ?? [60, 40];
+    p2.x = this.player.x + offs[0];
+    p2.y = this.player.y + offs[1];
+    if (slot === 3) this.world.player3 = p2;
+    else if (slot === 4) this.world.player4 = p2;
+    else this.world.player2 = p2;
     return p2;
   }
 
@@ -551,10 +579,17 @@ export class Game {
     // opts.duo = true 时创建第二个真玩家实体（另一个角色），两人都打
     // duoMode 标：死亡一律转倒地等队友救援，都倒了才判负。
     this.world.player2 = null;
-    if (opts.duo) {
-      this._spawnPartner(characterId, opts.partnerId);
+    this.world.player3 = null;
+    this.world.player4 = null;
+    // ---- 第一百八十四轮：1~4P —— opts.party = 2/3/4（兼容旧 duo=true）。
+    // P1 永远是玩家；队友全部由 AI 猫娘驱动（agentMoveTarget，不抢键盘）。
+    if (opts.duo) this._spawnPartner(characterId, opts.partnerId, 2);
+    const party = Math.max(opts.duo ? 2 : 1, Math.min(4, opts.party ?? 1));
+    for (let s = opts.duo ? 3 : 2; s <= party; s++) {
+      this._spawnPartner(characterId, null, s);
     }
-    this._duoEnabled = !!opts.duo;
+    this._partySize = party;
+    this._duoEnabled = party >= 2 || !!opts.duo;
     // 第一百零八轮：天气系统 —— 随机判定走独立流（rng.fork），主随机
     // 流一个字不动；实体通过 world.weather / player.world 读旗标。
     this.weather = new WeatherSystem(this.rng);
@@ -990,20 +1025,21 @@ export class Game {
         (p.hasItem?.('yamato') && !p.dead
           && p.hp < p.stats.get('maxHp') * 0.5
           && this.playerUltWave !== this.waveIndex)
-        || (() => {
-          const q = this.world.player2;
-          return !!(q && !q.dead && !q.downed
-            && q.hasItem?.('yamato')
-            && q.hp < q.stats.get('maxHp') * 0.5
-            && this.p2UltWave !== this.waveIndex);
-        })()
+        || this.world.partners?.().some((q) => !q.dead && !q.downed
+          && q.hasItem?.('yamato')
+          && q.hp < q.stats.get('maxHp') * 0.5
+          && !((this._mateUltWaves ??= {})[q === this.world.player2 ? 2 : q === this.world.player3 ? 3 : 4] === this.waveIndex))
       )
       && this.world.enemies.items.some((e) => !e.dead)
     ) {
       if (p.hasItem?.('yamato') && !p.dead && p.hp < p.stats.get('maxHp') * 0.5) {
         this.playerUltWave = this.waveIndex;     // 每回合限一次
       } else {
-        this.p2UltWave = this.waveIndex;         // 2P 独立的每回合限一次
+        // 队友触发：各自槽位独立的每回合限一次（184 轮 1~4P 泛化）
+        const q = this.world.partners().find((pl) => !pl.dead && !pl.downed
+          && pl.hasItem?.('yamato') && pl.hp < pl.stats.get('maxHp') * 0.5
+          && (this._mateUltWaves ??= {})[pl === this.world.player2 ? 2 : pl === this.world.player3 ? 3 : 4] !== this.waveIndex);
+        if (q) (this._mateUltWaves ??= {})[q === this.world.player2 ? 2 : q === this.world.player3 ? 3 : 4] = this.waveIndex;
       }
       this.playerUlt = { t: 0, blades: [], launched: 0, acc: 0 };
       this.world.playerUlt = this.playerUlt;
@@ -1031,11 +1067,18 @@ export class Game {
     // 小键盘有输入 = 真人接管，立刻清掉 AI 的 agentMoveTarget（人抢
     // 回控制权）。没输入时才由 pilot2 的 AI 驱动。
     // 小键盘 0 = 芙兰战减速、小键盘 . = 消弹（与 P1 的 Q/空格同效果）。
+    // ---- 第一百八十四轮（1~4P）：P3/P4 只由各自 AI 驱动（无键位）；
+    // 键盘只有一个，真人永远是 P1 —— AI 全部走 agentMoveTarget，
+    // **不存在抢键盘**（用户担心的"强键盘"只可能发生在 P1 切 AI 代打，
+    // 那是显式开关）。
     const p2 = this.world.player2;
     if (p2) {
       const p2axis = cometFreeze ? { x: 0, y: 0 } : this.input.moveAxisP2();
       if (p2axis.x !== 0 || p2axis.y !== 0) p2.agentMoveTarget = null;
       p2.update(stunDt, { moveAxis: () => p2axis, p2SkillSlow: () => this.input.p2SkillSlow(), p2SkillClear: () => this.input.p2SkillClear() }, this.camera, this.world);
+    }
+    for (const pl of [this.world.player3, this.world.player4]) {
+      if (pl) pl.update(stunDt, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
     }
 
     // ---- 第一百六十轮：四重存在（莱万汀分身）----
@@ -1061,17 +1104,20 @@ export class Game {
     this.camera.follow(p.x, p.y, dt);
     this.camera.update(dt);
 
-    // 玩家死亡 —— 第一百七十轮（2P）：P1 倒下时若 P2 还活着/倒地可救，
-    // 游戏继续（等待救援或 P2 独自作战）；两个都倒下才算输。
-    // 注意：duo 模式下 takeDamage 已把两人死亡都转成 downed，
+    // 玩家死亡 —— 第一百七十轮（2P）：P1 倒下时若队友还活着/倒地可救，
+    // 游戏继续（等待救援或队友独自作战）；全队都倒下才算输。
+    // 注意：duo 模式下 takeDamage 已把所有玩家死亡都转成 downed，
     // p.dead 为 true 只在非 duo 模式（兼容单人全部既有流程）。
-    const p2Down = p2 && (p2.dead || p2.downed);
-    if (p.dead && (!p2 || p2Down)) {
+    // ---- 第一百八十四轮：判定泛化到 1~4P —— 任何队友还"可救"
+    //（活着或倒地未死）就不判负；全员倒地/死亡 = 全队失去战斗能力。
+    const mates = this.world.partners();
+    const mateDown = (pl) => pl && (pl.dead || pl.downed);
+    const allMatesDown = mates.length > 0 && mates.every(mateDown);
+    if (p.dead && (!mates.length || allMatesDown)) {
       this._endRun(false);
       return;
     }
-    // duo 双倒：两人都 downed = 全队失去战斗能力 = 判负
-    if (this._duoEnabled && p.downed && p2 && p2.downed) {
+    if (this._duoEnabled && p.downed && allMatesDown) {
       this._endRun(false);
       return;
     }
@@ -1542,14 +1588,13 @@ export class Game {
     // ---- 第一百七十轮（2P）：波次结束重置倒下次数（救援刀数恢复
     // 首档 5 刀）；倒地的人自动满血复活（用户："过了这回合倒地的人
     // 自动满血复活，不然下回合还要救援"）----
-    if (this.world.player2) {
-      for (const pl of [p, this.world.player2]) {
-        pl.resetDownCount();
-        if (pl.downed) {
-          pl.downed = false;
-          pl.hp = pl.maxHp;
-          pl.invuln = 1.5;
-        }
+    // ---- 第一百八十四轮（1~4P）：全员结算（队友回血/倒地清零）----
+    for (const pl of this.world.players()) {
+      pl.resetDownCount();
+      if (pl.downed) {
+        pl.downed = false;
+        pl.hp = pl.maxHp;
+        pl.invuln = 1.5;
       }
     }
 
@@ -1732,11 +1777,15 @@ export class Game {
     this.weather.update(dt, this.world, p);
     p.update(dt, this.input, this.camera, this.world);
     // ---- 第一百七十一轮：P2 也参战（芙兰/维吉尔战世界照推，队友照动）
+    // ---- 第一百八十四轮（1~4P）：P3/P4 同样参战（AI 驱动，无键位）
     const p2v = this.world.player2;
     if (p2v) {
       const ax2 = this.input.moveAxisP2();
       if (ax2.x !== 0 || ax2.y !== 0) p2v.agentMoveTarget = null;
       p2v.update(dt, { moveAxis: () => ax2, p2SkillSlow: () => this.input.p2SkillSlow() }, this.camera, this.world);
+    }
+    for (const pl of [this.world.player3, this.world.player4]) {
+      if (pl) pl.update(dt, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
     }
     // waveElapsed 传 0：残留的 bossTimeRatio 不参与任何判定（同芙兰双保险）
     this.world.update(dt, p, 0);
@@ -1750,6 +1799,12 @@ export class Game {
     const minY = VARENA.cy - VARENA.hh, maxY = VARENA.cy + VARENA.hh;
     p.x = clamp(p.x, minX, maxX);
     p.y = clamp(p.y, minY, maxY);
+    // ---- 第一百八十四轮（1~4P）：全部实体都关在场地里（AI 目标点已由
+    // pilot clamp，这里兜底实体坐标本身）
+    for (const pl of this.world.partners()) {
+      pl.x = clamp(pl.x, minX, maxX);
+      pl.y = clamp(pl.y, minY, maxY);
+    }
     // 镜头锁到舞台中心（芙兰同款；shake 偏移仍由 camera 自身叠加）
     this.camera.x = VARENA.cx;
     this.camera.y = VARENA.cy;
@@ -1904,11 +1959,15 @@ export class Game {
     audio.beginFrame();
     p.update(dt, this.input, this.camera, this.world);
     // ---- 第一百七十一轮：P2 也参战（芙兰战）
+    // ---- 第一百八十四轮（1~4P）：P3/P4 同样参战
     const p2f = this.world.player2;
     if (p2f) {
       const ax2 = this.input.moveAxisP2();
       if (ax2.x !== 0 || ax2.y !== 0) p2f.agentMoveTarget = null;
       p2f.update(dt, { moveAxis: () => ax2, p2SkillSlow: () => this.input.p2SkillSlow() }, this.camera, this.world);
+    }
+    for (const pl of [this.world.player3, this.world.player4]) {
+      if (pl) pl.update(dt, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
     }
     // 第六十七轮：waveElapsed 传 0 —— 战斗期间 world.bossTimeRatio 恒为 1，
     // 不让打完 20 波残留的过期计时参与任何 bossPhase 判定（双保险，
@@ -1929,6 +1988,11 @@ export class Game {
       || p.y <= minY + EPS || p.y >= maxY - EPS) p.wallFlash = 0.45;
     p.x = fx;
     p.y = fy;
+    // ---- 第一百八十四轮（1~4P）：全部实体关进芙兰场地（同维吉尔兜底）
+    for (const pl of this.world.partners()) {
+      pl.x = clamp(pl.x, minX, maxX);
+      pl.y = clamp(pl.y, minY, maxY);
+    }
     // 镜头锁到舞台中心（shake 偏移仍由 camera 自身叠加）
     this.camera.x = ARENA.cx;
     this.camera.y = ARENA.cy;
@@ -2079,17 +2143,14 @@ export class Game {
 
     this.shop.currentWave = this.waveIndex;
     this.shop.roll(p, this.waveIndex);
-    // ---- 第一百七十一轮（2P）：商店分池 —— duo 下 P2 追加自己的专属
-    // 货架（格 4-7），P1 的 UI 和 AI 只看前 4 格，谁也抢不走谁的货。
-    // P2 的 AI 从格 SHOP_SLOTS 起买（见 pilot._nextWave 的 slotBase）。
-    if (this.world.player2) {
-      const shop2 = this.shop;
-      const p2 = this.world.player2;
-      // 注意：起点必须先取死 —— 循环体内 offers[i]=... 会让 length+1，
-      // 用 `i < offers.length + 4` 做终止条件就是无限循环（栈诊断实锤）
-      const base = shop2.offers.length;
+    // ---- 第一百七十一轮（2P）：商店分池 —— duo 下队友追加自己的专属
+    // 货架（每人 4 格），P1 的 UI 和 AI 只看前 4 格，谁也抢不走谁的货。
+    // 队友的 AI 从各自 slotBase 起买（见 pilot._nextWave 的 slotBase）。
+    // ---- 第一百八十四轮（1~4P）：P3/P4 各追加 4 格。
+    for (const mate of this.world.partners()) {
+      const base = this.shop.offers.length;
       for (let i = 0; i < 4; i++) {
-        shop2.offers[base + i] = shop2._makeOffer(p2, this.waveIndex, i);
+        this.shop.offers[base + i] = this.shop._makeOffer(mate, this.waveIndex, i);
       }
     }
     this._saveGame();
@@ -2427,17 +2488,30 @@ export class Game {
 
     this._applyRunData(snap.run, { fromRetry: true });
 
-    // ---- 第一百七十一轮修复：duo 重试保留 2P ——
+    // ---- 第一百七十一轮修复：duo 重试保留队友 ——
     // 快照重建 world 是单人流程，这里把队友补回来（v0.3.48"重试后
-    // 变回单人"的根因）。重开局的 P2 满血满状态、倒地次数清零。
+    // 变回单人"的根因）。重开局的队友满血满状态、倒地次数清零。
+    // ---- 第一百八十四轮：1~4P —— 按开局人数全量重拉 + AI 全量重绑。
     if (this._duoEnabled) {
-      this._spawnPartner(this.player.characterId, this._duoPartnerId);
+      const size = this._partySize || 2;
+      const oldChars = [this.world.player2, this.world.player3, this.world.player4]
+        .filter(Boolean).map((pl) => pl.characterId);
+      for (let s = 2; s <= size; s++) {
+        this._spawnPartner(this.player.characterId, oldChars[s - 2], s);
+      }
       // ---- 第一百七十四轮：AI 队友重绑 ——
-      // _spawnPartner 造的是**新** P2 实体，pilot2 还牵着旧的（duo watch
-      // 团灭自动重试后，队友 AI 会失联挂机）。新 P2 一落地就把大脑接上。
-      const np2 = this.world.player2;
-      if (np2 && window.NekoAgent?.pilot2?.on) {
-        window.NekoAgent.pilot2.start(this, { entity: np2 });
+      // _spawnPartner 造的是**新**实体，pilots 还牵着旧的（duo watch
+      // 团灭自动重试后，队友 AI 会失联挂机）。新实体一落地就把大脑接上。
+      const pilots = window.NekoAgent?.pilots;
+      if (Array.isArray(pilots)) {
+        const fresh = this.world.partners();
+        pilots.forEach((pt, i) => {
+          const np = fresh[i];
+          if (np && pt?.on) pt.start(this, { entity: np });
+        });
+      } else if (window.NekoAgent?.pilot2?.on) {
+        const np2 = this.world.player2;
+        if (np2) window.NekoAgent.pilot2.start(this, { entity: np2 });
       }
     }
 
@@ -2830,6 +2904,11 @@ window.NekoAgent = {
    *  entity 模式，双 0buff 实验；duo 局由 _duoPlay 启动 */
   pilot2: new NekoPilot(),
 
+  /** 第一百八十四轮（1~4P）：P3/P4 的大脑 —— 与 pilot2 同构的 entity
+   *  模式实例；pilots 数组（字面量之后聚合）按槽位序供重绑遍历。 */
+  pilot3: new NekoPilot(),
+  pilot4: new NekoPilot(),
+
   /** 内部：抛全局事件（构造失败也吞掉） */
   _emit(type, detail) {
     try {
@@ -2851,8 +2930,9 @@ window.NekoAgent = {
       // ---- 第一百七十一轮修复：pilot2 先于 pilot —— 推波是 pilot 的
       // 职责，pilot 一买东西就 _beginWave（shop 态只活一帧）；pilot2 排
       // 后面就永远轮不到商店（v0.3.48/49 实测 P2 八波零购买）。
-      // 先让 P2 买东西，再让 P1 买+推波。
-      if (this.pilot2?.on) this.pilot2.tick(g);
+      // 先让队友们买东西，再让 P1 买+推波（1~4P：pilot3/4 也排前面）。
+      if (this.pilots) for (const pt of this.pilots) { if (pt?.on) pt.tick(g); }
+      else if (this.pilot2?.on) this.pilot2.tick(g);
       if (this.pilot?.on) this.pilot.tick(g);
       const p = g?.player;
       if (!p || g.state !== 'playing') return;
@@ -3019,3 +3099,7 @@ window.NekoAgent = {
     }
   },
 };
+
+// 第一百八十四轮（1~4P）：按槽位序聚合队友大脑 [pilot2, pilot3, pilot4]，
+// retryWave 重绑 / _tick 驱动都遍历这个数组。
+window.NekoAgent.pilots = [window.NekoAgent.pilot2, window.NekoAgent.pilot3, window.NekoAgent.pilot4];

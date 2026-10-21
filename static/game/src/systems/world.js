@@ -153,13 +153,20 @@ export class World {
     // ---- 第一百七十轮：2P 实验（双猫娘同游）----
     // player2 = 第二个真玩家实体（完整 Player，AI 驱动）。null = 单人模式，
     // 所有主干路径通过 players()/nearestPlayerTo() 适配，单人行为零变化。
+    // ---- 第一百八十四轮：1~4P（用户："改成自由选择1-4p吧"）----
+    // player3 / player4 同构；partners() 是 P2~P4 的活跃列表，players()
+    // 是 P1 + 全部队友。旧代码读 world.player2 的地方继续兼容（2P 局
+    // 行为不变），新代码一律走 players()/partners()。
     this.player2 = null;
+    this.player3 = null;
+    this.player4 = null;
 
-    // 多玩家帮助函数：单人时返回 [player]，双人返回 [player, player2]。
+    // 多玩家帮助函数：返回当前活跃的玩家数组（P1 永远在，队友按存在过滤）。
     // 主干（仇恨/弹幕/拾取/结算）一律遍历这个数组，不写死单数。
+    this.partners = () => [this.player2, this.player3, this.player4].filter(Boolean);
     this.players = () => {
       const ps = [this.player];
-      if (this.player2) ps.push(this.player2);
+      for (const p of this.partners()) ps.push(p);
       return ps;
     };
     // 仇恨目标选择器（DeepSeek 建议的抽象）：谁离得近打谁。
@@ -644,15 +651,20 @@ export class World {
     // 第一百零八轮：敌人持有 world 引用 —— 天气（川雾/台风推挤、
     // 移速乘区）在 _move 等无 world 参数的方法里也要读得到
     e.world = this;
-    // ---- 第一百七十七轮（2P）：多人血量补偿 ----
+    // ---- 第一百七十七轮（2P）→ 第一百八十四轮（1~4P）：多人血量补偿 ----
     // 用户："发现是多人模式就小怪基础额外+20%，精英+40%，boss加60%，
-    // 只加血量。防止2个人双倍经济碾压过快。"（材料/经验共享后全场收入
-    // 近似翻倍，用血量把战斗时长拉回来。）判定 = 双人局（world.player2
-    // 存在）；只乘血量，伤害/移速/经验/掉落一概不动。
-    if (this.player2) {
-      const duoHp = def.boss ? 1.6 : (def.elite ? 1.4 : 1.2);
-      e.maxHp = Math.round(e.maxHp * duoHp);
-      e.hp = e.maxHp;
+    // 只加血量。"（材料/经验共享后全场收入随人数涨，用血量把战斗时长
+    // 拉回来。）184 轮按用户口径线性递增："每多一个玩家，血量就按我们
+    // 之前的加法增加小怪20%精英40%boss60%" —— k = 额外玩家数：
+    // 2P = +20%/+40%/+60%，4P = +60%/+120%/+180%。只乘血量，伤害/移速/
+    // 经验/掉落一概不动。
+    {
+      const k = this.players().length - 1;
+      if (k > 0) {
+        const hpMul = 1 + (def.boss ? 0.6 : def.elite ? 0.4 : 0.2) * k;
+        e.maxHp = Math.round(e.maxHp * hpMul);
+        e.hp = e.maxHp;
+      }
     }
     // 召唤出来的敌人不带出生动画延迟太长
     e.spawnAnimation = 0.2;

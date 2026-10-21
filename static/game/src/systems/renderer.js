@@ -414,23 +414,35 @@ export class Renderer {
     // （渐变光带/猫爪节点/呼吸充能/高光滑点/Lv 弹跳）。DOM 版退役。
     this._drawHudBars(ctx, player, W, H);
 
-    // ---- 第一百八十三轮：2P 离屏指示器 ----
-    // P2 跑出 1P 视口时，屏幕边缘显示粉色 P2 徽章 + 指向箭头 + 名字，
-    // 告诉 1P "AI 猫娘可能去了哪"（呼吸闪烁提醒）。
-    this._drawP2Offscreen(ctx, world, camera, W, H);
+    // ---- 第一百八十三轮：队友离屏指示器（184 轮泛化到 P2~P4）----
+    // 队友跑出 1P 视口时，屏幕边缘显示专属色徽章 + 指向箭头 + 名字，
+    // 告诉 1P "AI 猫娘可能去了哪"（呼吸闪烁提醒）。一人一色不混淆。
+    this._drawPartnersOffscreen(ctx, world, camera, W, H);
 
     // ---- 第一百八十轮：震动 translate 的配对 restore ----
     if (this._cometShakeRestore) ctx.restore();
   }
 
-  /** 2P 离屏指示器（小地图同款配色：白心 + P2 专属粉 #ff9ec7） */
-  _drawP2Offscreen(ctx, world, camera, W, H) {
-    const p2 = world?.player2;
-    if (!p2 || p2.dead) return;
+  /** 队友专属色（184 轮：P2 粉 / P3 金 / P4 青 —— 用户认可"一个角色一个颜色"） */
+  static PARTNER_COLORS = ['#ff9ec7', '#ffd166', '#4cc9f0'];
+
+  /** P2~P4 离屏指示器（小地图同款配色：白心 + 各自专属色） */
+  _drawPartnersOffscreen(ctx, world, camera, W, H) {
+    const partners = world?.partners?.() ?? [];
+    for (let i = 0; i < partners.length; i++) {
+      const pl = partners[i];
+      if (!pl || pl.dead) continue;
+      const slot = (pl === world.player2) ? 0 : (pl === world.player3) ? 1 : 2;
+      const color = Renderer.PARTNER_COLORS[slot] ?? '#ff9ec7';
+      this._drawOneOffscreen(ctx, pl, camera, W, H, color, `P${slot + 2}`, '#ffd9ea');
+    }
+  }
+
+  _drawOneOffscreen(ctx, pl, camera, W, H, color, tag, nameColor) {
     const margin = 58;                     // 贴边距离
     const bottomSafe = H - 74;             // 底部 HUD 条让位
-    const sx = p2.x - camera.cx + W / 2;   // P2 的屏幕坐标
-    const sy = p2.y - camera.cy + H / 2;
+    const sx = pl.x - camera.cx + W / 2;   // 队友的屏幕坐标
+    const sy = pl.y - camera.cy + H / 2;
     if (sx >= margin && sx <= W - margin && sy >= margin && sy <= bottomSafe) return;
 
     const cx = Math.min(W - margin, Math.max(margin, sx));
@@ -440,7 +452,7 @@ export class Renderer {
     const blink = 0.72 + 0.28 * Math.sin(performance.now() / 260);
     ctx.save();
     ctx.globalAlpha = blink;
-    // 指向箭头（三角，从徽章边缘指向 P2 真实方向）
+    // 指向箭头（三角，从徽章边缘指向队友真实方向）
     const ar = 24;
     const tipX = cx + Math.cos(ang) * ar;
     const tipY = cy + Math.sin(ang) * ar;
@@ -448,7 +460,7 @@ export class Renderer {
     const by = cy + Math.sin(ang) * (ar - 13);
     const px = -Math.sin(ang) * 7;
     const py = Math.cos(ang) * 7;
-    ctx.fillStyle = '#ff9ec7';
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.moveTo(tipX, tipY);
     ctx.lineTo(bx + px, by + py);
@@ -458,26 +470,26 @@ export class Renderer {
     // 徽章圆
     ctx.beginPath();
     ctx.arc(cx, cy, 17, 0, TAU);
-    ctx.fillStyle = '#ff9ec7';
+    ctx.fillStyle = color;
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = 'rgba(20,6,14,0.8)';
     ctx.stroke();
-    // P2 字样
+    // 槽位字样（P2/P3/P4）
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 13px "Microsoft YaHei", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('P2', cx, cy + 1);
+    ctx.fillText(tag, cx, cy + 1);
     // 角色名小字
-    const name = p2.def?.name ?? '';
+    const name = pl.def?.name ?? '';
     if (name) {
       ctx.globalAlpha = blink * 0.8;
       ctx.font = '10px "Microsoft YaHei", sans-serif';
       ctx.strokeStyle = 'rgba(0,0,0,0.85)';
       ctx.lineWidth = 3;
       ctx.strokeText(name, cx, cy + 29);
-      ctx.fillStyle = '#ffd9ea';
+      ctx.fillStyle = nameColor;
       ctx.fillText(name, cx, cy + 29);
     }
     ctx.restore();
@@ -5171,19 +5183,21 @@ export class Renderer {
     ctx.arc(pp.x, pp.y, 5.5, 0, TAU);
     ctx.stroke();
 
-    // ---- 2P 点（第一百八十三轮）：duo 的 P2 在小地图上同样一个白点，
-    //      外圈用 P2 专属粉（猫娘代打开关同色 #ff9ec7）区分敌我之外的身份 ----
-    const p2m = world.player2;
-    if (p2m && !p2m.dead) {
-      const pp2 = toMap(p2m.x, p2m.y);
+    // ---- 队友点（183 轮 2P → 184 轮 1~4P）：每个队友小地图上白点 +
+    //      各自专属色外圈（P2 粉 / P3 金 / P4 青），一人一色区分身份 ----
+    const mateColors = Renderer.PARTNER_COLORS;
+    for (const pl of (world.partners?.() ?? [])) {
+      if (!pl || pl.dead) continue;
+      const slot = (pl === world.player2) ? 0 : (pl === world.player3) ? 1 : 2;
+      const mp = toMap(pl.x, pl.y);
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(pp2.x, pp2.y, 3, 0, TAU);
+      ctx.arc(mp.x, mp.y, 3, 0, TAU);
       ctx.fill();
-      ctx.strokeStyle = '#ff9ec7';
+      ctx.strokeStyle = mateColors[slot] ?? '#ff9ec7';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(pp2.x, pp2.y, 5, 0, TAU);
+      ctx.arc(mp.x, mp.y, 5, 0, TAU);
       ctx.stroke();
     }
 

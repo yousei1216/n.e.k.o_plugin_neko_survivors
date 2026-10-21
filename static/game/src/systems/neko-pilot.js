@@ -195,8 +195,8 @@ export class NekoPilot {
         //（用户："猫娘ai倒地状态ai优先往活着的那个人那移动"）
         if (p.dead) return;
         if (p.downed) {
-          const mate = this.entity ? g.player : g.world?.player2;
-          if (mate && !mate.dead && !mate.downed) {
+          const mate = this._mateOf(g, p, false);
+          if (mate) {
             p.agentMoveTarget = { x: mate.x, y: mate.y };
           }
           return;   // 爬行由 player.update 的倒地段执行，其余决策照旧跳过
@@ -283,6 +283,19 @@ export class NekoPilot {
   // ---------------------------------------------------------
   // 战斗走位
   // ---------------------------------------------------------
+  /** 第一百八十四轮（1~4P）：队友选择器 —— 除自己外最近的活人 /
+   * 最近的倒地队友。旧 `world.player2` 直读只认 2P，3/4P 会漏人。 */
+  _mateOf(g, p, wantDowned) {
+    let best = null, bestD = Infinity;
+    for (const pl of (g.world?.players?.() ?? [])) {
+      if (!pl || pl === p || pl.dead) continue;
+      if (wantDowned ? !pl.downed : pl.downed) continue;
+      const d = Math.hypot(pl.x - p.x, pl.y - p.y);
+      if (d < bestD) { bestD = d; best = pl; }
+    }
+    return best;
+  }
+
   _combat(g, vergilMode, ent) {
     const p = ent ?? g.player;
     if (!p || p.dead) return;
@@ -290,8 +303,8 @@ export class NekoPilot {
     // player.update 倒地段会以 15% 移速执行 agentMoveTarget（不能攻击）；
     // AI 在这里只负责把目标设成活人，让倒地者主动凑向救援。
     if (p.downed) {
-      const mate = (p === g.player) ? g.world?.player2 : g.player;
-      if (mate && !mate.dead && !mate.downed) {
+      const mate = this._mateOf(g, p, false);
+      if (mate) {
         p.agentMoveTarget = { x: mate.x, y: mate.y };
       }
       return;
@@ -374,8 +387,8 @@ export class NekoPilot {
     // 冲过去路上武器照常开火，收益远大于继续风筝。真被围死（<140）
     // 才自保，救不了不算 AI 的错。
     if (g.__duo && nearestD > 140) {
-      const mate = (ent === g.player || !ent) ? g.world?.player2 : g.player;
-      if (mate && mate.downed && !mate.dead) {
+      const mate = this._mateOf(g, p, true);
+      if (mate) {
         // 直设自己的 agentMoveTarget（同上，不走全局 doAction）
         p.agentMoveTarget = { x: mate.x + 30, y: mate.y + 20 };
         return;
@@ -749,10 +762,17 @@ export class NekoPilot {
         const rushWeapons = weaponCount < 6 && (g.waveIndex ?? 0) < 5;
         const buyCap = rushWeapons ? 4 : 3;
         let bought = 0;
-        // ---- 第一百七十一轮（2P）：商店分池 —— entity 模式（P2）只买
-        // 后半货架（P2 专属格），P1 买前半，互不抢货
-        const slotBase = this.entity ? Math.ceil(shop.offers.length / 2) : 0;
-        for (let slot = slotBase; slot < shop.offers.length && bought < buyCap; slot++) {
+        // ---- 第一百七十一轮（2P）：商店分池 —— entity 模式只买自己
+        // 的专属格，P1 买前半，互不抢货。
+        // ---- 第一百八十四轮（1~4P）：货架按槽位排 P1|P2|P3|P4 各 4 格
+        // —— slotBase = 槽位 × 4，各买各的段，绝不错拿别人的货。
+        const world2 = g.world;
+        const slotIdx = this.entity
+          ? (this.entity === world2?.player2 ? 1 : this.entity === world2?.player3 ? 2 : 3)
+          : 0;
+        const slotBase = slotIdx * 4;
+        const slotEnd = slotIdx === 0 ? 4 : Math.min(shop.offers.length, slotBase + 4);
+        for (let slot = slotBase; slot < slotEnd && bought < buyCap; slot++) {
           const o = shop.offers[slot];
           if (!o || o.sold) continue;
           if (!(p.materials >= o.price)) continue;

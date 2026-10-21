@@ -519,7 +519,7 @@ export class UI {
   }
 
   // ---------------- 角色选择 ----------------
-  showCharacterSelect({ characters, onConfirm, onBack, difficulty, onSetDifficulty, onNekoPlay, onDuoPlay, onDuoWatch }) {
+  showCharacterSelect({ characters, onConfirm, onBack, difficulty, onSetDifficulty, onNekoPlay, onDuoPlay, onDuoWatch, onPartyPlay }) {
     let selected = characters[0].id;
     const d = getDifficulty(difficulty);
 
@@ -607,6 +607,15 @@ export class UI {
           <!-- 第一百七十一轮：双猫娘围观 —— 1P/2P 全 AI，纯看戏 -->
           ${onDuoWatch ? '<button class="btn" data-act="duo-watch" style="border-color:#c79eff;color:#c79eff">👀 看2个猫娘手忙脚乱（实验）</button>' : ''}
         </div>
+        <!-- 第一百八十四轮：1~4P 小队 —— P1 真人 + 1~3 个 AI 猫娘；
+             AI 全走 agentMoveTarget 不抢键盘，敌血按人数 +20/40/60% 递增 -->
+        ${onPartyPlay ? `
+        <div class="btn-row" style="gap:6px">
+          <span style="font-size:12px;color:#8a93a6;align-self:center">猫娘小队：</span>
+          <button class="btn" data-act="party-2" style="border-color:#9ec7ff;color:#9ec7ff;padding:4px 12px">2P（+1猫娘）</button>
+          <button class="btn" data-act="party-3" style="border-color:#ffd166;color:#ffd166;padding:4px 12px">3P（+2猫娘）</button>
+          <button class="btn" data-act="party-4" style="border-color:#4cc9f0;color:#4cc9f0;padding:4px 12px">4P（+3猫娘）</button>
+        </div>` : ''}
       </div>
     `);
 
@@ -629,6 +638,11 @@ export class UI {
     // 第一百七十一轮：双猫娘围观（全 AI）
     const watchBtn = root.querySelector('[data-act="duo-watch"]');
     if (watchBtn) watchBtn.onclick = () => onDuoWatch();
+    // 第一百八十四轮：1~4P 小队
+    for (const n of [2, 3, 4]) {
+      const b = root.querySelector(`[data-act="party-${n}"]`);
+      if (b && onPartyPlay) b.onclick = () => onPartyPlay(selected, n);
+    }
     root.querySelectorAll('[data-diff]').forEach((b) => {
       b.onclick = () => onSetDifficulty(b.dataset.diff);
     });
