@@ -3280,6 +3280,9 @@ try {
               id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
               tgt: !!pl.agentMoveTarget, down: pl.downed, dead: pl.dead,
               pilotOn: (window.NekoAgent?.pilots ?? []).some((pt) => pt.entity === pl),
+              armor: Math.round((pl.stats?.get?.('armor') ?? 0) * 10) / 10,
+              armorWave: pl._armorWave,
+              hpRegen: Math.round((pl.stats?.get?.('hpRegen') ?? 0) * 10) / 10,
             })),
           };
           fetch('http://127.0.0.1:8033/probe?name=state-' + t, { method: 'POST', body: JSON.stringify(snap) });

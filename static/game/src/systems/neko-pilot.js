@@ -265,6 +265,21 @@ export class NekoPilot {
         const crew = this.entity ? [this.entity] : (g.players?.() ?? [g.player]);
         for (const ent of crew) {
           if (!ent || ent.dead) continue;
+          // ---- 第一百八十四轮：AI 猫娘隐藏护甲（用户："ai猫娘默认+10护甲，
+          // 每回合自动+2……30点护甲有50%减伤约等于将近2倍hp了。目前猫娘ai
+          // 经常被1-2下就打死了。只加护甲不容易被玩家肉眼分辨出来"）——
+          // 标记挂在**实体**上（_armorWave），同一实体无论被几个 pilot 的
+          // crew 覆盖都只涨一次；retryWave 重建实体后从 +10 重新起步（波次
+          // 也倒退了，成长同步重置，公平）。真人玩家（未被任何 pilot 驱动）
+          // 不在 crew 里，拿不到 —— 只喂 AI 猫娘。
+          if (ent._armorWave !== (g.waveIndex ?? 0)) {
+            const armorBonus = ent._armorWave === undefined ? 10 : 2;
+            ent._armorWave = g.waveIndex ?? 0;
+            if (ent.stats?.addFlat) {
+              ent.stats.addFlat('armor', armorBonus);
+              ent.stats.dirty = true;
+            }
+          }
           if (nobuff || (duo && !buff3)) {
             ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = false;
             ent._pilotMagnet = 0; ent._pilotIframe = 0; ent._pilotEarly = false;
@@ -417,22 +432,52 @@ export class NekoPilot {
     // 用户场景（绝对安全拆 2 个箱子路过倒地者不救）正是这个短路 + 拆箱
     // 分支抢走走位的结果：拆箱门槛 420 无比宽松，救援又从不触发。
     const duoOn = globalThis.__duo || g.__duo;
-    if (duoOn && downedMates.length > 0 && nearestD > 40) {
-      let best = null, bestD = Infinity;
+    // ---- 第一百八十四轮（用户实测："活着的猫娘是真的扛着怪海的伤害过来
+    // 救人，反而让她自己死了……救人优先度已经高到过高了"）—— 救人开关
+    // 修好后优先级反超了自保，冲进怪海中心 = 双倒。现在加**安全保活**三道
+    // 闸（能救则救，送死不救）：
+    //   ① 自保门槛回归：自己身边有怪贴脸威胁时先脱身（普通 150 / 残血 260
+    //      —— 救援的"换方向不掉速"依然成立，但穿怪堆会掉血掉命）；
+    //   ② 血线硬门槛：自己 hp <45% 不送 —— 救援者再倒就是团灭加速；
+    //   ③ 怪海危险度：倒地者身边 150 内 ≥5 只 = 怪海中心，绕开放弃
+    //    （多人倒地的团灭倒计时放宽到 ≥7 才放弃 —— 那时赌命值得）。
+    const hpRatio = p.maxHp > 0 ? p.hp / p.maxHp : 1;
+    const hpOk = hpRatio > 0.45;
+    const selfGate = lowHp ? 260 : 150;
+    let swarmBest = null, swarmN = 0;
+    if (duoOn && downedMates.length > 0) {
+      // ---- 第一百八十四轮（用户："1倒的队友非常好救，1倒优先度高一些，
+      // 2倒较高，3倒最低。因为3倒要30下，抗血救等于死"）—— 目标选择从
+      // "最近"改成"倒地次数×距离"加权评分：downCount 每多 1，等效距离
+      // +260px（1倒 5 刀 / 2倒 10 刀 / 3倒 30 刀，刀数差就是时间差）。
+      // 3 倒者只有真空位（没有更省的候选）时才轮到。
+      let best = null, bestScore = Infinity;
       for (const m of downedMates) {
         const d = Math.hypot(m.x - p.x, m.y - p.y);
-        if (d < bestD) { bestD = d; best = m; }
+        const score = d + (m.downCount ?? 0) * 260;
+        if (score < bestScore) { bestScore = score; best = m; }
       }
       if (best) {
-        if (bestD < 60) {
-          // 已贴身：站桩踹（清移动目标防止漂移），rescueHit 的 0.2s gate
-          // 在 player.update 里按 dt 递减，这里每帧调只会按节拍生效
-          p.agentMoveTarget = null;
-          best.rescueHit();
-        } else {
-          p.agentMoveTarget = { x: best.x, y: best.y };
+        for (const e of (Array.isArray(enemies) ? enemies : [])) {
+          if (!e || e.dead || e.isChest) continue;
+          if (Math.hypot(e.x - best.x, e.y - best.y) < 150) swarmN++;
         }
-        return;
+        const multiDown = downedMates.length >= 2;
+        const swarmed = swarmN >= (multiDown ? 7 : 5);
+        if (hpOk && !swarmed && nearestD > selfGate) {
+          if (bestScore - (best.downCount ?? 0) * 260 < 60) {
+            // 已贴身：站桩踹（清移动目标防止漂移），rescueHit 的 0.2s gate
+            // 在 player.update 里按 dt 递减，这里每帧调只会按节拍生效
+            p.agentMoveTarget = null;
+            best.rescueHit();
+          } else {
+            p.agentMoveTarget = { x: best.x, y: best.y };
+          }
+          return;
+        }
+        // 三道闸任一没过 → 记下最近倒地者供弹道顺手救援（武器开火照旧），
+        // 走位交给正常风筝/拆箱 —— 保活优先于救援
+        swarmBest = best;
       }
     }
 
