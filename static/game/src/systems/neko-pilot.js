@@ -458,14 +458,21 @@ export class NekoPilot {
         if (score < bestScore) { bestScore = score; best = m; }
       }
       if (best) {
+        const rawD = bestScore - (best.downCount ?? 0) * 260;
         for (const e of (Array.isArray(enemies) ? enemies : [])) {
           if (!e || e.dead || e.isChest) continue;
           if (Math.hypot(e.x - best.x, e.y - best.y) < 150) swarmN++;
         }
         const multiDown = downedMates.length >= 2;
         const swarmed = swarmN >= (multiDown ? 7 : 5);
-        if (hpOk && !swarmed && nearestD > selfGate) {
-          if (bestScore - (best.downCount ?? 0) * 260 < 60) {
+        // ---- 第一百八十四轮（用户："队友是在自己250px范围内倒地而且是一倒，
+        // 优先度拉高救援。一倒的救援从来都是顺手的事，现在加了自保之后又
+        // 回到了队友倒脸上都跑路"）—— **脸上 1 倒**（250 内 + downCount≤1
+        // = 5 刀的事）**无视三道闸直接救**：贴脸倒地时风险本来就低，5 刀
+        // 1 秒，比绕路风筝更安全。其余场景维持三道闸。
+        const faceDown = rawD < 250 && (best.downCount ?? 0) <= 1;
+        if (faceDown || (hpOk && !swarmed && nearestD > selfGate)) {
+          if (rawD < 60) {
             // 已贴身：站桩踹（清移动目标防止漂移），rescueHit 的 0.2s gate
             // 在 player.update 里按 dt 递减，这里每帧调只会按节拍生效
             p.agentMoveTarget = null;

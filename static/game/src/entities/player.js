@@ -799,10 +799,21 @@ export class Player extends Entity {
       }
       if (axis.x || axis.y) {
         const crawl = this.baseSpeed * 0.15 * (world?.weather?.moveMul ?? 1);
+        this._terrainPrevX = this.x;
+        this._terrainPrevY = this.y;
         this.x += axis.x * crawl * dt;
         this.y += axis.y * crawl * dt;
         this.faceX = Math.abs(axis.x) > 0.1 ? Math.sign(axis.x) : this.faceX;
         this.clampToWorld?.(world);
+        // ---- 第一百八十四轮（用户："倒地之后的爬行阶段可以穿过墙壁……
+        // 不要让她们在墙壁里爬来爬去的"）—— 爬行位移后同样过不可通行
+        // 地形结算（与正常移动同一条 resolveTerrain 管线），墙会正常挡住
+        // 倒地者，贴墙"顶"不穿墙。
+        if (world.terrain) {
+          const px = this._terrainPrevX ?? this.x;
+          const py = this._terrainPrevY ?? this.y;
+          resolveTerrain(world.terrain, this, px, py);
+        }
       }
       return;
     }
