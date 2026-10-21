@@ -923,8 +923,15 @@ export class NekoPilot {
         // ---- 第一百六十九轮：土豆兄弟铁律 —— 前 5 波武器栏没满 6 把，
         // 钱全砸武器（道具再香不看；武器多 = 输出成倍，发育滚雪球）；
         // 满 6 后转向攻速/伤害/血量。减益道具依旧一票否决。
+        // ---- 第一百八十四轮（用户："接手之后进商店发现居然有1k+金币，
+        // 她们走位不是很差为啥后期这么爱暴毙，是否是钱一直屯着发育不良？"）
+        // —— 实锤：buyCap=3 + 补货门槛苛刻，中后期每波收入几十上百，
+        // 只花得掉 3 件的钱 → 金币无上限囤积 = 发育停滞 = 暴毙。
+        // 修：① 每波买满自己 4 格；② 富有（>150）时任何非诅咒道具都买
+        // （属性保值，钱趴着才是亏）；③ 囤钱 >120 自动刷新货架接着买
+        // （最多 3 轮，刷新费便宜且保留已售格）。
         const rushWeapons = weaponCount < 6 && (g.waveIndex ?? 0) < 5;
-        const buyCap = rushWeapons ? 4 : 3;
+        const buyCap = 4;
         let bought = 0;
         // ---- 第一百七十一轮（2P）：商店分池 —— entity 模式只买自己
         // 的专属格，P1 买前半，互不抢货。
@@ -936,7 +943,15 @@ export class NekoPilot {
           : 0;
         const slotBase = slotIdx * 4;
         const slotEnd = slotIdx === 0 ? 4 : Math.min(shop.offers.length, slotBase + 4);
-        for (let slot = slotBase; slot < slotEnd && bought < buyCap; slot++) {
+        for (let round = 0; round < 3 && bought < buyCap; round++) {
+          if (round > 0) {
+            // 囤钱刷新：钱趴着 = 发育不良（用户实测 1k+ 金币暴毙局）
+            if (p.materials < 120) break;
+            const rr = shop.reroll?.(p);
+            if (!rr?.ok) break;
+            this._log(`囤钱刷新货架（剩 ${Math.floor(p.materials)}）`);
+          }
+          for (let slot = slotBase; slot < slotEnd && bought < buyCap; slot++) {
           const o = shop.offers[slot];
           if (!o || o.sold) continue;
           if (!(p.materials >= o.price)) continue;
@@ -957,18 +972,21 @@ export class NekoPilot {
           if (isWeapon && typeof p.findWeapons === 'function' && p.findWeapons(o.data.id).length >= 2) continue;
           // 决策：冲刺期武器优先（近战先塞栏，之后靠合成腾位），但回血/
           // 护甲道具**照样买**（用户："1/s回血起步"—— 武器冲刺不该牺牲
-          // 血线）；满栏后远程武器见到仍买 / 血量移速必买 / 1~2 件较贵补给
+          // 血线）；满栏后远程武器见到仍买 / 血量移速必买 / 1~2 件较贵补给。
+          // 富有（>150）时任何非诅咒道具都买 —— 属性保值，囤钱=发育不良。
+          const rich = p.materials > 150;
           const want = rushWeapons
-            ? (isWeapon || isHpItem)
+            ? (isWeapon || isHpItem || rich)
             : (isRangedWeapon
               || (isWeapon && weaponCount < 6)
               || isHpItem
-              || (!isWeapon && bought < 2 && o.price >= 10));
+              || (!isWeapon && (bought < 2 || rich) && (o.price >= 10 || rich)));
           if (!want) continue;
           const r = shop.buy(p, slot);
           if (r && r.ok !== false) {
             bought++;
             this._log(`商店购入【${o.data?.name ?? o.data?.id ?? slot}】(-${o.price})${rushWeapons && isWeapon ? '（6 武器冲刺）' : ''}`);
+          }
           }
         }
       }
