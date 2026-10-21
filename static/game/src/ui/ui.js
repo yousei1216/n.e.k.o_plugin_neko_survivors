@@ -1253,7 +1253,7 @@ export class UI {
   };
   static PAUSE_GOLD = new Set(['damage', 'attackSpeed', 'critChance', 'critDamage', 'lifesteal']);
 
-  showPause({ onResume, onQuit, onExit, player, fxAlpha = 100, onFxAlpha = null, pilotOn = false, onTogglePilot = null, onForceComet = null }) {
+  showPause({ onResume, onQuit, onExit, player, fxAlpha = 100, onFxAlpha = null, pilotOn = false, onTogglePilot = null }) {
     const s = player.stats.values;
     const rows = [];
     // 第一百三十九轮：进阶反馈 —— 和上一次暂停的快照比，刚涨过的数值闪绿光
@@ -1288,8 +1288,6 @@ export class UI {
         <div class="btn-row">
           <!-- 第一百六十六轮：猫娘代打切换开关（显示当前状态）-->
           ${onTogglePilot ? `<button class="btn" data-act="toggle-pilot" style="${pilotOn ? 'border-color:#ff9ec7;color:#ff9ec7;background:#ff9ec722' : ''}">🐾 猫娘帮你玩：${pilotOn ? '开（她正在打）' : '关'}</button>` : ''}
-          <!-- 第一百八十轮：天彗龙乱入测试按钮 —— 本回合 5 秒后 100% 触发 -->
-          ${onForceComet ? '<button class="btn" data-act="force-comet" style="border-color:#ffcc00;color:#ffcc00">☄️ 天彗龙来袭（测试：5秒后）</button>' : ''}
           <button class="btn primary" data-act="resume">继续游戏</button>
           <button class="btn" data-act="quit">放弃本局</button>
           <button class="btn danger" data-act="exit">关闭游戏</button>
@@ -1301,9 +1299,6 @@ export class UI {
     // 第一百六十六轮：猫娘代打切换 —— main 侧切完会重开暂停菜单刷新状态
     const pilotBtn = root.querySelector('[data-act="toggle-pilot"]');
     if (pilotBtn) pilotBtn.onclick = () => onTogglePilot();
-    // 第一百八十轮：天彗龙测试触发 —— 点完自动继续游戏，5 秒后横幅登场
-    const cometBtn = root.querySelector('[data-act="force-comet"]');
-    if (cometBtn && onForceComet) cometBtn.onclick = () => { onForceComet(); onResume(); };
     // 第三十九轮："玩家特效"透明度滑条 —— 拖动即时生效并持久化
     const fxSlider = root.querySelector('[data-act="fx-alpha"]');
     const fxVal = root.querySelector('[data-act="fx-alpha-val"]');

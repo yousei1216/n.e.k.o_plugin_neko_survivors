@@ -313,6 +313,38 @@ export class NekoPilot {
       }
     }
 
+    // ---- 第一百八十四轮：弹幕躲避（敌弹也是威胁）----
+    // 用户："猫娘ai对弹幕好像不怎么敏感？有时候直直的走上去吃弹幕。"
+    // 之前威胁只算怪本身的位置排斥 —— 弹在飞她根本"看不见"。现在对每
+    // 颗"真的会打到我"的敌弹做弹道判定：瞄准线垂距 <46px 才紧张，然后
+    // 沿弹速的垂直方向闪（两侧选离弹更远的一边）；越近权重越大。
+    try {
+      const ebs = world?.enemyBullets?.items;
+      if (Array.isArray(ebs)) {
+        for (const b of ebs) {
+          if (!b || b.dead || b.hostileToEnemies) continue;
+          const dx = p.x - b.x, dy = p.y - b.y;
+          const d = Math.hypot(dx, dy);
+          if (d > 230 || d < 1) continue;
+          const bv = Math.hypot(b.vx ?? 0, b.vy ?? 0);
+          if (bv < 40) continue;   // 慢速/静止的（燃烧带之类走专门逻辑）
+          // 接近性：弹速方向与"弹→我"方向的夹角余弦 > 0.55 才算朝我来
+          const dot = ((b.vx / bv) * dx + (b.vy / bv) * dy) / d;
+          if (dot < 0.55) continue;
+          // 瞄准线垂距：打不着的弹不躲（省下走位专心输出）
+          const along = d * dot;
+          const miss = Math.sqrt(Math.max(0, d * d - along * along));
+          if (miss > 46) continue;
+          // 垂直闪避：两侧选离弹更远的一边，越近权重越大
+          const px = -b.vy / bv, py = b.vx / bv;
+          const side = (dx * px + dy * py) >= 0 ? 1 : -1;
+          const w = (1 - d / 230) * 2.4;
+          fleeX += px * side * w;
+          fleeY += py * side * w;
+        }
+      }
+    } catch { /* 弹幕列表异常不影响走位 */ }
+
     // ---- 第一百七十一轮：救援优先 ----
     // duo 下队友倒地：自己安全（最近怪 >350，不扛伤）就第一时间跑去
     // 队友身边 —— 武器弹穿过倒地队友即救援。危险时照常风筝（两个人
@@ -453,6 +485,37 @@ export class NekoPilot {
     let mix = this._tgt
       ? { x: tx * 0.4 + this._tgt.x * 0.6, y: ty * 0.4 + this._tgt.y * 0.6 }
       : { x: tx, y: ty };
+    // ---- 第一百八十四轮：墙 = 大颗弹幕（路径穿墙预判绕行）----
+    // 用户："撞墙还是会蹭墙很久，这段时间够她满血到死了。有什么更好的
+    // 逻辑写法吗？比如把墙对她的概念写成大颗弹幕？"—— 就是这个思路：
+    // 目的地方向被墙掐断时，像躲弹幕一样往通畅的斜向绕（±52°/±97° 依次
+    // 试，取首个通路），不再顶着墙蹭。178 轮的落点外推继续兜底。
+    try {
+      const terrain = g.world?.terrain;
+      if (terrain && ((terrain.rects?.length ?? 0) + (terrain.circles?.length ?? 0)) > 0) {
+        const pad = (p.radius ?? 12) + 14;
+        const mdx = mix.x - p.x, mdy = mix.y - p.y;
+        const md = Math.hypot(mdx, mdy);
+        if (md > 60) {   // 短移动不预判（绕行本身有走位成本）
+          const blocked = (x, y) => blockedAt(terrain, x, y, pad);
+          const pathHit = [0.35, 0.65, 1.0].some((k) => blocked(p.x + mdx * k, p.y + mdy * k));
+          if (pathHit) {
+            const baseA = Math.atan2(mdy, mdx);
+            let done = false;
+            for (const da of [0.9, -0.9, 1.7, -1.7]) {
+              const a = baseA + da;
+              const nx = p.x + Math.cos(a) * md, ny = p.y + Math.sin(a) * md;
+              if (!blocked(p.x + (nx - p.x) * 0.5, p.y + (ny - p.y) * 0.5) && !blocked(nx, ny)) {
+                mix = { x: nx, y: ny };
+                done = true;
+                break;
+              }
+            }
+            if (!done) mix = { x: p.x * 0.55, y: p.y * 0.55 };   // 四面全堵 → 拉回身位
+          }
+        }
+      }
+    } catch { /* 地形异常不影响走位 */ }
     // ---- 第一百七十二轮：刷怪预告避让 ----
     // 用户："知道哪里提前刷了就不过去，不知道一刷新就来个亲嘴。"
     // world.spawnWarnings = 1 秒后落地成怪的位置 —— 目标点若落在某个

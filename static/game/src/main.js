@@ -2255,10 +2255,6 @@ export class Game {
       // 第一百六十六轮：猫娘代打切换开关（显示当前状态，点了切换并
       // 重开暂停菜单刷新文案）
       pilotOn: !!window.NekoAgent?.pilot?.on,
-      // 第一百八十轮：天彗龙乱入测试按钮 —— 本回合 5 秒后 100% 触发
-      onForceComet: () => {
-        if (this.comet) this.comet.forceTrigger(this.waveIndex + 1);
-      },
       onTogglePilot: () => {
         const pl = window.NekoAgent?.pilot;
         if (!pl) return;
