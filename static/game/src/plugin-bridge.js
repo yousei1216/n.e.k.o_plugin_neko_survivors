@@ -121,12 +121,46 @@ export const pluginBridge = {
       body: JSON.stringify({ args, kind: 'panel' }),
     }).then((r) => {
       if (!r.ok) {
-        console.warn(`[neko-bridge] ${action} 响应 ${r.status}（404/409 多为插件没在运行 —— 去插件面板把 neko_survivors 启动起来）`);
+        // ---- 第一百七十九轮：404 自愈 ----
+        // 用户实测：插件文件更新后，宿主运行时仍缓存**老版入口表**
+        //（"UI action 'game_event' is not a plugin entry"），桥全程 404，
+        // 而面板"入口点"按钮不受影响 —— 因为那条路不走 action 注册表。
+        // 宿主有 /plugin/<id>/reload（POST）会重启插件并重读 meta；
+        // 收到 404/409 就自动 reload 一次再补发本条（限流 90s，防连环刷）。
+        console.warn(`[neko-bridge] ${action} 响应 ${r.status}，尝试自动 reload 插件后补发…`);
+        this._selfHealThen(action, args, gapKey);
       } else {
         console.log(`[neko-bridge] ${action} → 已受理`);
       }
     }).catch((e) => {
       console.warn('[neko-bridge] 请求失败：', e && e.message);
+    });
+  },
+
+  /** 上次自愈时间（限流：90 秒内只 reload 一次） */
+  _lastHeal: 0,
+
+  _selfHealThen(action, args, gapKey) {
+    const now = Date.now() / 1000;
+    if (now - this._lastHeal < 90) return;
+    this._lastHeal = now;
+    const reloadUrl = this._resolve('/plugin/neko_survivors/reload');
+    fetch(reloadUrl, { method: 'POST' }).then((r) => {
+      if (!r.ok) throw new Error(`reload ${r.status}`);
+      console.log('[neko-bridge] 插件已 reload，2 秒后补发', action);
+      // 插件重启需要几秒；gapKey 已在本条发送前记录过限频，补发绕开它
+      return new Promise((res) => setTimeout(res, 2000));
+    }).then(() => {
+      const url = this._resolve(`/plugin/neko_survivors/hosted-ui/action/${action}`);
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ args, kind: 'panel' }),
+      });
+    }).then((r) => {
+      console.log(`[neko-bridge] 补发 ${action} → ${r.ok ? '已受理' : r.status}`);
+    }).catch((e) => {
+      console.warn('[neko-bridge] 自愈失败（去插件面板把 neko_survivors 停止再启动一次即可）：', e && e.message);
     });
   },
 

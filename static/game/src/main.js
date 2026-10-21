@@ -22,7 +22,7 @@ import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
 // 第十七轮：CHARACTERS 不再需要 —— 解锁逻辑删掉后，
 // 选人界面直接用 availableCharacters()（现在恒等于全部角色）。
-import { availableCharacters, getCharacter, getSpriteCharacters, CHARACTERS } from './data/characters.js';
+import { availableCharacters, getCharacter, getSpriteCharacters, CHARACTERS, CHARACTER_MAP } from './data/characters.js';
 import { WAVE_COUNT, waveClearBonus, SPECIAL_WAVE_POOLS } from './data/waves.js';
 import { getEnemy, ENEMIES, getSpriteEnemies, BOSS_VARIANTS, pickBossForWave } from './data/enemies.js';
 import { getDifficulty, DEFAULT_DIFFICULTY } from './data/difficulty.js';
@@ -487,7 +487,8 @@ export class Game {
         const p2 = this.world.player2;
         if (p2) {
           window.NekoAgent?.pilot2?.start(this, { entity: p2 });
-          this._nekoSay?.(` duo 开局！${p2.characterId} 也来帮忙了喵～`);
+          // 第一百七十九轮：台词报**中文名**（悠怡萌妹），不是内部 id（nana）
+          this._nekoSay?.(` duo 开局！${CHARACTER_MAP[p2.characterId]?.name ?? p2.characterId} 也来帮忙了喵～`);
         }
       },
 
@@ -507,7 +508,11 @@ export class Game {
           // 1P 也交给 AI：adopt 不重开局，直接接管当前局面
           window.NekoAgent?.pilot?.adopt(this);
           window.NekoAgent?.pilot2?.start(this, { entity: p2 });
-          this._nekoSay?.(`两只猫娘上场：${a} 和 ${b}，看戏吧喵～`);
+          // 第一百七十九轮：报最新中文名（CHARACTER_MAP 现查现用，
+          // 角色以后改名台词自动跟上；不再念 nana/yui 这种内部 id）
+          const nmA = CHARACTER_MAP[a]?.name ?? a;
+          const nmB = CHARACTER_MAP[b]?.name ?? b;
+          this._nekoSay?.(`两只猫娘上场：${nmA} 和 ${nmB}，看戏吧喵～`);
         }
       },
     });
