@@ -528,14 +528,16 @@ export class Game {
   }
 
   /** 第一百八十四轮：把 1~size 号队友的大脑绑到各自的实体上
-   * （startRun/retryWave/开局入口共用；pilots[i] ↔ partners()[i]）。 */
+   * （startRun/retryWave/开局入口共用；pilots[i] ↔ partners()[i]）。
+   * —— 无条件 start：pilot3/4 是全新实例 on=false，旧 2P 的"已在驱动
+   * 才重绑"判断会让它们永远绑不上（用户实测"3p/4p 从来没动过"）。 */
   _bindPartyPilots(size) {
     const fresh = this.world.partners();
     const pilots = window.NekoAgent?.pilots;
     if (Array.isArray(pilots)) {
       pilots.forEach((pt, i) => {
         const np = fresh[i];
-        if (np && pt && (pt.on || i === 0)) pt.start(this, { entity: np });
+        if (np && pt) pt.start(this, { entity: np });
       });
     } else if (window.NekoAgent?.pilot2 && fresh[0]) {
       window.NekoAgent.pilot2.start(this, { entity: fresh[0] });
@@ -2507,7 +2509,7 @@ export class Game {
         const fresh = this.world.partners();
         pilots.forEach((pt, i) => {
           const np = fresh[i];
-          if (np && pt?.on) pt.start(this, { entity: np });
+          if (np && pt) pt.start(this, { entity: np });   // 无条件重绑（幂等）
         });
       } else if (window.NekoAgent?.pilot2?.on) {
         const np2 = this.world.player2;
@@ -3103,3 +3105,66 @@ window.NekoAgent = {
 // 第一百八十四轮（1~4P）：按槽位序聚合队友大脑 [pilot2, pilot3, pilot4]，
 // retryWave 重绑 / _tick 驱动都遍历这个数组。
 window.NekoAgent.pilots = [window.NekoAgent.pilot2, window.NekoAgent.pilot3, window.NekoAgent.pilot4];
+
+// ---- 第一百八十四轮：?party=N 自动开局（1~4，调试/演示用）----
+// 随机 P1 角色 + N-1 个 AI 猫娘，跳过选角界面；?seed= 复现同局。
+// **必须放在 NekoAgent（pilots）定义之后** —— 第一版放在 game.start()
+// 后面，那时 pilots 还不存在，_bindPartyPilots 绑了个寂寞（用户实测
+// "3p/4p 从来没动过"的第二根因）。
+try {
+  const q = new URLSearchParams(location.search);
+  const party = parseInt(q.get('party') ?? '', 10);
+  if (party >= 1 && party <= 4) {
+    const ids = CHARACTERS.map((c) => c.id);
+    const pick = (excl) => {
+      const pool = ids.filter((x) => !excl.includes(x));
+      return pool[Math.floor(Math.random() * pool.length)];
+    };
+    const a = pick([]);
+    game.startRun(a, party >= 2 ? { party } : {});
+    window.__duo = party >= 2;
+    if (party >= 2) {
+      game._bindPartyPilots(party);
+      // **必须 adopt**：pilot.start(game) 无 entity 参数时走"代打"分支，
+      // 内部会 g.startRun('luna') 重新单人开局 —— 把刚拉起来的 4P 全冲掉
+      //（探针实锤 partySize=1、队友蒸发）。adopt 只就地接管 P1 大脑。
+      window.NekoAgent?.pilot?.adopt(game);
+    }
+    // ?probe=1：把对局画面/状态定时 POST 给本地探针服务器（184 轮 4P
+    // 修复验证用 —— headless 环境没有 CDP 截图通道，canvas 自证最干净）。
+    if (q.get('probe') === '1') {
+      const cv = canvas;
+      for (const t of [4000, 8000, 12000]) {
+        setTimeout(() => {
+          try {
+            const data = cv.toDataURL('image/png');
+            fetch('http://127.0.0.1:8033/probe?name=frame-' + t, { method: 'POST', body: data });
+          } catch { /* 探针失败不影响游戏 */ }
+        }, t);
+      }
+      for (const t of [4500, 12500]) {
+        setTimeout(() => {
+          try {
+            const g2 = game;
+            const snap = {
+              t,
+              duo: window.__duo,
+              partySize: g2._partySize,
+              duoEnabled: g2._duoEnabled,
+              state: g2.state,
+              wave: g2.waveIndex,
+              w2: !!g2.world.player2, w3: !!g2.world.player3, w4: !!g2.world.player4,
+              p1: { x: Math.round(g2.player.x), y: Math.round(g2.player.y), tgt: !!g2.player.agentMoveTarget },
+              mates: g2.world.partners().map((pl) => ({
+                id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
+                tgt: !!pl.agentMoveTarget, down: pl.downed, dead: pl.dead,
+                pilotOn: (window.NekoAgent?.pilots ?? []).some((pt) => pt.entity === pl),
+              })),
+            };
+            fetch('http://127.0.0.1:8033/probe?name=state-' + t, { method: 'POST', body: JSON.stringify(snap) });
+          } catch { /* */ }
+        }, t);
+      }
+    }
+  }
+} catch { /* 参数异常走正常选角流程 */ }

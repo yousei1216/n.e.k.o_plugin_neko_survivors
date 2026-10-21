@@ -334,13 +334,15 @@ export class Renderer {
     // ---- 第一百七十一轮：倒地救援环（P1 倒地也画）----
     if (player.downed) this._drawRescueRing(ctx, player);
 
-    // ---- 第一百七十轮（2P）：队友猫娘 P2 ----
-    // 复用同一绘制流程（完整角色渲染），头顶另加 P2 角标 + 独立血条
-    // + 倒地时的黑夜君临式救援环。
-    if (world.player2 && camera.isVisible(world.player2.x, world.player2.y, 60)) {
-      this._drawPlayer(ctx, world.player2);
-      if (world.player2.downed) this._drawRescueRing(ctx, world.player2);
-      this._drawP2Badge(ctx, world.player2);
+    // ---- 第一百七十轮（2P）→ 第一百八十四轮（1~4P）：队友猫娘 P2~P4 ----
+    // 复用同一绘制流程（完整角色渲染），头顶另加槽位角标（各自专属色）
+    // + 独立血条 + 倒地时的黑夜君临式救援环。
+    for (const mate of (world.partners?.() ?? [])) {
+      if (!camera.isVisible(mate.x, mate.y, 60)) continue;
+      this._drawPlayer(ctx, mate);
+      if (mate.downed) this._drawRescueRing(ctx, mate);
+      const slot = (mate === world.player2) ? 0 : (mate === world.player3) ? 1 : 2;
+      this._drawP2Badge(ctx, mate, Renderer.PARTNER_COLORS[slot] ?? '#9ec7ff', `P${slot + 2}`);
     }
 
     // ---- 第一百六十轮：四重存在分身（莱万汀）----
@@ -938,8 +940,9 @@ export class Renderer {
     ctx.restore();
   }
 
-  /** 第一百七十轮（2P）：P2 头顶角标 —— 独立血条 + P2 标签 */
-  _drawP2Badge(ctx, p2) {
+  /** 第一百七十轮（2P）→ 184 轮（1~4P）：队友头顶角标 —— 独立血条 +
+   *  槽位标签（P2/P3/P4，各自专属色）。color/tag 缺省 = 旧 P2 蓝样式。 */
+  _drawP2Badge(ctx, p2, color = '#9ec7ff', tag = 'P2') {
     const y = p2.y - p2.radius - 22;
     const w = 46, h = 5;
     ctx.save();
@@ -950,10 +953,10 @@ export class Renderer {
     const ratio = clamp(p2.hp / Math.max(1, p2.maxHp), 0, 1);
     ctx.fillStyle = ratio < 0.3 ? '#ff5f6d' : '#6ee7a8';
     ctx.fillRect(p2.x - w / 2, y, w * ratio, h);
-    // P2 角标
+    // 槽位角标
     ctx.font = 'bold 11px system-ui';
-    ctx.fillStyle = '#9ec7ff';
-    ctx.fillText('P2', p2.x, y - 5);
+    ctx.fillStyle = color;
+    ctx.fillText(tag, p2.x, y - 5);
     ctx.restore();
   }
 
