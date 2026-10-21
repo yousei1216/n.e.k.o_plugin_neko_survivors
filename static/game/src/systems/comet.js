@@ -41,7 +41,8 @@ const T_GAP2 = 1.2;
 const T_GAP3 = 2.5;
 const T_DIVE = 0.5;
 const T_BOOM = 0.9;         // 白闪+冲击波总时长
-const T_ROAR = 3.0;
+const T_ROAR = 4.0;   // 第一百八十三轮：3→4 —— 用户："吼完起飞的太快了，
+                      // 在多待1秒看看"（站桩展示加长，眩晕同步 4 秒）
 const T_TAKEOFF = 1.6;
 
 // ---- 伤害数值（用户规格）----
@@ -873,15 +874,19 @@ export class CometDisaster {
   }
 
   /** 起飞：向上加速离场 + 尾焰（尺寸与落地吼叫一致 —— 用户报"落地后
-   *  很大，起飞变小了"的穿帮；初尺寸统一 460，远去再用 scale 缩小） */
+   *  很大，起飞变小了"的穿帮；初尺寸统一 460，远去再用 scale 缩小。
+   *  第一百八十三轮：素材头顶本来就朝上，之前 rotate(π) 反而把龙转成
+   *  倒栽葱飞走（用户："用倒着飞走的"）—— 改回 rotate(0)，并向来时
+   *  反方向轻微倾斜漂移，像原路返航。） */
   _drawTakeoff(ctx) {
     const img = cometImg('fly.png');
     const k = this.t / T_TAKEOFF;
-    const x = this.cx;
+    const x = this.cx - this.dir * k * k * 320;   // 向来时反方向返航
     const y = this.cy - 120 - k * k * (this.half + 400);
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(Math.PI);   // 头朝上
+    ctx.rotate(0);         // 素材头在图片顶部 = 天然头朝上，不再旋转
+    ctx.rotate(-this.dir * 0.22 * k);   // 返航倾斜角，随升空渐增
     const w = 460 * (1 - k * 0.25);   // 初始与落地吼叫同宽，飞远渐缩
     if (img) {
       const h = w * (img.height / img.width);
@@ -889,7 +894,7 @@ export class CometDisaster {
       ctx.drawImage(img, -w / 2, -h / 2, w, h);
     }
     ctx.restore();
-    // 尾焰
+    // 尾焰（在龙体下方）
     ctx.save();
     ctx.globalAlpha = 0.75 * (1 - k);
     const g = ctx.createRadialGradient(x, y + 60, 0, x, y + 60, 120);
