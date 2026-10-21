@@ -97,6 +97,10 @@ export class WeatherSystem {
     // ---- 铁律：Boss 波 / 芙兰战绝不出现天气 ----
     if (WeatherSystem.blocked(world)) {
       if (this.active) this.forceEnd();
+      // 第一百八十三轮：淡出段的视觉消散**也要推进** —— 之前 blocked 直接
+      // return，fadeT 永不倒计时 → 19 波的雾贴图一路卡到 20 波 boss、
+      // 芙兰战都在（用户实测："雾气一直没消失……看不到周围的情况下打芙兰"）
+      if (this.phase === 'fading') this._tickFade(dt);
       this._applyFlags();
       return;
     }
@@ -110,22 +114,7 @@ export class WeatherSystem {
       // ---- 第一百六十轮：淡出段（2.5s）----
       // 玩法效果已在 _end 里随 flags 归零停掉；这里只做视觉消散：
       // 雾团/龙卷按 r0 线性收缩到 0，雨滴按比例变稀。
-      this.fadeT -= dt;
-      const k = this.visualAlpha;
-      for (const c of this.fogClouds) {
-        if (c.r0 == null) c.r0 = c.r;
-        c.r = c.r0 * k;
-      }
-      for (const tp of this.typhoons) {
-        if (tp.r0 == null) tp.r0 = tp.r;
-        tp.r = tp.r0 * k;
-      }
-      if (this.drops) this.drops.length = Math.ceil(this.drops.length * k);
-      if (this.fadeT <= 0) {
-        this.phase = 'cooldown';
-        this._clearEntities();
-        this.id = null;
-      }
+      this._tickFade(dt);
     } else if (this.phase === 'cooldown') {
       this.cd -= dt;
       if (this.cd <= 0) { this.phase = 'idle'; this.rollAcc = 0; }
@@ -192,6 +181,26 @@ export class WeatherSystem {
     const dur = this.dur;
     this._end(true);
     this.cd = dur;
+  }
+
+  /** 淡出段推进（第一百八十三轮抽出 —— 正常路径与 boss 波 blocked 路径共用） */
+  _tickFade(dt) {
+    this.fadeT -= dt;
+    const k = this.visualAlpha;
+    for (const c of this.fogClouds) {
+      if (c.r0 == null) c.r0 = c.r;
+      c.r = c.r0 * k;
+    }
+    for (const tp of this.typhoons) {
+      if (tp.r0 == null) tp.r0 = tp.r;
+      tp.r = tp.r0 * k;
+    }
+    if (this.drops) this.drops.length = Math.ceil(this.drops.length * k);
+    if (this.fadeT <= 0) {
+      this.phase = 'cooldown';
+      this._clearEntities();
+      this.id = null;
+    }
   }
 
   _clearEntities() {

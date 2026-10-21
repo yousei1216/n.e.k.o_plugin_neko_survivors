@@ -23,6 +23,8 @@
 
 // 第一百七十八轮：地形避让需要 blockedAt（实验室地砖/花园花坛）
 import { blockedAt } from '../data/terrain.js';
+import { ARENA as VIRGIL_ARENA } from './vergil.js';
+import { ARENA as FLAN_ARENA } from './flandre.js';
 
 /** 选卡打分表：属性 id → 权重（噩梦通关的稳健成长序）
  *  luna 基础 10 血 —— 血量/移速/护甲是风筝流的生命线，权重给足 */
@@ -315,7 +317,10 @@ export class NekoPilot {
     // duo 下队友倒地：自己安全（最近怪 >350，不扛伤）就第一时间跑去
     // 队友身边 —— 武器弹穿过倒地队友即救援。危险时照常风筝（两个人
     // 都倒了这回合就输了），队友身边就是最好的复活点。
-    if (g.__duo && nearestD > 350) {
+    // 第一百八十三轮：boss 战里救援阈值 350 → 500（用户："最优先救援
+    // 倒地玩家"—— boss 弹幕下 350 的"安全"太保守，救援经常让位走位）；
+    // 芙兰战里队友只可能倒在场地内（双方都被关在场），无需额外 clamp。
+    if (g.__duo && nearestD > (vergilMode ? 500 : 350)) {
       const mate = (ent === g.player || !ent) ? g.world?.player2 : g.player;
       if (mate && mate.downed && !mate.dead) {
         // 直设自己的 agentMoveTarget（同上，不走全局 doAction）
@@ -336,19 +341,43 @@ export class NekoPilot {
 
     let tx, ty;
     if (vergilMode) {
-      // 维吉尔战：环绕保持 240~360（近了躲不开居合，远了打不着）。
-      // 就算武器够不着、90 秒耗完，活着本身就是过关。
-      const b = world?.vergilFight?.boss;
+      // ---- 第一百八十三轮：boss 战走位全面修正 ----
+      // 用户实测三连："维吉尔战猫娘会出框""芙兰战猫娘不在场地里，整场
+      // boss 只有我""21 回合猫娘 ai 直接挂机不动了"。
+      // 根因：这里只认 world.vergilFight.boss —— 芙兰战时是 null → 目标
+      // 站桩；且环绕目标点从不 clamp 进 boss 场地 → 一路挤出空气墙。
+      // 修：① boss 兼容芙兰战；② 全部目标点 clamp 进对应 ARENA；
+      //    ③ 环绕距离收紧（攻击欲望——用户："对 boss 攻击欲望很低"）。
+      const vf = world?.vergilFight;
+      const ff = world?.flandreFight;
+      const b = vf?.boss ?? ff?.boss;
+      const arena = ff ? FLAN_ARENA : VIRGIL_ARENA;
       if (b && !b.dead) {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy) || 1;
-        if (d < 240) { tx = p.x + (dx / d) * 180; ty = p.y + (dy / d) * 180; }
-        else if (d > 360) { tx = b.x + (dx / d) * 300; ty = b.y + (dy / d) * 300; }
+        // 第一百八十三轮：环绕 240~360 → 170~330 —— 更贴身，武器射程内
+        // 的输出窗口更长（用户："攻击欲望调高一些"）
+        if (d < 170) { tx = p.x + (dx / d) * 150; ty = p.y + (dy / d) * 150; }
+        else if (d > 330) { tx = b.x + (dx / d) * 260; ty = b.y + (dy / d) * 260; }
         else { // 环绕切向移动，不吃直线弹幕
-          tx = p.x + (-dy / d) * 140; ty = p.y + (dx / d) * 140;
+          tx = p.x + (-dy / d) * 150; ty = p.y + (dx / d) * 150;
         }
-      } else { tx = p.x; ty = p.y; }
-    } else if (!hasRanged && nearest && nearestD < 200) {
+      } else {
+        // boss 不在场（演出阶段）：守在场地中心附近待命，绝不乱跑出框
+        tx = arena.cx; ty = arena.cy;
+      }
+      // 目标点 clamp 进 boss 场地（内缩 46 —— 贴空气墙也有走位余量）。
+      // 威胁躲避目标同样被 clamp：躲弹幕也不会被挤出场。
+      const clampToArena = (v) => ({
+        x: Math.max(arena.cx - arena.hw + 46, Math.min(arena.cx + arena.hw - 46, v.x)),
+        y: Math.max(arena.cy - arena.hh + 46, Math.min(arena.cy + arena.hh - 46, v.y)),
+      });
+      ({ x: tx, y: ty } = clampToArena({ x: tx, y: ty }));
+      this._bossArenaClamp = clampToArena;   // 走位平滑/救援目标也走同一 clamp
+    } else {
+      this._bossArenaClamp = null;
+    }
+    if (!vergilMode && !hasRanged && nearest && nearestD < 200) {
       // 近战：只对"落单"怪环绕输出（200 内 ≤3 只）；被围殴立刻转逃跑。
       // 环绕半径 70 = 猫爪类武器攻击边缘 —— 打得到怪、碰撞吃不到。
       let crowd = 0;
@@ -482,6 +511,10 @@ export class NekoPilot {
       }
     } catch { /* 地形异常不影响走位 */ }
     if (this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
+    // ---- 第一百八十三轮：最终落点也 clamp 进 boss 场地 ----
+    // spawn 警告避让/地形避让都可能把落点推到空气墙外 —— boss 战里一切
+    // 目标以场地为界（用户："她疑似还在用原本的地图移动"）。
+    if (this._bossArenaClamp) mix = this._bossArenaClamp(mix);
     this._tgt = mix;
     // 直设实体自己的 agentMoveTarget（第一百七十一轮修复，不走全局 doAction）
     p.agentMoveTarget = { x: mix.x, y: mix.y };
