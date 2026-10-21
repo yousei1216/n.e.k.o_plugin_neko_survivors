@@ -389,7 +389,15 @@ export class NekoPilot {
     //   ③ 贴身 60px 内**近身踹醒**（黑夜君临式处决）—— rescueHit 自带
     //     0.2s 全局 CD，5 刀 1 秒救起 1 倒，彻底不赌弹道。
     const downedMates = (g.world?.players?.() ?? []).filter((pl) => pl && pl !== p && pl.downed && !pl.dead);
-    if (g.__duo && downedMates.length > 0 && nearestD > 40) {
+    // ---- 第一百八十四轮（用户抓出致命 bug）：救援分支此前判 `g.__duo`
+    // —— 但 game 实例上**从来没有**这个字段（只有 window.__duo），条件
+    // 永远为 false，救援逻辑从上线起一行都没执行过！之前"偶尔救起"全是
+    // 路过武器弹恰好穿过倒地者的运气（用户："只有刚好踩着队友尸体过去
+    // 才救"）。现在与光环段同口径 window.__duo || g.__duo。
+    // 用户场景（绝对安全拆 2 个箱子路过倒地者不救）正是这个短路 + 拆箱
+    // 分支抢走走位的结果：拆箱门槛 420 无比宽松，救援又从不触发。
+    const duoOn = window.__duo || g.__duo;
+    if (duoOn && downedMates.length > 0 && nearestD > 40) {
       let best = null, bestD = Infinity;
       for (const m of downedMates) {
         const d = Math.hypot(m.x - p.x, m.y - p.y);
@@ -937,7 +945,7 @@ export class NekoPilot {
         // 没有快照（比如开局第一秒就没了）：兜底重开 —— duo 维持 duo
         // watch（两个 AI 的模式），单人维持单人。
         this._log('无波次快照，兜底重开（保留模式）');
-        if (g.__duo && typeof g.onDuoWatch === 'function') g.onDuoWatch();
+        if ((window.__duo || g.__duo) && typeof g.onDuoWatch === 'function') g.onDuoWatch();
         else g.startRun(this.characterId);
       }
       globalThis.NekoAgent?.setPuppetMode?.(true);

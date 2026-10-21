@@ -473,6 +473,7 @@ export class Game {
       onNekoPlay: (id) => {
         audio.play('gameStart');
         window.__duo = false;
+        this.__duo = false;   // 184 轮：game 实例同步（pilot 救援分支读它）
         this.startRun(id);
         window.NekoAgent?.pilot?.start(this, { characterId: id });
       },
@@ -485,6 +486,7 @@ export class Game {
       onDuoPlay: (id) => {
         audio.play('gameStart');
         window.__duo = true;
+        this.__duo = true;   // 184 轮：game 实例同步（pilot 救援分支读它）
         this.startRun(id, { party: 2 });
         this._bindPartyPilots(2);
         const nmB = CHARACTER_MAP[this.world.player2?.characterId]?.name ?? '';
@@ -496,6 +498,7 @@ export class Game {
       onPartyPlay: (id, size) => {
         audio.play('gameStart');
         window.__duo = true;
+        this.__duo = true;   // 184 轮：game 实例同步
         this.startRun(id, { party: size });
         this._bindPartyPilots(size);
         const names = this.world.partners()
@@ -509,6 +512,7 @@ export class Game {
       onDuoWatch: () => {
         audio.play('gameStart');
         window.__duo = true;
+        this.__duo = true;   // 184 轮：game 实例同步
         const ids = CHARACTERS.map((c) => c.id);
         const pick = (excl) => {
           const pool = ids.filter((x) => !excl.includes(x));
@@ -3163,6 +3167,7 @@ try {
     const a = pick([]);
     game.startRun(a, party >= 2 ? { party } : {});
     window.__duo = party >= 2;
+    game.__duo = party >= 2;   // 184 轮：game 实例同步（pilot 救援分支读它）
     if (party >= 2) {
       game._bindPartyPilots(party);
       // **必须 adopt**：pilot.start(game) 无 entity 参数时走"代打"分支，
