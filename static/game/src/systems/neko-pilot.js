@@ -379,25 +379,31 @@ export class NekoPilot {
 
     // ---- 第一百七十一轮：救援优先 ----
     // duo 下队友倒地：第一时间跑去队友身边 —— 武器弹穿过倒地队友即救援。
-    // 第一百八十四轮（4P 实测再砍）：**救援是队友倒地后的全场最高优先级**。
-    // 上一版门槛 nearestD>140 仍不够 —— 混战中最近怪几乎永远 <140（用户
-    // 实测"没怎么见到有救人位，大部分猫娘一倒就结束"）—— 救援窗口就在
-    // 紫条回涨耗尽前那十几秒，全被这个门槛吃掉了。现在：
-    //   · 默认门槛砍到 70（只剩"真被贴脸围死"才自保）；
-    //   · 倒地人数 ≥2 时**完全无视门槛** —— 4P 里队友连倒就是团灭倒计时，
-    //     边打边冲，路上武器照常开火（武器火力本身就是清路+救援两用）。
+    // ---- 第一百八十四轮（4P 二次实测再修）：救援是倒地后的全场最高优先级。
+    // 上一版门槛 70 仍太怂（用户实测"队友躺在必经之路上也不愿意多动半个
+    // 身位"），且旧目标点带 +30 偏移 —— AI 走到旁边就站住，救援全靠"武器
+    // 弹恰好穿过队友"的运气，永远救不起来。现在三刀：
+    //   ① 门槛砍到 40（用户点破"换方向并不会掉速度"——绕路不影响自动
+    //     开火的 DPS，只有真被贴脸围死才放弃）；
+    //   ② 目标点直接压到倒地队友本体，不走偏移站位；
+    //   ③ 贴身 60px 内**近身踹醒**（黑夜君临式处决）—— rescueHit 自带
+    //     0.2s 全局 CD，5 刀 1 秒救起 1 倒，彻底不赌弹道。
     const downedMates = (g.world?.players?.() ?? []).filter((pl) => pl && pl !== p && pl.downed && !pl.dead);
-    const rescueGate = downedMates.length >= 2 ? 0 : 70;
-    if (g.__duo && downedMates.length > 0 && nearestD > rescueGate) {
-      // 救最近的一个（多个倒地时依次救，爬行/倒地者也会互相爬近）
+    if (g.__duo && downedMates.length > 0 && nearestD > 40) {
       let best = null, bestD = Infinity;
       for (const m of downedMates) {
         const d = Math.hypot(m.x - p.x, m.y - p.y);
         if (d < bestD) { bestD = d; best = m; }
       }
       if (best) {
-        // 直设自己的 agentMoveTarget（同上，不走全局 doAction）
-        p.agentMoveTarget = { x: best.x + 30, y: best.y + 20 };
+        if (bestD < 60) {
+          // 已贴身：站桩踹（清移动目标防止漂移），rescueHit 的 0.2s gate
+          // 在 player.update 里按 dt 递减，这里每帧调只会按节拍生效
+          p.agentMoveTarget = null;
+          best.rescueHit();
+        } else {
+          p.agentMoveTarget = { x: best.x, y: best.y };
+        }
         return;
       }
     }
@@ -465,6 +471,15 @@ export class NekoPilot {
         else { // 环绕切向移动，不吃直线弹幕
           tx = p.x + (-dy / d) * 150; ty = p.y + (dx / d) * 150;
         }
+        // ---- 第一百八十四轮（用户："4ai猫娘都不躲芙兰弹幕"）----
+        // 环绕目标点此前**完全不用** flee 向量 —— 普通波的风筝靠它，
+        // boss 战却只有"切向环绕"一种姿态，全屏符卡弹（芙兰的扩散/雨弹）
+        // 根本绕不开。现在把敌人排斥+弹幕闪避的合成向量按 0.8 权重叠进
+        // 环绕目标（低血 1.1 更怂），再统一 clamp 场内 —— 环绕照跑、
+        // 弹幕照躲，两者不再互斥。
+        const dodgeW = lowHp ? 1.1 : 0.8;
+        tx += fleeX * dodgeW * (fleeMag / 210);
+        ty += fleeY * dodgeW * (fleeMag / 210);
       } else {
         // boss 不在场（演出阶段）：守在场地中心附近待命，绝不乱跑出框
         tx = arena.cx; ty = arena.cy;
@@ -879,6 +894,18 @@ export class NekoPilot {
   // 同一回合重试 5 次仍过不去 → 判定失败，不再试第 6 次。
   _settle(g) {
     const reached = (g.waveIndex ?? 0) + 1;
+    // ---- 第一百八十四轮（4P 实测）：20 波通关弹"无限模式"询问时，
+    // **选继续而不是结算** —— 旧逻辑直接 g._endRun(true)，玩家看到的是
+    // "芙兰还没出来就判定赢了，只有再来一局和返回标题，无法打 21 回合"
+    //（芙兰没解锁时询问被 AI 瞬间点掉）。AI 挂机 = 帮玩家继续打。
+    if (!g.player?.dead && reached >= 20 && g._endlessPromptOpen) {
+      this._log('20 波通关：无限模式询问挂起 → AI 选择继续（开 21 波）');
+      g._endlessPromptOpen = false;
+      g.endlessEnabled = true;
+      try { g.ui?.clearOverlay?.(); } catch { /* */ }
+      g._openShop();
+      return;
+    }
     if (!g.player?.dead && reached >= 20) {
       this.win = true;
       this._log(`★ 通关！${this.characterId} 第 ${this.attempt} 次尝试完成 20 波${this.difficulty}（现实用时 ${Math.round((Date.now() - this.startedAt) / 1000)}s）`);
@@ -905,7 +932,7 @@ export class NekoPilot {
     this._log(`第 ${reached} 波团灭 → 重试当前回合（本回合第 ${this._retryN}/5 次）`);
     try {
       g.ui?.clearOverlay?.();
-      const retried = g.retryWave?.();
+      const retried = g.retryWave?.(true);   // fromAi：不计入芙兰的"手动重开"门槛
       if (!retried) {
         // 没有快照（比如开局第一秒就没了）：兜底重开 —— duo 维持 duo
         // watch（两个 AI 的模式），单人维持单人。

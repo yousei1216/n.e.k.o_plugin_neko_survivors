@@ -1673,7 +1673,12 @@ export class Game {
     if (waveReached >= WAVE_COUNT && !this.endlessEnabled) {
       // 第四十九轮（用户要求）：噩梦难度 + 打败 20 波 Boss 的总重开次数 ≤ 3，
       // 通关后不进结算 —— 芙兰朵露来了。奖励（经验/金币/全图收集）上面已经发完。
-      if (flandreUnlockOk(this.difficultyId, this.meta?.retries)) {
+      // ---- 第一百八十四轮（4P 实测）：芙兰门槛改用**手动**重试计数 ——
+      // AI 团灭自动重试也累计 meta.retries，AI 代打打到 20 波时早已 >3，
+      // 芙兰永不解锁（用户："芙兰还没出来就莫名判定赢了"）。手动重开才
+      // 算"重开次数"；旧档没有 manualRetries 字段时回落总数（保守）。
+      const flandreRetries = this.meta?.manualRetries ?? this.meta?.retries;
+      if (flandreUnlockOk(this.difficultyId, flandreRetries)) {
         this._startFlandre();
         return;
       }
@@ -1923,6 +1928,24 @@ export class Game {
     this.state = STATE.FLANDRE;
   }
 
+  /** 第一百八十四轮：直通芙兰战测试局（?flandre=1，同维吉尔实验室口子）。
+   * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，AI 大脑全开 —— 弹幕躲避调参用。 */
+  _startFlandreTest() {
+    try {
+      this.setDifficulty('nightmare');
+      this.startRun('yui');
+      this.player.addWeapon('meow_cannon');
+      this.player.addWeapon('meow_cannon');
+      this.player.addWeapon('meow_cannon');
+      this.player.charMul = { ...this.player.charMul, damage: 5 };
+      for (const id of ['cat_taffy', 'warm_milk', 'warm_milk']) this.player.addItem(id);
+      this.meta.retries = 0;
+      this._bindPartyPilots(4);
+      window.NekoAgent?.pilot?.adopt(this);
+      this._startFlandre();
+    } catch { /* */ }
+  }
+
   /**
    * 体检修复（第九十二轮）：芙兰战的现场复位收拢成一个入口。
    * 正常结算（_flandreFinish）与非正常退出（ESC 放弃 / 关闭游戏）
@@ -2099,6 +2122,10 @@ export class Game {
    */
   _askEndless(waveReached) {
     this.state = STATE.RESULT;
+    // ---- 第一百八十四轮（4P 实测）：询问挂起标记 —— AI pilot 的
+    // _settle 看到它就知道该点"继续无限"而不是 _endRun（旧路径 AI 会
+    // 瞬间点掉询问直接结算，玩家"无法打 21 回合"）。
+    this._endlessPromptOpen = true;
     const p = this.player;
     this._nekoComment(EVENT.WIN, this._nekoContext());
     neko.setEmotion('happy');
@@ -2116,6 +2143,7 @@ export class Game {
       },
       onContinue: () => {
         // 打开无限模式：从第 21 波继续
+        this._endlessPromptOpen = false;
         this.endlessEnabled = true;
         this.ui.clearOverlay();
         this.ui.toast('无限模式开启！23 波起 Boss 轮番登场', 'good');
@@ -2123,6 +2151,7 @@ export class Game {
         this._openShop();
       },
       onStop: () => {
+        this._endlessPromptOpen = false;
         this.ui.clearOverlay();
         this._endRun(true);
       },
@@ -2483,7 +2512,7 @@ export class Game {
    * 重试当前波次：恢复到这一波开头的样子，并把重试次数 +1。
    * 重试次数记在 meta 里（跨局累计，持久化），也记在当前局里（给 UI 显示）。
    */
-  retryWave() {
+  retryWave(fromAi = false) {
     const snap = this._readWaveSnapshot();
     if (!snap) { this.showCharSelect(); return false; }
 
@@ -2491,7 +2520,12 @@ export class Game {
     this.waveRetries = (snap.retries || 0) + 1;
 
     // 累计到 meta 并落盘（这是用户要的"记录重试次数"）
+    // ---- 第一百八十四轮（4P 实测）：AI 团灭自动重试传 fromAi=true，
+    // 只进总数 retries；芙兰解锁的"重开 ≤3"口径看 manualRetries（只有
+    // 玩家手动点的重试才 +1）—— 不然 AI 代打必然把门槛吃穿，芙兰永不
+    // 解锁（"芙兰还没出来就莫名判定赢了"）。
     this.meta.retries = (this.meta.retries || 0) + 1;
+    if (!fromAi) this.meta.manualRetries = (this.meta.manualRetries || 0) + 1;
     this._saveMeta();
 
     this._applyRunData(snap.run, { fromRetry: true });
@@ -3136,98 +3170,104 @@ try {
       //（探针实锤 partySize=1、队友蒸发）。adopt 只就地接管 P1 大脑。
       window.NekoAgent?.pilot?.adopt(game);
     }
-    // ?probe=1：把对局画面/状态定时 POST 给本地探针服务器（184 轮 4P
-    // 修复验证用 —— headless 环境没有 CDP 截图通道，canvas 自证最干净）。
-    if (q.get('probe') === '1') {
-      const cv = canvas;
-      for (const t of [4000, 8000, 12000]) {
-        setTimeout(() => {
-          try {
-            const data = cv.toDataURL('image/png');
-            fetch('http://127.0.0.1:8033/probe?name=frame-' + t, { method: 'POST', body: data });
-          } catch { /* 探针失败不影响游戏 */ }
-        }, t);
-      }
-      for (const t of [4500, 12500]) {
+  }
+  // ?flandre=1：直通芙兰战测试局（同 ?vergil=1 的口子，4P 弹幕躲避
+  // 调试用 —— 正常路径要打穿 20 波才能见到她）
+  if (q.has('flandre')) {
+    game._startFlandreTest();
+  }
+  // ?probe=1：把对局画面/状态定时 POST 给本地探针服务器（184 轮 4P
+  // 修复验证用 —— headless 环境没有 CDP 截图通道，canvas 自证最干净）。
+  // 与 party/flandre 任一开局参数搭配使用。
+  if (q.get('probe') === '1' && (party >= 1 || q.has('flandre'))) {
+    const cv = canvas;
+    for (const t of [4000, 8000, 12000, 16000, 20000, 24000]) {
+      setTimeout(() => {
+        try {
+          const data = cv.toDataURL('image/png');
+          fetch('http://127.0.0.1:8033/probe?name=frame-' + t, { method: 'POST', body: data });
+        } catch { /* 探针失败不影响游戏 */ }
+      }, t);
+    }
+    for (const t of [4500, 12500]) {
+      setTimeout(() => {
+        try {
+          const g2 = game;
+          const snap = {
+            t,
+            duo: window.__duo,
+            partySize: g2._partySize,
+            duoEnabled: g2._duoEnabled,
+            state: g2.state,
+            wave: g2.waveIndex,
+            w2: !!g2.world.player2, w3: !!g2.world.player3, w4: !!g2.world.player4,
+            p1: { x: Math.round(g2.player.x), y: Math.round(g2.player.y), tgt: !!g2.player.agentMoveTarget },
+            mates: g2.world.partners().map((pl) => ({
+              id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
+              tgt: !!pl.agentMoveTarget, down: pl.downed, dead: pl.dead,
+              pilotOn: (window.NekoAgent?.pilots ?? []).some((pt) => pt.entity === pl),
+            })),
+          };
+          fetch('http://127.0.0.1:8033/probe?name=state-' + t, { method: 'POST', body: JSON.stringify(snap) });
+        } catch { /* */ }
+      }, t);
+    }
+    // ?probe=1&rescue=1：救援行为验证 —— 6s 时强制打倒一只猫娘，
+    // 之后每 2s dump 其余 AI 与倒地者的距离（应持续缩小 = 在去救）。
+    if (q.get('rescue') === '1') {
+      setTimeout(() => {
+        try {
+          const victim = game.world.partners()[2];
+          if (victim && !victim.downed) {
+            victim.down();
+            game.world.partners().forEach((pl) => { pl.hp = pl.maxHp; });   // 其余满血排除回血干扰
+          }
+        } catch { /* */ }
+      }, 6000);
+      for (const t of [8000, 10000, 12000]) {
         setTimeout(() => {
           try {
             const g2 = game;
-            const snap = {
-              t,
-              duo: window.__duo,
-              partySize: g2._partySize,
-              duoEnabled: g2._duoEnabled,
-              state: g2.state,
-              wave: g2.waveIndex,
-              w2: !!g2.world.player2, w3: !!g2.world.player3, w4: !!g2.world.player4,
-              p1: { x: Math.round(g2.player.x), y: Math.round(g2.player.y), tgt: !!g2.player.agentMoveTarget },
-              mates: g2.world.partners().map((pl) => ({
-                id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
-                tgt: !!pl.agentMoveTarget, down: pl.downed, dead: pl.dead,
-                pilotOn: (window.NekoAgent?.pilots ?? []).some((pt) => pt.entity === pl),
-              })),
-            };
-            fetch('http://127.0.0.1:8033/probe?name=state-' + t, { method: 'POST', body: JSON.stringify(snap) });
+            const victim = g2.world.partners().find((pl) => pl.downed);
+            const rescuers = g2.world.partners().filter((pl) => !pl.downed && !pl.dead).map((pl) => ({
+              id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
+              tgt: pl.agentMoveTarget ? { x: Math.round(pl.agentMoveTarget.x), y: Math.round(pl.agentMoveTarget.y) } : null,
+              distToVictim: victim ? Math.round(Math.hypot(pl.x - victim.x, pl.y - victim.y)) : null,
+            }));
+            fetch('http://127.0.0.1:8033/probe?name=rescue-' + t, {
+              method: 'POST',
+              body: JSON.stringify({ t, victimDown: !!victim, victim: victim ? { id: victim.characterId, x: Math.round(victim.x), y: Math.round(victim.y) } : null, rescuers }),
+            });
           } catch { /* */ }
         }, t);
       }
-      // ?probe=1&rescue=1：救援行为验证 —— 6s 时强制打倒一只猫娘，
-      // 之后每 2s dump 其余 AI 与倒地者的距离（应持续缩小 = 在去救）。
-      if (q.get('rescue') === '1') {
+    }
+    // ?probe=1&chest=1：拆箱走位验证 —— 6s 时在 P1 旁 300px 放一个
+    // 静止宝箱，之后每 2s dump 各 AI 与宝箱的距离（应缩到 58/150 内）。
+    if (q.get('chest') === '1') {
+      setTimeout(() => {
+        try {
+          game.world.spawnChest(game.player, { x: game.player.x + 300, y: game.player.y });
+        } catch { /* */ }
+      }, 6000);
+      for (const t of [6500, 8000, 10000, 12000]) {
         setTimeout(() => {
           try {
-            const victim = game.world.partners()[2];
-            if (victim && !victim.downed) {
-              victim.down();
-              game.world.partners().forEach((pl) => { pl.hp = pl.maxHp; });   // 其余满血排除回血干扰
-            }
+            const g2 = game;
+            const chest = g2.world.enemies.items.find((e) => e.isChest && !e.dead && !e.def);
+            fetch('http://127.0.0.1:8033/probe?name=chest-' + t, {
+              method: 'POST',
+              body: JSON.stringify({
+                t,
+                chest: chest ? { x: Math.round(chest.x), y: Math.round(chest.y), hp: Math.round(chest.hp), maxHp: chest.maxHp, dead: chest.dead } : null,
+                mates: g2.world.partners().filter((pl) => !pl.dead).map((pl) => ({
+                  id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
+                  distToChest: chest ? Math.round(Math.hypot(pl.x - chest.x, pl.y - chest.y)) : null,
+                })),
+              }),
+            });
           } catch { /* */ }
-        }, 6000);
-        for (const t of [8000, 10000, 12000]) {
-          setTimeout(() => {
-            try {
-              const g2 = game;
-              const victim = g2.world.partners().find((pl) => pl.downed);
-              const rescuers = g2.world.partners().filter((pl) => !pl.downed && !pl.dead).map((pl) => ({
-                id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
-                tgt: pl.agentMoveTarget ? { x: Math.round(pl.agentMoveTarget.x), y: Math.round(pl.agentMoveTarget.y) } : null,
-                distToVictim: victim ? Math.round(Math.hypot(pl.x - victim.x, pl.y - victim.y)) : null,
-              }));
-              fetch('http://127.0.0.1:8033/probe?name=rescue-' + t, {
-                method: 'POST',
-                body: JSON.stringify({ t, victimDown: !!victim, victim: victim ? { id: victim.characterId, x: Math.round(victim.x), y: Math.round(victim.y) } : null, rescuers }),
-              });
-            } catch { /* */ }
-          }, t);
-        }
-      }
-      // ?probe=1&chest=1：拆箱走位验证 —— 6s 时在 P1 旁 300px 放一个
-      // 静止宝箱，之后每 2s dump 各 AI 与宝箱的距离（应缩到 58/150 内）。
-      if (q.get('chest') === '1') {
-        setTimeout(() => {
-          try {
-            game.world.spawnChest(game.player, { x: game.player.x + 300, y: game.player.y });
-          } catch { /* */ }
-        }, 6000);
-        for (const t of [6500, 8000, 10000, 12000]) {
-          setTimeout(() => {
-            try {
-              const g2 = game;
-              const chest = g2.world.enemies.items.find((e) => e.isChest && !e.dead && !e.def);
-              fetch('http://127.0.0.1:8033/probe?name=chest-' + t, {
-                method: 'POST',
-                body: JSON.stringify({
-                  t,
-                  chest: chest ? { x: Math.round(chest.x), y: Math.round(chest.y), hp: Math.round(chest.hp), maxHp: chest.maxHp, dead: chest.dead } : null,
-                  mates: g2.world.partners().filter((pl) => !pl.dead).map((pl) => ({
-                    id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
-                    distToChest: chest ? Math.round(Math.hypot(pl.x - chest.x, pl.y - chest.y)) : null,
-                  })),
-                }),
-              });
-            } catch { /* */ }
-          }, t);
-        }
+        }, t);
       }
     }
   }
