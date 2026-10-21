@@ -22,6 +22,33 @@ const AIMED_BEHAVIORS = new Set([
   'quake', 'flurry',
 ]);
 
+/**
+ * 第一百七十五轮：近战救援 —— 用户实测"无法在 1 秒救起 1 倒队友"。
+ * 排查结论：弹道救援（bullet.checkEnemyHit）**不吃任何无敌帧**，真凶是
+ * **近战武器完全没接救援判定** —— sweep/thrust/quake 等直接
+ * `queryArc → dealDamage` 打敌人，倒地队友在判定里根本不存在，
+ * 拿近战的玩家紫条一动不动。这里给所有近战行为补上队友查询：
+ * 命中倒地队友 = 一刀救援（0.2s gate 保留，防同帧多弹连计）。
+ */
+function rescueDownedAllies(player, world, x, y, range) {
+  for (const ally of (world.players?.() ?? [])) {
+    if (!ally || ally === player || !ally.downed) continue;
+    const dx = ally.x - x, dy = ally.y - y;
+    const rr = range + 40;   // 与弹道救援同款 +40 容差
+    if (dx * dx + dy * dy > rr * rr) continue;
+    const revived = ally.rescueHit();
+    // gate 刚置位（=0.2）说明这一刀真的计了数，不是 0.2s 内的重复命中
+    if (revived) {
+      world.fx?.nova?.(ally.x, ally.y, 26, '#7cf3c4');
+      world.fx?.damageText?.(ally.x, ally.y - ally.radius - 10, '救援成功！', false, '#7cf3c4');
+    } else if (!ally._rescueGate || ally._rescueGate >= 0.19) {
+      world.fx?.sparkle?.(ally.x, ally.y, '#7cf3c4');
+      world.fx?.damageText?.(ally.x, ally.y - ally.radius - 10,
+        `救援 +1（${ally.rescueNeed - ally.rescueProgress}/${ally.rescueNeed}）`, false, '#7cf3c4');
+    }
+  }
+}
+
 export class WeaponInstance {
   constructor(def, level = 1) {
     this.def = def;
@@ -237,6 +264,7 @@ export class WeaponInstance {
         for (const e of hits) {
           world.dealDamage(player, this, e, dmg, { knockback: def.knockback ?? 80, fromX: player.x, fromY: player.y });
         }
+        rescueDownedAllies(player, world, player.x, player.y, range);   // 第一百七十五轮：近战救援
         world.fx.slash(player.x, player.y, facing, range, def.arc ?? 120, def.color, { player: true });
         break;
       }
@@ -251,6 +279,7 @@ export class WeaponInstance {
         for (const e of hits) {
           world.dealDamage(player, this, e, dmg, { knockback: def.knockback ?? 60, fromX: player.x, fromY: player.y });
         }
+        rescueDownedAllies(player, world, player.x, player.y, range);   // 第一百七十五轮：近战救援
         world.fx.thrust(player.x, player.y, ex, ey, w, def.color, { player: true });
         // 第一百三十九轮 E：顿帧感 —— 命中时轻微震屏（幅度 2 / 0.1s），
         // 配合枪影"停留 0.05s 再缩回"，落空不震。
@@ -280,6 +309,7 @@ export class WeaponInstance {
         }
         world.fx.explosion(cx, cy, range * 0.8, def.color, { player: true });
         world.fx.ring(cx, cy, range, def.color, 0.4, { player: true });
+        rescueDownedAllies(player, world, cx, cy, range);   // 第一百七十五轮：近战救援
         world.camera?.shake(6, 0.22);
         break;
       }
@@ -304,6 +334,7 @@ export class WeaponInstance {
           }
           world.fx.thrust(player.x, player.y, ex, ey, w, def.color, { player: true });
         }
+        rescueDownedAllies(player, world, player.x, player.y, range);   // 第一百七十五轮：近战救援
         break;
       }
 
@@ -323,6 +354,7 @@ export class WeaponInstance {
           if (!e.isEnemy || e.dead) continue;
           world.dealDamage(player, this, e, dmg, { knockback: 40, fromX: player.x, fromY: player.y });
         }
+        rescueDownedAllies(player, world, player.x, player.y, range);   // 第一百七十五轮：近战救援
         world.fx.spin(player.x, player.y, range, def.color, { player: true });
         break;
       }
@@ -489,6 +521,9 @@ export class WeaponInstance {
         world.fx.sparkle(ox, oy, '#ffffff', 1);
       }
     }
+    // 第一百七十五轮：环绕球也能救队友（逗猫棒贴身转圈时顺路救援；
+    // gate 0.2s 天然限频，不会刷屏）
+    rescueDownedAllies(player, world, player.x, player.y, radius);
     this.orbitPositions = [];
     for (let i = 0; i < count; i++) {
       const a = this.angle + (i / count) * TAU;
