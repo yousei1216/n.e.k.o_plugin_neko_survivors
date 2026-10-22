@@ -18,6 +18,9 @@ import { PET_VACUUM_RADIUS } from '../entities/pet.js';
 // 第五十四轮：芙兰战空气墙可视化的竞技场矩形（和逻辑层同一个数值来源）
 import { ARENA } from './flandre.js';
 import { drawZigzagBlade } from './dmc-blades.js';
+// 第一百八十四轮：万圣节双猫战渲染（发光弹幕 / Bloom / 墓地背景 / 灯珠字母 / 像素 HUD），
+// 全部在独立模块，渲染器只留调用点
+import * as HR from './halloween-render.js';
 // 眼睛锚点（第九轮）：贴图按 2.6r 画，眼睛必须按同一个尺度画在"脸"上，
 // 否则就会像用户看到的那样"眼睛飞到脸外面"。见 data/enemy-eyes.js 的说明。
 import { eyeAnchor, eyePlacement } from '../data/enemy-eyes.js';
@@ -233,309 +236,6 @@ export class Renderer {
   // 主绘制入口
   // =========================================================
 
-  // ============================================================
-  // 第一百八十四轮：万圣节双猫（巧克力 & 香草）渲染
-  // ============================================================
-  /** 伪横版夜空 + 黑屏换场 + 宽屏场地边界（世界坐标） */
-  _drawHalloweenBgWorld(ctx, hf) {
-    const arena = hf.constructor.ARENA ?? { cx: 0, cy: 40, hw: 640, hh: 330 };
-    const { cx, cy, hw, hh } = arena;
-    // 黑屏换场：t<0 → 全黑；0~1.2s 从黑渐亮（用户："3秒黑屏……场景变亮之后放bgm"）
-    const t = hf.t ?? 0;
-    if (t < 0) {
-      ctx.save();
-      ctx.fillStyle = '#000';
-      ctx.fillRect(cx - hw - 200, cy - hh - 200, (hw + 200) * 2, (hh + 200) * 2);
-      ctx.restore();
-      return;
-    }
-    const bright = Math.min(1, t / 1.2);
-    // 夜空渐变（伪横版：上暗紫 → 下深黑紫）
-    ctx.save();
-    ctx.globalAlpha = bright;
-    const sky = ctx.createLinearGradient(0, cy - hh, 0, cy + hh);
-    sky.addColorStop(0, '#1a1033');
-    sky.addColorStop(0.55, '#241542');
-    sky.addColorStop(1, '#0d0819');
-    ctx.fillStyle = sky;
-    ctx.fillRect(cx - hw - 200, cy - hh - 200, (hw + 200) * 2, (hh + 200) * 2);
-    // 满月（右上）
-    ctx.fillStyle = '#ffe9a8';
-    ctx.beginPath();
-    ctx.arc(cx + hw - 130, cy - hh + 70, 46, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,233,168,0.14)';
-    ctx.beginPath();
-    ctx.arc(cx + hw - 130, cy - hh + 70, 78, 0, Math.PI * 2);
-    ctx.fill();
-    // 远山剪影（两层，横向正弦起伏）
-    for (const [col, base, amp, freq, ph] of [['#150c28', cy + hh - 60, 46, 0.006, 0], ['#0e0719', cy + hh - 20, 34, 0.009, 2.2]]) {
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(cx - hw - 200, cy + hh + 200);
-      for (let x = cx - hw - 200; x <= cx + hw + 200; x += 24) {
-        ctx.lineTo(x, base + Math.sin((x + ph * 300) * freq) * amp - amp * 0.5);
-      }
-      ctx.lineTo(cx + hw + 200, cy + hh + 200);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // ---- 万圣节墓地（程序化 —— 原版墓地主景是基础包 tile 拼装，拆包
-    // 没有整图；这里画石碑群+枯树+地面雾，贴原版截图的墓地氛围）----
-    // 墓碑群（确定性伪随机，位置每次一样）
-    if (!hf._gravestones) {
-      hf._gravestones = [];
-      let seed = 13;
-      const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
-      for (let i = 0; i < 7; i++) {
-        hf._gravestones.push({
-          x: cx - hw + 70 + rnd() * (hw * 2 - 140),
-          y: cy + hh - 46 - rnd() * 60,
-          w: 26 + rnd() * 16, h: 34 + rnd() * 22, tilt: (rnd() - 0.5) * 0.16,
-        });
-      }
-    }
-    ctx.save();
-    ctx.globalAlpha = bright * 0.9;
-    for (const g of hf._gravestones) {
-      ctx.save();
-      ctx.translate(g.x, g.y);
-      ctx.rotate(g.tilt);
-      // 石碑（圆顶碑身 + 底座 + 刻字横线）
-      ctx.fillStyle = '#3d3550';
-      ctx.beginPath();
-      ctx.moveTo(-g.w / 2, 0);
-      ctx.lineTo(-g.w / 2, -g.h);
-      ctx.arc(0, -g.h, g.w / 2, Math.PI, 0);
-      ctx.lineTo(g.w / 2, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#2c2740';
-      ctx.fillRect(-g.w / 2 - 4, -4, g.w + 8, 6);
-      ctx.strokeStyle = '#544a6e';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-g.w * 0.25, -g.h * 0.55); ctx.lineTo(g.w * 0.25, -g.h * 0.55);
-      ctx.moveTo(-g.w * 0.25, -g.h * 0.4); ctx.lineTo(g.w * 0.25, -g.h * 0.4);
-      ctx.stroke();
-      ctx.restore();
-    }
-    // 枯树剪影 ×2（左右各一，分形枝干）
-    for (const tx of [cx - hw + 90, cx + hw - 90]) {
-      ctx.strokeStyle = '#191026';
-      ctx.lineWidth = 10;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(tx, cy + hh - 30);
-      ctx.lineTo(tx + 12, cy + hh - 120);
-      ctx.stroke();
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(tx + 12, cy + hh - 120); ctx.lineTo(tx - 26, cy + hh - 180);
-      ctx.moveTo(tx + 12, cy + hh - 120); ctx.lineTo(tx + 48, cy + hh - 175);
-      ctx.moveTo(tx - 26, cy + hh - 180); ctx.lineTo(tx - 46, cy + hh - 220);
-      ctx.moveTo(tx + 48, cy + hh - 175); ctx.lineTo(tx + 70, cy + hh - 215);
-      ctx.stroke();
-    }
-    // 地面雾带 ×2（横向正弦起伏，缓慢漂移）
-    const drift = (hf.t ?? 0) * 22;
-    for (const [fy, amp, a] of [[cy + hh - 40, 10, 0.08], [cy + hh - 14, 14, 0.12]]) {
-      ctx.fillStyle = `rgba(200,162,255,${a * bright})`;
-      ctx.beginPath();
-      ctx.moveTo(cx - hw - 60, cy + hh + 60);
-      for (let x = cx - hw - 60; x <= cx + hw + 60; x += 26) {
-        ctx.lineTo(x, fy + Math.sin((x + drift) * 0.012) * amp);
-      }
-      ctx.lineTo(cx + hw + 60, cy + hh + 60);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-    // 宽屏场地边界（空气墙，淡橙描边）
-    ctx.strokeStyle = 'rgba(255,159,67,0.4)';
-    ctx.lineWidth = 3;
-    ctx.setLineDash([14, 10]);
-    ctx.strokeRect(cx - hw, cy - hh, hw * 2, hh * 2);
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-
-  /** 激光束 + 南瓜投影/爆风 + 糖果雨（世界坐标，实体之下弹幕之上） */
-  _drawHalloweenFx(ctx, hf) {
-    const bright = Math.min(1, Math.max(0, (hf.t ?? 0) / 1.2));
-    if (bright <= 0) return;
-    ctx.save();
-    ctx.globalAlpha = bright;
-    // 旋转激光：核心白线 + 橙色光晕（lighter 混合，原版发光弹同款）
-    for (const b of hf.waves ?? []) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const L = 1600;
-      const ex = b.x + Math.cos(b.angle) * L, ey = b.y + Math.sin(b.angle) * L;
-      const fade = Math.min(1, b.t / 0.4);
-      ctx.globalAlpha = bright * fade;
-      ctx.strokeStyle = 'rgba(255,127,80,0.5)';
-      ctx.lineWidth = 22;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(ex, ey); ctx.stroke();
-      ctx.strokeStyle = '#fff7ec';
-      ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(ex, ey); ctx.stroke();
-      ctx.restore();
-    }
-    // 南瓜：空中的下落体（直线简化投影）+ 落地十字爆风
-    for (const pk of hf.pumpkins ?? []) {
-      if (pk.t > 0) {
-        // 预警圈 + 下落中的南瓜
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255,127,80,0.65)';
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.ellipse(pk.x, pk.y, 26, 12, 0, 0, Math.PI * 2); ctx.stroke();
-        const h = pk.t / 1.1;   // 1 → 0，越高越远
-        const sy = pk.y - h * 420;
-        ctx.fillStyle = '#ff7f50';
-        ctx.beginPath(); ctx.ellipse(pk.x, sy, 14, 11, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#2ecc71';
-        ctx.fillRect(pk.x - 2, sy - 16, 4, 7);
-        ctx.restore();
-      } else if (pk.boom > 0) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const k = pk.boom / 0.35;
-        ctx.strokeStyle = `rgba(255,127,80,${0.8 * k})`;
-        ctx.lineWidth = 16;
-        ctx.beginPath();
-        ctx.moveTo(pk.x - 210, pk.y); ctx.lineTo(pk.x + 210, pk.y);
-        ctx.moveTo(pk.x, pk.y - 210); ctx.lineTo(pk.x, pk.y + 210);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-    // 糖果雨
-    for (const c of hf._candies ?? []) {
-      ctx.save();
-      ctx.fillStyle = c.color;
-      ctx.beginPath(); ctx.arc(c.x, c.y, 8, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
-    // 追踪猫爪（紫色大弹）
-    for (const cl of hf._claws ?? []) {
-      ctx.save();
-      ctx.fillStyle = '#c8a2ff';
-      ctx.beginPath(); ctx.arc(cl.x, cl.y, 13, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(cl.x, cl.y, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  /** 双猫立绘：真帧图 + 失败占位（彩色圆+猫耳）+ 浮动 + 施法/待机帧切换 */
-  _drawHalloweenCats(ctx, hf) {
-    const t = hf.t ?? 0;
-    if (t < 0) return;   // 黑屏期间不画
-    const bob = Math.sin(t * 1.8) * 10;
-    for (const who of ['choco', 'vanilla']) {
-      const cat = hf.cats[who];
-      if (!cat) continue;
-      const y = cat.y + (who === 'choco' ? bob : -bob * 0.8);
-      const fdef = hf.frames(who)?.[cat.frame] ?? { size: [21, 36] };
-      const img = hf.frameImg(who, cat.frame);
-      if (img) {
-        // 原版 720p 素材 → 4× 放大 + 关平滑（像素锐利，还原原版立绘体量
-        // —— v0.3.89：1.6× 时只有 34×58px，义眼对比原版"还原度差好多"）
-        const sw = fdef.size[0] * 4, sh = fdef.size[1] * 4;
-        ctx.save();
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, cat.x - sw / 2, y - sh / 2, sw, sh);
-        // 名牌 + 演出进度假血条（HALLOWEEN CAT 风格 —— 纯演出没有真血，
-        // 用演出时间当血量：随 90 秒推进慢慢掉光，配合"演完即胜"）
-        const nw = 170;
-        ctx.font = '700 11px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(10,4,18,0.65)';
-        ctx.fillRect(cat.x - nw / 2, y + sh / 2 + 8, nw, 26);
-        ctx.fillStyle = who === 'choco' ? '#ffb37a' : '#e8dcff';
-        ctx.fillText(`HALLOWEEN CAT ${who === 'choco' ? 'CHOCOLATE' : 'VANILLA'} SPECIAL`, cat.x, y + sh / 2 + 20);
-        const prog = Math.max(0, 1 - (hf.t ?? 0) / hf.totalShow);
-        ctx.fillStyle = '#2a1430';
-        ctx.fillRect(cat.x - nw / 2 + 6, y + sh / 2 + 24, nw - 12, 6);
-        ctx.fillStyle = who === 'choco' ? '#ff9f43' : '#c8a2ff';
-        ctx.fillRect(cat.x - nw / 2 + 6, y + sh / 2 + 24, (nw - 12) * prog, 6);
-        ctx.restore();
-      } else {
-        // 占位：巧克力橙圆 / 香草白圆 + 双三角猫耳 + 眼睛
-        const R = 26;
-        const col = who === 'choco' ? '#8a4b2a' : '#f3ead9';
-        ctx.save();
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.moveTo(cat.x - R, y);
-        ctx.lineTo(cat.x - R - 10, y - R - 8); ctx.lineTo(cat.x - 4, y - R);
-        ctx.lineTo(cat.x + 4, y - R);
-        ctx.lineTo(cat.x + R + 10, y - R - 8); ctx.lineTo(cat.x + R, y);
-        ctx.arc(cat.x, y, R, Math.PI, 0, false);
-        ctx.closePath(); ctx.fill();
-        ctx.fillStyle = who === 'choco' ? '#ffd76e' : '#e05680';
-        ctx.beginPath(); ctx.arc(cat.x - 9, y - 2, 3.5, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(cat.x + 9, y - 2, 3.5, 0, Math.PI * 2); ctx.fill();
-        ctx.font = '12px system-ui';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(255,255,255,0.75)';
-        ctx.fillText(who === 'choco' ? '巧克力' : '香草', cat.x, y + R + 18);
-        ctx.restore();
-      }
-    }
-    // 分裂特效闪光
-    if (hf.splitFx > 0) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = hf.splitFx;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(hf.cats.choco.x, hf.cats.choco.y, 120 * (1 - hf.splitFx) + 40, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-    // 演出倒计时（屏幕顶部中央）
-    if (hf.timeLeft > 0 && hf.phaseIdx < (hf.sections?.length ?? 99)) {
-      ctx.save();
-      ctx.font = '600 15px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(255,233,168,0.85)';
-      ctx.fillText(`🎃 双猫玩兴还有 ${Math.ceil(hf.timeLeft)} 秒`, hf.cats.choco.x + 100, 26);
-      ctx.restore();
-    }
-  }
-
-  /**
-   * 攻击名大字扫入（世界坐标，压在弹幕之上）—— 原版符卡名的神韵：
-   * 每节开始英文名从右扫入中央 → 停 ~1.4s → 淡出（BUNNY EXTINCTION、
-   * TRICK OR TREAT 那味儿）。spellT 0~0.45 扫入 / 0.45~1.9 全亮 / 1.9~2.6 淡出。
-   */
-  _drawHalloweenSpellName(ctx, hf) {
-    const name = hf.curSpell;
-    if (!name || hf.spellT == null || hf.spellT > 2.6) return;
-    const t = hf.spellT;
-    const arena = hf.constructor.ARENA;
-    const cx = arena.cx, cy = arena.cy - arena.hh + 200;
-    ctx.save();
-    let alpha = 1, slide = 0;
-    if (t < 0.45) { alpha = t / 0.45; slide = (1 - t / 0.45) * 160; }
-    else if (t > 1.9) { alpha = Math.max(0, 1 - (t - 1.9) / 0.7); }
-    ctx.globalAlpha = alpha * 0.92;
-    ctx.font = 'italic 700 34px Georgia, serif';
-    ctx.textAlign = 'center';
-    // 底衬描边 + 橙→紫渐变填充（万圣节配色）
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = 'rgba(20,6,32,0.9)';
-    ctx.strokeText(name, cx + slide, cy);
-    const grad = ctx.createLinearGradient(cx - 260, 0, cx + 260, 0);
-    grad.addColorStop(0, '#ff9f43');
-    grad.addColorStop(1, '#e056fd');
-    ctx.fillStyle = grad;
-    ctx.fillText(name, cx + slide, cy);
-    ctx.restore();
-  }
   render(world, camera, player) {
     const ctx = this.ctx;
     const W = this.width, H = this.height;
@@ -545,10 +245,13 @@ export class Renderer {
     this.world = world;
 
     // ---- 第一百八十轮：天彗龙屏幕震动（背景一起晃，压迫感拉满）----
-    if (world.comet && world.comet.shake > 0) {
+    // 万圣节双猫分裂时的震动（hf.shake 0~1 ×9px）与天彗龙震动取大者
+    const hwShake = (world.halloweenFight?.shake ?? 0) * 9;
+    const shk = Math.max(world.comet?.shake ?? 0, hwShake);
+    if (shk > 0) {
       ctx.save();
-      ctx.translate((Math.random() * 2 - 1) * world.comet.shake,
-        (Math.random() * 2 - 1) * world.comet.shake);
+      ctx.translate((Math.random() * 2 - 1) * shk,
+        (Math.random() * 2 - 1) * shk);
       this._cometShakeRestore = true;
     } else {
       this._cometShakeRestore = false;
@@ -569,6 +272,8 @@ export class Renderer {
     if (fight) {
       this._drawFlandreBg(ctx, fight, camera, W, H);
     }
+    // 第一百八十四轮：万圣节双猫背景（屏幕空间整层烘焙：黑→暖棕夜空/红月/栅栏/墓碑/雾）
+    if (world.halloweenFight) HR.drawBg(ctx, world.halloweenFight, camera, W, H, this.dpr);
 
     ctx.save();
     ctx.translate(W / 2 - camera.cx, H / 2 - camera.cy);
@@ -580,8 +285,7 @@ export class Renderer {
     // ---- 第一百八十四轮：万圣节双猫战背景（世界坐标，实体之下）----
     // 黑屏换场（t<0 全黑 → 变亮）→ 伪横版夜空（深紫渐变+满月+山影，
     // hill_a 贴图下轮接入）+ 宽屏场地边界。
-    if (world.halloweenFight) this._drawHalloweenBgWorld(ctx, world.halloweenFight);
-    if (world.halloweenFight) this._drawHalloweenFx(ctx, world.halloweenFight);
+
 
     // ---- 世界边界 ----
     this._drawWorldBounds(ctx, world);
@@ -627,11 +331,18 @@ export class Renderer {
     // ---- 第一百五十三轮：变异体黑红飘散粒子（敌人之上、子弹之下）----
     this._tickMutantParticles(ctx);
 
+    // ---- 第一百八十四轮：万圣节双猫立绘画在弹幕**下层**（她们没有判定，是背景里的演出角色；
+    // 灯珠字母弹幕开场会落在猫身下，画在上层会把 EXTINCTION 左半截挡住）----
+    if (world.halloweenFight) HR.drawCats(ctx, world.halloweenFight);
+
     // ---- 敌人子弹 ----
     for (const b of world.enemyBullets.items) {
+      if (b.halloween) continue;   // 万圣节弹走自己的发光批处理（下面 HR.drawWorldFx）
       if (!camera.isVisible(b.x, b.y, 40)) continue;
       this._drawEnemyBullet(ctx, b);
     }
+    // 第一百八十四轮：万圣节双猫战世界层 —— 南瓜/糖果/猫爪/光柱 + 全部发光弹幕(lighter) + Bloom
+    if (world.halloweenFight) HR.drawWorldFx(ctx, world, world.halloweenFight, camera, W, H);
 
     // ---- 炮台（画在敌人下面，避免挡住敌人轮廓） ----
     for (const t of world.turrets.items) {
@@ -700,8 +411,7 @@ export class Renderer {
     // ---- 第一百八十四轮：万圣节双猫立绘（世界坐标，实体之上 —— "把
     // 两个活泼的猫娘直接站在我们的ui界面上攻击玩家"：镜头锁定后世界
     // 坐标即屏幕位置，顶部悬浮 + Math.sin 浮动，无 hitbox 纯演出）----
-    if (world.halloweenFight) this._drawHalloweenCats(ctx, world.halloweenFight);
-    if (world.halloweenFight) this._drawHalloweenSpellName(ctx, world.halloweenFight);
+
 
     // ---- 第一百四十一轮：阎魔刀 · 次元斩（玩家侧满屏刀光，金色偏白）----
     if (world.playerUlt) {
@@ -736,6 +446,9 @@ export class Renderer {
     // 队友跑出 1P 视口时，屏幕边缘显示专属色徽章 + 指向箭头 + 名字，
     // 告诉 1P "AI 猫娘可能去了哪"（呼吸闪烁提醒）。一人一色不混淆。
     this._drawPartnersOffscreen(ctx, world, camera, W, H);
+
+    // ---- 第一百八十四轮：万圣节双猫屏幕层（像素字招式名 / 底部双猫血条 / 暗角 / 黑屏换场）----
+    if (world.halloweenFight) HR.drawHud(ctx, world.halloweenFight, W, H, this.dpr);
 
     // ---- 第一百八十轮：震动 translate 的配对 restore ----
     if (this._cometShakeRestore) ctx.restore();

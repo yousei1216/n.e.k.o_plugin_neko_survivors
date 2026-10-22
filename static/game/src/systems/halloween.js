@@ -16,6 +16,7 @@
 import { TAU } from '../core/math.js';
 import { audio } from './audio.js';
 import { CHOCO_FRAMES, VANILLA_FRAMES } from './halloween-frames.js';
+import { layoutWord } from './halloween-font.js';
 
 // ---- 场地（宽屏，用户："移动场地可以大点，原版就是宽屏，我们不用画正方形限制"）----
 export const ARENA = { cx: 0, cy: 40, hw: 640, hh: 330 };
@@ -117,23 +118,42 @@ export class HalloweenFight {
     this.waves = [];             // 激光束（{x,y,angle,rot,t,life,who}）
     this.pumpkins = [];          // 南瓜（投影点 + 落地计时）
     this.timeLeft = 0;           // UI 显示：剩余演出秒数
+    // ---- 视觉重写新增状态（纯演出/调试，不影响判定）----
+    this._q = [];                // 定时队列 [{at, fn}] —— 取代 setTimeout，暂停时同步冻结
+    this.splitAt = null;         // 分裂发生的演出时刻（渲染层做飞散缓动）
+    this.flash = 0;              // 全屏白闪强度（分裂瞬间）
+    this.shake = 0;              // 屏幕震动强度（渲染层 ×10px）
     this._buildTimeline();
+    if (opts.phase > 0) this._seek(opts.phase);
+  }
+
+  /** 调试：直接跳到第 n 节（?hwphase=N），方便逐招截图验收 */
+  _seek(n) {
+    n = Math.min(n, this.sections.length - 1);
+    let acc = 0;
+    for (let i = 0; i < n; i++) acc += this.sections[i].dur;
+    this.phaseIdx = n;
+    this.phaseT = 0;
+    this.t = acc;
+    if (n > 5) { this.merged = false; this.splitAt = acc - 9; }
   }
 
   /** 演出时间轴 —— 每节 {name, dur, tick(dt, T)}，顺序执行，跑完 outro 即胜 */
   _buildTimeline() {
     this.sections = [
-      { name: 'intro', spell: 'MISCHIEVOUS MASQUERADE', dur: 4.5, tick: (dt) => this._tickIntro(dt) },
+      // word = 该节开场由灯珠拼出、整块坠落的单词（用户："改成用发光的光球阵列拼出
+      // 攻击单词，并让这些光球作为弹幕坠落"）；spell = 左上角像素字招式名
+      { name: 'intro', spell: 'MISCHIEVOUS MASQUERADE', word: ['TRICK'], dur: 4.5, tick: (dt) => this._tickIntro(dt) },
       { name: 'ring', spell: 'FANG OF HARVEST', dur: 6, tick: (dt) => this._tickRing(dt) },
-      { name: 'fan', spell: 'TRICK OR TREAT', dur: 7, tick: (dt, T) => this._tickFan(dt, T) },
+      { name: 'fan', spell: 'TRICK OR TREAT', word: ['TREAT'], dur: 7, tick: (dt, T) => this._tickFan(dt, T) },
       { name: 'wall', spell: 'MIDNIGHT BARRAGE', dur: 6, tick: (dt) => this._tickWall(dt) },
-      { name: 'pumpkin', spell: 'PUMPKIN PANIC', dur: 8, tick: (dt) => this._tickPumpkin(dt) },
-      { name: 'split', spell: 'WE ARE SCARY!', dur: 6, tick: (dt) => this._tickSplit(dt) },
+      { name: 'pumpkin', spell: 'PUMPKIN PANIC', word: ['BOO!'], dur: 8, tick: (dt) => this._tickPumpkin(dt) },
+      { name: 'split', spell: 'WE ARE SCARY!', word: ['HAPPY', 'HALLOWEEN'], dur: 6, tick: (dt) => this._tickSplit(dt) },
       { name: 'alt_ring', spell: 'TWIN FANG DANCE', dur: 10, tick: (dt) => this._tickAltRing(dt) },
       { name: 'laser', spell: 'CROSS NIGHT PARADE', dur: 10, tick: (dt) => this._tickLaser(dt) },
       { name: 'claw', spell: 'NEKO TRACKER', dur: 7, tick: (dt) => this._tickClaw(dt) },
-      { name: 'candy', spell: 'SUGAR RUSH', dur: 7, tick: (dt) => this._tickCandy(dt) },
-      { name: 'rage', spell: 'BUNNY EXTINCTION', dur: 12, tick: (dt) => this._tickRage(dt) },
+      { name: 'candy', spell: 'SUGAR RUSH', word: ['SWEET'], dur: 7, tick: (dt) => this._tickCandy(dt) },
+      { name: 'rage', spell: 'BUNNY EXTINCTION', word: ['BUNNY', 'EXTINCTION'], dur: 12, tick: (dt) => this._tickRage(dt) },
     ];
     this.totalShow = this.sections.reduce((a, s) => a + s.dur, 0) + 5;   // + outro
     this.timeLeft = this.totalShow;
@@ -150,15 +170,22 @@ export class HalloweenFight {
   // ---- 弹幕发射：全部走 world.spawnEnemyBullet，halloween 标记走 10% 真伤 ----
   _shot(x, y, angle, speedPxFrame, opts = {}) {
     const w = this.main.world;
-    if (w.enemyBullets.items.length > 650) return;   // 弹幕上限（芙兰 750 同级）
-    w.spawnEnemyBullet({
+    // 弹幕上限：普通弹 650（芙兰 750 同级）；灯珠字母弹可冲到 900（单词是演出主角，不能被密度挤掉）
+    const cap = opts.hwKind === 'bead' ? 900 : 650;
+    if (w.enemyBullets.items.length > cap) return null;
+    return w.spawnEnemyBullet({
       x, y, angle, speed: V(speedPxFrame),
       damage: 0,                       // 伤害走 halloweenHit 真伤通道，damage 不用
-      radius: opts.radius ?? 9,
-      color: opts.color ?? '#ff9f43',
+      radius: opts.radius ?? 8,        // 渲染缩放基准（8 = 标准弹，视觉直径 ≈ 34）
+      // 判定半径独立于视觉：白核 + 亮盘约 6px 才是"实体"，外围光晕不判定
+      // （原版擦弹才刺激；之前 9px 判定 + 密度上去后会"明明没碰到也中弹"）
+      hitRadius: opts.hitRadius ?? 5.5,
+      color: opts.color ?? 'amber',    // 发光色带键：amber/red/gold/violet/cyan/green（见 halloween-render.js）
       range: opts.range ?? 900,
       shape: opts.shape ?? 'orb',
       halloween: true,
+      hwKind: opts.hwKind ?? '',
+      hwPhase: opts.hwPhase ?? 0,
     });
   }
 
@@ -179,7 +206,7 @@ export class HalloweenFight {
     for (const off of [-144, -96, -48, 48, 96, 144]) {
       const x = px.x + off;
       const dy = ARENA.cy + ARENA.hh - px.y;
-      this._shot(x, px.y + 20, Math.atan2(dy, 0) + off * 0.0006, 2.0, { color: '#e056fd' });
+      this._shot(x, px.y + 20, Math.atan2(dy, 0) + off * 0.0006, 2.0, { color: 'gold' });
     }
   }
 
@@ -188,19 +215,53 @@ export class HalloweenFight {
     const px = this._catPos(who);
     const step = 56.16, steps = 18;
     for (let wv = 0; wv < 4; wv++) {
-      setTimeout(() => {
-        if (this.over) return;
-        for (const perp of [-1, 1]) {
-          const a = angle + perp * Math.PI / 2;
-          for (let i = -steps / 2; i <= steps / 2; i++) {
-            const sx = px.x + Math.cos(a) * step * i, sy = px.y + Math.sin(a) * step * i;
-            if (Math.abs(sx - ARENA.cx) < ARENA.hw + 60 && Math.abs(sy - ARENA.cy) < ARENA.hh + 60) {
-              this._shot(sx, sy, angle, 2.2, { color: '#fd79a8', shape: 'longball' });
+      // 走定时队列而非 setTimeout：暂停(ESC)时 update 不跑，弹墙也跟着冻结
+      this._q.push({
+        at: this.t + wv * 0.55,
+        fn: () => {
+          for (const perp of [-1, 1]) {
+            const a = angle + perp * Math.PI / 2;
+            for (let i = -steps / 2; i <= steps / 2; i++) {
+              const sx = px.x + Math.cos(a) * step * i, sy = px.y + Math.sin(a) * step * i;
+              if (Math.abs(sx - ARENA.cx) < ARENA.hw + 60 && Math.abs(sy - ARENA.cy) < ARENA.hh + 60) {
+                this._shot(sx, sy, angle, 2.2, { color: 'red', shape: 'longball' });
+              }
             }
           }
-        }
-      }, wv * 550);
+        },
+      });
     }
+  }
+
+  /**
+   * 灯珠字母弹幕：把单词拼成 5×7 点阵，每个格点一颗灯珠弹，整块刚体坠落。
+   *  · 间距 pitch 随词宽自适应（11~21px，整词 ≤980px 宽），灯珠光晕 ≥ 间距 → 视觉串成霓虹管
+   *  · 整词倾斜 7°（右上扬，报告 §3.1），从左到右每列延迟 28ms 依次点亮（报告 §3.4）
+   *  · 延迟生成的灯珠起点按 v·delay 前移，保证整词是刚体、不会因为错时生成而"剪切"变形
+   *  · 判定半径 4.5（只有白核算实体），字怀/笔画间隙就是安全通道
+   */
+  _spawnWord(lines) {
+    const { cells, widthCells, heightCells } = layoutWord(lines);
+    const pitch = Math.max(12, Math.min(24, 1160 / widthCells));   // 整词 ≤1160px 宽；单行短词可放大到 24px 间距（字高 168px）
+    const tilt = -0.12;
+    const cs = Math.cos(tilt), sn = Math.sin(tilt);
+    const fall = 46;                                    // px/s，整词坠落速度
+    const cx = ARENA.cx;
+    const cy = ARENA.cy - ARENA.hh + 60 + (heightCells * pitch) / 2;   // 词顶贴近场地上沿
+    for (const c of cells) {
+      const lx = c.cx * pitch, ly = c.cy * pitch;
+      const delay = c.col * 0.028;
+      const x = cx + lx * cs - ly * sn;
+      const y = cy + lx * sn + ly * cs + fall * delay;  // 延迟补偿：等价于 t0 时刻一起出发
+      this._q.push({
+        at: this.t + delay,
+        fn: () => this._shot(x, y, Math.PI / 2, fall / 60, {
+          color: 'gold', hwKind: 'bead', hwPhase: Math.random() * TAU, hitRadius: 4.5, range: 1300,
+          radius: pitch * 0.5,   // 仅渲染：灯珠光晕/白核随点阵间距等比放大（报告：核:距 ≈ 1:4.2）
+        }),
+      });
+    }
+    sfx('etc13', 0.6);
   }
 
   /** 南瓜炸弹：抛物线落点 → 十字爆风（伪横版灵魂：下落可预判，横走可躲） */
@@ -216,12 +277,12 @@ export class HalloweenFight {
   _tickIntro(dt) {
     // 登场：合并猫浮现（画层做 alpha 渐入），偶尔丢一颗环形弹当预告
     this._emit += dt;
-    if (this._emit > 1.4) { this._emit = 0; this._ring('choco', 8, 2.4, '#ffa502'); }
+    if (this._emit > 1.4) { this._emit = 0; this._ring('choco', 8, 2.4, 'amber'); }
   }
 
   _tickRing(dt) {
     this._emit += dt;
-    if (this._emit > 1.15) { this._emit = 0; this._ring('choco', 14 + this.phase * 3, 3.0, '#ffa502'); }
+    if (this._emit > 1.15) { this._emit = 0; this._ring('choco', 16 + this.phase * 4, 3.0, 'amber'); }
   }
 
   _tickFan(dt) {
@@ -254,6 +315,9 @@ export class HalloweenFight {
     if (this.merged && this.phaseT > 2.5) {
       this.merged = false;
       this.splitFx = 0.6;
+      this.splitAt = this.t;     // 渲染层据此做"从中间飞向两侧"的缓动
+      this.flash = 1;            // 全屏白闪
+      this.shake = 1;            // 屏幕震动（报告 §5：变身/大招 ±4px 8 帧衰减）
       sfx('hit13', 0.5);   // 原版分裂音
     }
   }
@@ -262,7 +326,7 @@ export class HalloweenFight {
     this._emit += dt;
     if (this._emit > 1.0) {
       this._emit = 0;
-      this._ring(this._alt % 2 ? 'vanilla' : 'choco', 18, 3.2, this._alt % 2 ? '#7efff5' : '#ff9f43');
+      this._ring(this._alt % 2 ? 'vanilla' : 'choco', 24, 3.2, this._alt % 2 ? 'gold' : 'amber');
       this._alt++;
     }
   }
@@ -279,6 +343,8 @@ export class HalloweenFight {
     }
     for (const b of this.waves) {
       b.angle += b.rot * dt;
+      // 前 0.7s 是预警细线（渲染层画淡线），不伤人 —— 给走位反应时间
+      if (b.life - b.t < 0.7) continue;
       // 激光伤害走 halloweenHit 同款 10% 真伤：判定 = 玩家到射线垂距
       for (const pl of this.main.world.players()) {
         if (!pl || pl.dead || pl.downed || pl.invuln > 0 || pl.halloweenHit == null) continue;
@@ -286,7 +352,7 @@ export class HalloweenFight {
         const proj = dx * Math.cos(b.angle) + dy * Math.sin(b.angle);
         if (proj <= 0) continue;
         const perp = Math.abs(-dx * Math.sin(b.angle) + dy * Math.cos(b.angle));
-        if (perp < 26) pl.halloweenHit(b.x, b.y);
+        if (perp < 20) pl.halloweenHit(b.x, b.y);   // 视觉软边半宽 ≈ 28，核心更窄，判定收到 20
       }
     }
     this.waves = this.waves.filter((b) => (b.t -= dt) > 0);
@@ -325,7 +391,9 @@ export class HalloweenFight {
       }
       c.x += c.vx * dt; c.y += c.vy * dt;
       c.t -= dt;
-      if (Math.random() < 0.55) this._shot(c.x, c.y, Math.random() * TAU, 0.4, { color: '#c8a2ff', radius: 5 });
+      // 余烬弹：按**时间**发（原来是每帧 55% 概率 → 9 只爪 ≈ 300 发/秒，帧率越高越多），
+      // 且短命（射程 70px ≈ 2.9s；原来 900px 能在场上躺 37 秒，把 650 的弹幕上限吃满）
+      if (Math.random() < dt * 7) this._shot(c.x, c.y, Math.random() * TAU, 0.4, { color: 'violet', radius: 5, hitRadius: 4, range: 70 });
     }
     this._claws = (this._claws ?? []).filter((c) => c.t > 0
       && Math.abs(c.x - ARENA.cx) < ARENA.hw + 80 && Math.abs(c.y - ARENA.cy) < ARENA.hh + 80);
@@ -338,7 +406,7 @@ export class HalloweenFight {
       this._emit = 0;
       const x = ARENA.cx + (Math.random() * 2 - 1) * (ARENA.hw - 40);
       this._candies ??= [];
-      this._candies.push({ x, y: ARENA.cy - ARENA.hh - 20, vx: (Math.random() - 0.5) * 160, vy: 60, bounces: 2, t: 7, color: ['#ff6b6b', '#feca57', '#1dd1a1', '#54a0ff'][(Math.random() * 4) | 0] });
+      this._candies.push({ x, y: ARENA.cy - ARENA.hh - 20, vx: (Math.random() - 0.5) * 160, vy: 60, bounces: 2, t: 7, color: ['red', 'gold', 'green', 'cyan'][(Math.random() * 4) | 0] });
     }
     const floor = ARENA.cy + ARENA.hh;
     for (const c of (this._candies ?? [])) {
@@ -361,7 +429,7 @@ export class HalloweenFight {
     // 狂暴合奏：环形 + 扇 + 南瓜雨三线叠加，1.3× 节奏（BGM 高潮对齐这里）
     this._emit += dt;
     const k = 1 / 1.3;
-    if (this._emit > 1.15 * k) { this._emit = 0; this._ring(this._alt % 2 ? 'vanilla' : 'choco', 22, 3.6, '#ff4757'); this._alt++; }
+    if (this._emit > 1.15 * k) { this._emit = 0; this._ring(this._alt % 2 ? 'vanilla' : 'choco', 30, 3.6, 'red'); this._alt++; }
     this._fanT = (this._fanT ?? 0) + dt;
     if (this._fanT > 1.4 * k) { this._fanT = 0; this._fan('choco'); this._fan('vanilla'); }
     this._pkT = (this._pkT ?? 0) + dt;
@@ -382,6 +450,29 @@ export class HalloweenFight {
       bgmStart();   // 原曲 Mischievous Masquerade（wav 直播）
     }
 
+    // 视觉衰减量：分裂光斑 / 白闪 / 震动
+    this.splitFx = Math.max(0, this.splitFx - dt);
+    this.flash = Math.max(0, this.flash - dt * 1.8);
+    this.shake = Math.max(0, this.shake - dt * 2.2);
+
+    // 定时队列（弹墙分波 / 灯珠字母逐列点亮）
+    if (this._q.length) {
+      const keep = [];
+      for (const e of this._q) { if (e.at <= this.t) e.fn(); else keep.push(e); }
+      this._q = keep;
+    }
+
+    // 拖尾位置采样（纯视觉）：每发弹每移动 ≥6px 记一个点，最多 6 个 → 渲染成余烬点链
+    for (const b of this.main.world.enemyBullets.items) {
+      if (!b.halloween || b.hwKind === 'bead') continue;
+      const tr = b._tr ?? (b._tr = []);
+      const n = tr.length;
+      if (n === 0 || (b.x - tr[n - 2]) ** 2 + (b.y - tr[n - 1]) ** 2 >= 36) {
+        tr.push(b.x, b.y);
+        if (tr.length > 12) tr.splice(0, 2);
+      }
+    }
+
     // 南瓜落地/爆风
     for (const pk of this.pumpkins) {
       if (pk.t > 0) {
@@ -390,7 +481,7 @@ export class HalloweenFight {
           pk.boom = 0.35;
           sfx('etc13', 0.25);   // 原版爆风音
           for (let i = 0; i < 4; i++) {
-            this._shot(pk.x, pk.y, i * Math.PI / 2, 3.0, { color: '#ff7f50', radius: 8, range: 420 });
+            this._shot(pk.x, pk.y, i * Math.PI / 2, 3.0, { color: 'amber', radius: 8, range: 420 });
           }
         }
       } else if (pk.boom > 0) {
@@ -409,7 +500,9 @@ export class HalloweenFight {
     if (this.phaseIdx < this.sections.length) {
       const sec = this.sections[this.phaseIdx];
       const step = Math.min(dt, sec.dur - this.phaseT);
-      sec.tick.call(this, dt, this.t);
+      // 单词"独奏窗口"：带单词的节开场 1.6s 不叠加其他攻击，让灯珠字先被看清
+      // （实测：与环形/扇形弹混在一起时，义眼和玩家都读不出单词）
+      if (!(sec.word && this.phaseT < 1.6)) sec.tick.call(this, dt, this.t);
       this.phaseT += step;
       if (this.phaseT >= sec.dur) { this.phaseIdx++; this.phaseT = 0; this._emit = 0; this.spellT = 0; this.spellT += 0; }
       this.timeLeft = Math.max(0, this.totalShow - this.t);
@@ -425,7 +518,10 @@ export class HalloweenFight {
 
     // 当前节攻击名计时（渲染层画扫入大字）
     const curSec = this.sections[this.phaseIdx];
-    if (curSec && curSec.spell !== this.curSpell) { this.curSpell = curSec.spell; this.spellT = 0; }
+    if (curSec && curSec.spell !== this.curSpell) {
+      this.curSpell = curSec.spell; this.spellT = 0;
+      if (curSec.word) this._spawnWord(curSec.word);   // 换招 → 灯珠单词坠落
+    }
     this.spellT += dt;
 
     // 帧动画推进（待机/施法循环；狂暴期固定攻击帧）

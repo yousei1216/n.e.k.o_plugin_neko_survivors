@@ -212,6 +212,9 @@ export class EnemyBullet extends Entity {
     this.flandre = !!cfg.flandre;
     // ---- 第一百八十四轮：万圣节双猫弹幕 —— 10% 真伤通道（halloweenHit）
     this.halloween = !!cfg.halloween;
+    // 视觉专用：hwKind='bead' 灯珠字母弹 / hwPhase 呼吸相位（渲染层 halloween-render.js 读取）
+    this.hwKind = cfg.hwKind ?? '';
+    this.hwPhase = cfg.hwPhase ?? 0;
     // 第一百三十二轮：波次真伤档位（1 小怪 / 2 精英 / 3 Boss；0 = 不附加，
     // 芙兰弹与未标注来源的弹）—— 命中时按当时的 world.currentWave 结算。
     this.trueTier = cfg.trueTier ?? 0;

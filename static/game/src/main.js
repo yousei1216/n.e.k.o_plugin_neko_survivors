@@ -1962,6 +1962,7 @@ export class Game {
     audio.stopMusic();                // 黑屏期间静默，场景变亮后才起 Mischievous Masquerade
     this.halloween = new HalloweenFight(this, {
       chain: !!opts.chain,
+      phase: opts.phase ?? 0,   // 调试：?hwphase=N 直达第 N 节
       onDone: (outcome) => this._halloweenFinish(outcome),
     });
     this.world.halloweenFight = this.halloween;
@@ -2049,7 +2050,7 @@ export class Game {
    * 第一百八十四轮：直通万圣节双猫测试局（?halloween=1 / 标题页按钮）。
    * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，AI 大脑全开 —— 人工跑一轮演出用。
    */
-  _startHalloweenTest() {
+  _startHalloweenTest(opts = {}) {
     try {
       this.setDifficulty('nightmare');
       this.startRun('yui', { party: 4 });   // 4P 阵容（AI 猫娘一起躲弹幕）
@@ -2063,7 +2064,7 @@ export class Game {
       // 不 adopt P1 —— 用户要**自己操作**（v0.3.88 热修：adopt 会把 P1
       // 交给 AI 木偶接管，键盘被 agentBlocked 拦掉 = "无法操作"）。
       // P2~P4 照常 AI 参战游走躲弹。
-      this._startHalloween({ test: true });
+      this._startHalloween({ test: true, phase: opts.phase ?? 0 });
     } catch { /* */ }
   }
 
@@ -3398,7 +3399,8 @@ try {
   // ?halloween=1：直通万圣节双猫测试局（人工跑一轮演出 —— 用户要求
   // "你试试跑一轮加个测试按钮，我人工跑跑看"）。
   if (q.has('halloween')) {
-    game._startHalloweenTest();
+    // ?hwphase=N（0~10）直达第 N 节，逐招截图验收用
+    game._startHalloweenTest({ phase: Number(q.get('hwphase')) || 0 });
   }
   // ?probe=1：把对局画面/状态定时 POST 给本地探针服务器（184 轮 4P
   // 修复验证用 —— headless 环境没有 CDP 截图通道，canvas 自证最干净）。
