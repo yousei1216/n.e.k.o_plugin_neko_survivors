@@ -1970,6 +1970,12 @@ export class Game {
 
   _updateHalloween(dt) {
     try {
+      // ESC 暂停（v0.3.88 热修：这条分支漏接 ESC —— 芙兰战同款教训，
+      // 用户实测万圣节战"无法暂停"）
+      if (this.input.pressed('Escape')) {
+        this._pause();
+        return;
+      }
       const hf = this.halloween;
       const arena = HALLOWEEN_ARENA;
       const p = this.player;
@@ -2054,7 +2060,9 @@ export class Game {
       for (const id of ['cat_taffy', 'warm_milk', 'warm_milk']) this.player.addItem(id);
       this.meta.retries = 0;
       this._bindPartyPilots(4);
-      window.NekoAgent?.pilot?.adopt(this);
+      // 不 adopt P1 —— 用户要**自己操作**（v0.3.88 热修：adopt 会把 P1
+      // 交给 AI 木偶接管，键盘被 agentBlocked 拦掉 = "无法操作"）。
+      // P2~P4 照常 AI 参战游走躲弹。
       this._startHalloween({ test: true });
     } catch { /* */ }
   }

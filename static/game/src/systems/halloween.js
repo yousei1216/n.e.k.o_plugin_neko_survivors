@@ -393,6 +393,25 @@ export class HalloweenFight {
     // 玩家全队失去战斗力 → 战败
     const team = this.main.world?.players?.() ?? [this.main.player];
     if (team.every((pl) => !pl || pl.dead || pl.downed)) { this.finish('death'); }
+
+    // 素材加载诊断（v0.3.88 热修：用户实测"没素材，默认几何猫" ——
+    // 60 帧切图若有 404/被代理拦截，开战 5 秒后把失败数直接报出来，
+    // 一眼定位是静态资源问题还是代码问题）
+    this._assetCheckT = (this._assetCheckT ?? 0) + dt;
+    if (this._assetCheckT > 5 && !this._assetChecked) {
+      this._assetChecked = true;
+      let ok = 0;
+      for (let i = 0; i < 30; i++) {
+        for (const k of ['choco', 'vanilla']) {
+          const img = IMG[`${k}_${i}`];
+          if (img && img.complete && img.naturalWidth > 0) ok++;
+        }
+      }
+      if (ok < 60) {
+        console.warn(`[halloween] 素材只加载 ${ok}/60 —— 检查 assets/boss/halloween/ 是否同步`);
+        try { this.main.ui.toast(`万圣节素材缺失（${ok}/60）——请 Ctrl+F5 强刷或检查 assets 同步`, 'bad', 8000); } catch { /* */ }
+      }
+    }
   }
 
   finish(outcome) {

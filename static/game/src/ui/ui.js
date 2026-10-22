@@ -504,6 +504,10 @@ export class UI {
     // 第四十九轮补充：临时调试直通按钮
     const flTest = root.querySelector('[data-act="flandre-test"]');
     if (flTest) flTest.onclick = onFlandreTest;
+    // 第一百八十四轮：万圣节双猫直通（v0.3.88 热修 —— 上轮绑定行
+    // 替换静默失败，按钮渲染了却没 onclick，用户实测"点击无反应"）
+    const hwTest = root.querySelector('[data-act="halloween-test"]');
+    if (hwTest) hwTest.onclick = onHalloweenTest;
     // 第一百四十轮：椅子维吉尔刀光实验室
     const vgLab = root.querySelector('[data-act="vergil-lab"]');
     if (vgLab) vgLab.onclick = onVergilLab;
