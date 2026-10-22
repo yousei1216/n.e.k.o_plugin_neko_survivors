@@ -52,6 +52,45 @@ function loadFrames() {
 }
 loadFrames();
 
+// ---- 原版音效（wav 直播，不走 SE 注册表 —— rabiribi 是 wav 不是 ogg）----
+const SE = {};
+function loadSe() {
+  for (const s of ['laser13', 'etc13', 'hit13', 'jump13', 'laser1']) {
+    try {
+      const a = new Audio(`assets/boss/halloween/se/${s}.wav`);
+      a.preload = 'auto';
+      a.volume = s === 'laser13' ? 0.22 : s === 'laser1' ? 0.16 : 0.3;
+      a.load();
+      SE[s] = a;
+    } catch { /* 忽略 */ }
+  }
+}
+loadSe();
+let _sfxLast = {};
+function sfx(name, minGap = 0.18) {
+  const now = performance.now() / 1000;
+  if (now - (_sfxLast[name] ?? -9) < minGap) return;
+  _sfxLast[name] = now;
+  try { const v = SE[name]?.cloneNode(); if (v) { v.volume = SE[name].volume; v.play().catch(() => {}); } } catch { /* */ }
+}
+// 原曲 BGM：Mischievous Masquerade（dlc0 原始 wav —— 之前用的 bgm13.ogg
+// 是基础包第 13 首，不是万圣节曲，用户实测"bgm也不对"）
+let _bgmEl = null;
+function bgmStart() {
+  try {
+    if (!_bgmEl) {
+      _bgmEl = new Audio('assets/boss/halloween/mischievous.wav');
+      _bgmEl.loop = true;
+      _bgmEl.volume = 0.55;
+    }
+    _bgmEl.currentTime = 0;
+    _bgmEl.play().catch(() => {});
+  } catch { /* */ }
+}
+function bgmStop() {
+  try { if (_bgmEl) { _bgmEl.pause(); } } catch { /* */ }
+}
+
 export class HalloweenFight {
   static ARENA = ARENA;
   constructor(main, opts = {}) {
@@ -71,6 +110,8 @@ export class HalloweenFight {
     this.phaseIdx = 0;           // 当前 section 下标
     this.phaseT = 0;             // section 内局部时间
     this._emit = 0;              // 通用发射计时器
+    this.spellT = 0;             // 当前攻击名显示计时（渲染层扫入淡出）
+    this.curSpell = '';
     this._alt = 0;               // 双猫交替旗
     this._orbit = 0;             // 激光旋转角
     this.waves = [];             // 激光束（{x,y,angle,rot,t,life,who}）
@@ -82,17 +123,17 @@ export class HalloweenFight {
   /** 演出时间轴 —— 每节 {name, dur, tick(dt, T)}，顺序执行，跑完 outro 即胜 */
   _buildTimeline() {
     this.sections = [
-      { name: 'intro', dur: 4.5, tick: (dt) => this._tickIntro(dt) },
-      { name: 'ring', dur: 6, tick: (dt) => this._tickRing(dt) },
-      { name: 'fan', dur: 7, tick: (dt, T) => this._tickFan(dt, T) },
-      { name: 'wall', dur: 6, tick: (dt) => this._tickWall(dt) },
-      { name: 'pumpkin', dur: 8, tick: (dt) => this._tickPumpkin(dt) },
-      { name: 'split', dur: 6, tick: (dt) => this._tickSplit(dt) },
-      { name: 'alt_ring', dur: 10, tick: (dt) => this._tickAltRing(dt) },
-      { name: 'laser', dur: 10, tick: (dt) => this._tickLaser(dt) },
-      { name: 'claw', dur: 7, tick: (dt) => this._tickClaw(dt) },
-      { name: 'candy', dur: 7, tick: (dt) => this._tickCandy(dt) },
-      { name: 'rage', dur: 12, tick: (dt) => this._tickRage(dt) },
+      { name: 'intro', spell: 'MISCHIEVOUS MASQUERADE', dur: 4.5, tick: (dt) => this._tickIntro(dt) },
+      { name: 'ring', spell: 'FANG OF HARVEST', dur: 6, tick: (dt) => this._tickRing(dt) },
+      { name: 'fan', spell: 'TRICK OR TREAT', dur: 7, tick: (dt, T) => this._tickFan(dt, T) },
+      { name: 'wall', spell: 'MIDNIGHT BARRAGE', dur: 6, tick: (dt) => this._tickWall(dt) },
+      { name: 'pumpkin', spell: 'PUMPKIN PANIC', dur: 8, tick: (dt) => this._tickPumpkin(dt) },
+      { name: 'split', spell: 'WE ARE SCARY!', dur: 6, tick: (dt) => this._tickSplit(dt) },
+      { name: 'alt_ring', spell: 'TWIN FANG DANCE', dur: 10, tick: (dt) => this._tickAltRing(dt) },
+      { name: 'laser', spell: 'CROSS NIGHT PARADE', dur: 10, tick: (dt) => this._tickLaser(dt) },
+      { name: 'claw', spell: 'NEKO TRACKER', dur: 7, tick: (dt) => this._tickClaw(dt) },
+      { name: 'candy', spell: 'SUGAR RUSH', dur: 7, tick: (dt) => this._tickCandy(dt) },
+      { name: 'rage', spell: 'BUNNY EXTINCTION', dur: 12, tick: (dt) => this._tickRage(dt) },
     ];
     this.totalShow = this.sections.reduce((a, s) => a + s.dur, 0) + 5;   // + outro
     this.timeLeft = this.totalShow;
@@ -113,7 +154,7 @@ export class HalloweenFight {
     w.spawnEnemyBullet({
       x, y, angle, speed: V(speedPxFrame),
       damage: 0,                       // 伤害走 halloweenHit 真伤通道，damage 不用
-      radius: opts.radius ?? 7,
+      radius: opts.radius ?? 9,
       color: opts.color ?? '#ff9f43',
       range: opts.range ?? 900,
       shape: opts.shape ?? 'orb',
@@ -180,7 +221,7 @@ export class HalloweenFight {
 
   _tickRing(dt) {
     this._emit += dt;
-    if (this._emit > 1.15) { this._emit = 0; this._ring('choco', 12 + this.phase * 2, 3.0, '#ffa502'); }
+    if (this._emit > 1.15) { this._emit = 0; this._ring('choco', 14 + this.phase * 3, 3.0, '#ffa502'); }
   }
 
   _tickFan(dt) {
@@ -213,7 +254,7 @@ export class HalloweenFight {
     if (this.merged && this.phaseT > 2.5) {
       this.merged = false;
       this.splitFx = 0.6;
-      try { audio.play?.('bossKill'); } catch { /* */ }
+      sfx('hit13', 0.5);   // 原版分裂音
     }
   }
 
@@ -221,7 +262,7 @@ export class HalloweenFight {
     this._emit += dt;
     if (this._emit > 1.0) {
       this._emit = 0;
-      this._ring(this._alt % 2 ? 'vanilla' : 'choco', 14, 3.2, this._alt % 2 ? '#7efff5' : '#ff9f43');
+      this._ring(this._alt % 2 ? 'vanilla' : 'choco', 18, 3.2, this._alt % 2 ? '#7efff5' : '#ff9f43');
       this._alt++;
     }
   }
@@ -234,7 +275,7 @@ export class HalloweenFight {
       const who = this._alt % 2 ? 'vanilla' : 'choco';
       this.waves.push({ ...this._catPos(who), angle: Math.random() * TAU, rot: (Math.random() < 0.5 ? 1 : -1) * 0.9, t: 3.4, life: 3.4, who });
       this._alt++;
-      try { audio.play?.('flandreLaser'); } catch { /* */ }
+      sfx('laser13', 0.3);   // 原版激光音
     }
     for (const b of this.waves) {
       b.angle += b.rot * dt;
@@ -320,7 +361,7 @@ export class HalloweenFight {
     // 狂暴合奏：环形 + 扇 + 南瓜雨三线叠加，1.3× 节奏（BGM 高潮对齐这里）
     this._emit += dt;
     const k = 1 / 1.3;
-    if (this._emit > 1.15 * k) { this._emit = 0; this._ring(this._alt % 2 ? 'vanilla' : 'choco', 18, 3.6, '#ff4757'); this._alt++; }
+    if (this._emit > 1.15 * k) { this._emit = 0; this._ring(this._alt % 2 ? 'vanilla' : 'choco', 22, 3.6, '#ff4757'); this._alt++; }
     this._fanT = (this._fanT ?? 0) + dt;
     if (this._fanT > 1.4 * k) { this._fanT = 0; this._fan('choco'); this._fan('vanilla'); }
     this._pkT = (this._pkT ?? 0) + dt;
@@ -338,7 +379,7 @@ export class HalloweenFight {
     if (this.t < 0) return;
     if (!this._bgmOn) {
       this._bgmOn = true;
-      try { audio.playScene?.('halloween'); } catch { /* */ }
+      bgmStart();   // 原曲 Mischievous Masquerade（wav 直播）
     }
 
     // 南瓜落地/爆风
@@ -347,6 +388,7 @@ export class HalloweenFight {
         pk.t -= dt;
         if (pk.t <= 0) {
           pk.boom = 0.35;
+          sfx('etc13', 0.25);   // 原版爆风音
           for (let i = 0; i < 4; i++) {
             this._shot(pk.x, pk.y, i * Math.PI / 2, 3.0, { color: '#ff7f50', radius: 8, range: 420 });
           }
@@ -369,7 +411,7 @@ export class HalloweenFight {
       const step = Math.min(dt, sec.dur - this.phaseT);
       sec.tick.call(this, dt, this.t);
       this.phaseT += step;
-      if (this.phaseT >= sec.dur) { this.phaseIdx++; this.phaseT = 0; this._emit = 0; }
+      if (this.phaseT >= sec.dur) { this.phaseIdx++; this.phaseT = 0; this._emit = 0; this.spellT = 0; this.spellT += 0; }
       this.timeLeft = Math.max(0, this.totalShow - this.t);
     } else {
       // outro：收招挥手 → 飞向月亮离场 → 胜利
@@ -380,6 +422,11 @@ export class HalloweenFight {
       if (this.outroT > 4.2) this.finish('beat');
       return;
     }
+
+    // 当前节攻击名计时（渲染层画扫入大字）
+    const curSec = this.sections[this.phaseIdx];
+    if (curSec && curSec.spell !== this.curSpell) { this.curSpell = curSec.spell; this.spellT = 0; }
+    this.spellT += dt;
 
     // 帧动画推进（待机/施法循环；狂暴期固定攻击帧）
     for (const who of ['choco', 'vanilla']) {
@@ -419,6 +466,7 @@ export class HalloweenFight {
     this.over = true;
     this.outcome = outcome;
     try { audio.stopMusic(); } catch { /* */ }
+    bgmStop();
     this.onDone(outcome);
   }
 

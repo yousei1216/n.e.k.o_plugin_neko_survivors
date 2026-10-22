@@ -280,6 +280,77 @@ export class Renderer {
       ctx.closePath();
       ctx.fill();
     }
+    // ---- 万圣节墓地（程序化 —— 原版墓地主景是基础包 tile 拼装，拆包
+    // 没有整图；这里画石碑群+枯树+地面雾，贴原版截图的墓地氛围）----
+    // 墓碑群（确定性伪随机，位置每次一样）
+    if (!hf._gravestones) {
+      hf._gravestones = [];
+      let seed = 13;
+      const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+      for (let i = 0; i < 7; i++) {
+        hf._gravestones.push({
+          x: cx - hw + 70 + rnd() * (hw * 2 - 140),
+          y: cy + hh - 46 - rnd() * 60,
+          w: 26 + rnd() * 16, h: 34 + rnd() * 22, tilt: (rnd() - 0.5) * 0.16,
+        });
+      }
+    }
+    ctx.save();
+    ctx.globalAlpha = bright * 0.9;
+    for (const g of hf._gravestones) {
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      ctx.rotate(g.tilt);
+      // 石碑（圆顶碑身 + 底座 + 刻字横线）
+      ctx.fillStyle = '#3d3550';
+      ctx.beginPath();
+      ctx.moveTo(-g.w / 2, 0);
+      ctx.lineTo(-g.w / 2, -g.h);
+      ctx.arc(0, -g.h, g.w / 2, Math.PI, 0);
+      ctx.lineTo(g.w / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#2c2740';
+      ctx.fillRect(-g.w / 2 - 4, -4, g.w + 8, 6);
+      ctx.strokeStyle = '#544a6e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-g.w * 0.25, -g.h * 0.55); ctx.lineTo(g.w * 0.25, -g.h * 0.55);
+      ctx.moveTo(-g.w * 0.25, -g.h * 0.4); ctx.lineTo(g.w * 0.25, -g.h * 0.4);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // 枯树剪影 ×2（左右各一，分形枝干）
+    for (const tx of [cx - hw + 90, cx + hw - 90]) {
+      ctx.strokeStyle = '#191026';
+      ctx.lineWidth = 10;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(tx, cy + hh - 30);
+      ctx.lineTo(tx + 12, cy + hh - 120);
+      ctx.stroke();
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(tx + 12, cy + hh - 120); ctx.lineTo(tx - 26, cy + hh - 180);
+      ctx.moveTo(tx + 12, cy + hh - 120); ctx.lineTo(tx + 48, cy + hh - 175);
+      ctx.moveTo(tx - 26, cy + hh - 180); ctx.lineTo(tx - 46, cy + hh - 220);
+      ctx.moveTo(tx + 48, cy + hh - 175); ctx.lineTo(tx + 70, cy + hh - 215);
+      ctx.stroke();
+    }
+    // 地面雾带 ×2（横向正弦起伏，缓慢漂移）
+    const drift = (hf.t ?? 0) * 22;
+    for (const [fy, amp, a] of [[cy + hh - 40, 10, 0.08], [cy + hh - 14, 14, 0.12]]) {
+      ctx.fillStyle = `rgba(200,162,255,${a * bright})`;
+      ctx.beginPath();
+      ctx.moveTo(cx - hw - 60, cy + hh + 60);
+      for (let x = cx - hw - 60; x <= cx + hw + 60; x += 26) {
+        ctx.lineTo(x, fy + Math.sin((x + drift) * 0.012) * amp);
+      }
+      ctx.lineTo(cx + hw + 60, cy + hh + 60);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
     // 宽屏场地边界（空气墙，淡橙描边）
     ctx.strokeStyle = 'rgba(255,159,67,0.4)';
     ctx.lineWidth = 3;
@@ -370,10 +441,26 @@ export class Renderer {
       const fdef = hf.frames(who)?.[cat.frame] ?? { size: [21, 36] };
       const img = hf.frameImg(who, cat.frame);
       if (img) {
-        // 原版 720p 素材 → 1.6× 放大（bbox 居中，ASSET-GUIDE 切片口径）
-        const sw = fdef.size[0] * 1.6, sh = fdef.size[1] * 1.6;
+        // 原版 720p 素材 → 4× 放大 + 关平滑（像素锐利，还原原版立绘体量
+        // —— v0.3.89：1.6× 时只有 34×58px，义眼对比原版"还原度差好多"）
+        const sw = fdef.size[0] * 4, sh = fdef.size[1] * 4;
         ctx.save();
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(img, cat.x - sw / 2, y - sh / 2, sw, sh);
+        // 名牌 + 演出进度假血条（HALLOWEEN CAT 风格 —— 纯演出没有真血，
+        // 用演出时间当血量：随 90 秒推进慢慢掉光，配合"演完即胜"）
+        const nw = 170;
+        ctx.font = '700 11px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(10,4,18,0.65)';
+        ctx.fillRect(cat.x - nw / 2, y + sh / 2 + 8, nw, 26);
+        ctx.fillStyle = who === 'choco' ? '#ffb37a' : '#e8dcff';
+        ctx.fillText(`HALLOWEEN CAT ${who === 'choco' ? 'CHOCOLATE' : 'VANILLA'} SPECIAL`, cat.x, y + sh / 2 + 20);
+        const prog = Math.max(0, 1 - (hf.t ?? 0) / hf.totalShow);
+        ctx.fillStyle = '#2a1430';
+        ctx.fillRect(cat.x - nw / 2 + 6, y + sh / 2 + 24, nw - 12, 6);
+        ctx.fillStyle = who === 'choco' ? '#ff9f43' : '#c8a2ff';
+        ctx.fillRect(cat.x - nw / 2 + 6, y + sh / 2 + 24, (nw - 12) * prog, 6);
         ctx.restore();
       } else {
         // 占位：巧克力橙圆 / 香草白圆 + 双三角猫耳 + 眼睛
@@ -418,6 +505,36 @@ export class Renderer {
       ctx.fillText(`🎃 双猫玩兴还有 ${Math.ceil(hf.timeLeft)} 秒`, hf.cats.choco.x + 100, 26);
       ctx.restore();
     }
+  }
+
+  /**
+   * 攻击名大字扫入（世界坐标，压在弹幕之上）—— 原版符卡名的神韵：
+   * 每节开始英文名从右扫入中央 → 停 ~1.4s → 淡出（BUNNY EXTINCTION、
+   * TRICK OR TREAT 那味儿）。spellT 0~0.45 扫入 / 0.45~1.9 全亮 / 1.9~2.6 淡出。
+   */
+  _drawHalloweenSpellName(ctx, hf) {
+    const name = hf.curSpell;
+    if (!name || hf.spellT == null || hf.spellT > 2.6) return;
+    const t = hf.spellT;
+    const arena = hf.constructor.ARENA;
+    const cx = arena.cx, cy = arena.cy - arena.hh + 200;
+    ctx.save();
+    let alpha = 1, slide = 0;
+    if (t < 0.45) { alpha = t / 0.45; slide = (1 - t / 0.45) * 160; }
+    else if (t > 1.9) { alpha = Math.max(0, 1 - (t - 1.9) / 0.7); }
+    ctx.globalAlpha = alpha * 0.92;
+    ctx.font = 'italic 700 34px Georgia, serif';
+    ctx.textAlign = 'center';
+    // 底衬描边 + 橙→紫渐变填充（万圣节配色）
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(20,6,32,0.9)';
+    ctx.strokeText(name, cx + slide, cy);
+    const grad = ctx.createLinearGradient(cx - 260, 0, cx + 260, 0);
+    grad.addColorStop(0, '#ff9f43');
+    grad.addColorStop(1, '#e056fd');
+    ctx.fillStyle = grad;
+    ctx.fillText(name, cx + slide, cy);
+    ctx.restore();
   }
   render(world, camera, player) {
     const ctx = this.ctx;
@@ -584,6 +701,7 @@ export class Renderer {
     // 两个活泼的猫娘直接站在我们的ui界面上攻击玩家"：镜头锁定后世界
     // 坐标即屏幕位置，顶部悬浮 + Math.sin 浮动，无 hitbox 纯演出）----
     if (world.halloweenFight) this._drawHalloweenCats(ctx, world.halloweenFight);
+    if (world.halloweenFight) this._drawHalloweenSpellName(ctx, world.halloweenFight);
 
     // ---- 第一百四十一轮：阎魔刀 · 次元斩（玩家侧满屏刀光，金色偏白）----
     if (world.playerUlt) {
