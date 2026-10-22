@@ -16,6 +16,8 @@
 
 import { Enemy } from '../entities/enemy.js';
 import { TAU } from '../core/math.js';
+// 第一百八十五轮：维吉尔战特效 v2（虚空背景：幽灵剑/青色光尘/冷雾；脉动辉光场地边框；刀光垫底辉光）
+import * as VFX from './vergil-fx.js';
 import { audio } from './audio.js';
 import { pluginBridge } from '../plugin-bridge.js';
 import {
@@ -62,6 +64,7 @@ const MIRAGE_MELEE_FRAC = 0.1;   // 累计近战伤害达玩家 maxHp 的 10% �
 
 export class VergilFight {
   constructor(main, { onDone }) {
+    try { VFX.warm(); } catch { /* Node 测试环境无 document */ }
     this.main = main;
     this.onDone = onDone;
     this.over = false;
@@ -1124,9 +1127,11 @@ export class VergilFight {
     const { cx, cy, hw, hh } = ARENA;
     // ---- 场地边框（第一百五十一轮）—— 玩家钳制的边界可视化，淡淡一圈
     // 青色描边，让人知道"墙在哪"，黑幕从这条线外开始 ----
-    ctx.strokeStyle = 'rgba(89,242,255,0.28)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(cx - hw, cy - hh, hw * 2, hh * 2);
+    // 185 轮：旧的 0.28 透明度细线 → 脉动辉光线 + 四角括号（入场演出 3s 起淡入）
+    const fxA = this.state === 'intro'
+      ? Math.max(0, Math.min(1, (this.introT - INTRO_BLACK_END) / (INTRO_SCENE_END - INTRO_BLACK_END)))
+      : 1;
+    VFX.drawArenaFrame(ctx, ARENA, this.t, fxA);
     // ---- 全屏压暗底，方形场地挖洞（evenodd）----
     ctx.save();
     ctx.beginPath();
@@ -1137,6 +1142,8 @@ export class VergilFight {
     ctx.fillStyle = 'rgba(4,4,10,0.9)';
     ctx.fill();
     ctx.restore();
+    // 185 轮：场地外的"纯黑"改造成虚空 —— 漂浮的幽灵剑 + 青色光尘 + 冷雾（只画在场地外）
+    VFX.drawVoid(ctx, camera, ARENA, this.t, fxA);
 
     // ---- 场地内的大排档背景图 ----
     const img = this.arenaImg;    if (!img.complete || !img.naturalWidth) return;
@@ -1214,6 +1221,7 @@ export class VergilFight {
     // 三连齐射直线月牙
     for (const wv of this.waves) {
       const k = Math.min(1, (1 - wv.t / wv.life) * 3);
+      VFX.drawBladeGlow(ctx, wv.x, wv.y, wv.angle, wv.r, k);
       drawCrescent(ctx, wv.x, wv.y, wv.angle, wv.r, k);
     }
 
@@ -1226,6 +1234,7 @@ export class VergilFight {
     // AOE 圈内随机半月刀波
     for (const ab of this.aoeBlades) {
       const k = Math.min(1, (1 - ab.t / ab.life) * 2);
+      VFX.drawBladeGlow(ctx, ab.x, ab.y, ab.angle, 30, k * 0.8);
       drawCrescent(ctx, ab.x, ab.y, ab.angle, 30, k * 0.9);
     }
 
