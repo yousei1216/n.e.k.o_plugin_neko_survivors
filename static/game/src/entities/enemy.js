@@ -942,6 +942,7 @@ export class Enemy extends Entity {
       world.spawnEnemyBullet({ trueTier: this.trueTier,
         x: this.x, y: this.y, angle: a,
         speed, damage, radius, color, range,
+        shape: def.projectileShape,   // 第一百八十五轮：小怪弹型（drop/shard/star/petal/blade…），不传 = orb
       });
     }
   }

@@ -60,6 +60,7 @@ export const ENEMIES = [
   {
     id: 'spitter', name: '吐酸猫', hp: 14, speed: 120, damage: 4, radius: 14,
     color: '#a5d64a', shape: 'blob', behavior: 'shooter', xp: 2, materials: 2,
+      projectileShape: 'drop',      // 185 轮：酸液水滴（头圆尾尖，沿飞行方向）
     attackCooldown: 2.0, attackRange: 240, projectileSpeed: 220, projectileDamage: 4,
     desc: '会远程吐酸液，注意保持距离。',
   },
@@ -72,6 +73,7 @@ export const ENEMIES = [
   {
     id: 'tank', name: '铁甲猫', hp: 60, speed: 120, damage: 8, radius: 22,
     color: '#8b93b0', shape: 'square', behavior: 'chaseShooter', armor: 8, xp: 4, materials: 4,
+      projectileShape: 'shard', projectileColor: '#ffa04a',   // 185 轮：重炮 = 橙色金属碎片（灰色弹在暗图上看不清）
     // 第九轮：用户要"修改一些近战的敌人让他们拥有远程能力"。
     // 铁甲猫原本是纯近战且极慢（speed 34），玩家只要走开就永远安全 ——
     // 这正是用户说的"几乎没啥受伤机会"。给它一门重炮：
@@ -127,6 +129,7 @@ export const ENEMIES = [
   {
     id: 'chaos_egg', name: '混乱蛋', hp: 20, speed: 120, damage: 4, radius: 15,
     color: '#ff8fd4', shape: 'circle', behavior: 'shooter', xp: 3, materials: 3,
+      projectileShape: 'star',      // 185 轮：混乱 = 乱飞的小星星
     // 随机蛋：角度在 360° 内随机 → 玩家没法靠"站桩躲准星"规避
     bulletPattern: 'random', randomSpread: 360,
     attackCooldown: 1.6, attackRange: 300, projectileSpeed: 170,
@@ -136,6 +139,7 @@ export const ENEMIES = [
   {
     id: 'spiral_cat', name: '螺旋猫', hp: 34, speed: 120, damage: 5, radius: 17,
     color: '#7ad7ff', shape: 'hex', behavior: 'shooter', xp: 4, materials: 4,
+      projectileShape: 'petal',     // 185 轮：螺旋 = 旋出的花瓣
     // 螺旋：每发角度递增，形成旋转的弹幕墙，逼玩家绕着走
     bulletPattern: 'spiral', spiralStep: 0.62,
     attackCooldown: 0.5, attackRange: 340, projectileSpeed: 195,
@@ -145,6 +149,7 @@ export const ENEMIES = [
   {
     id: 'blade_cat', name: '刃猫', hp: 40, speed: 120, damage: 9, radius: 17,
     color: '#ffb347', shape: 'tri', behavior: 'chaseShooter', xp: 4, materials: 4,
+      projectileShape: 'blade',     // 185 轮：刃猫 = 甩出的弯刃（环形 6 连）
     // 一边贴脸追一边放环形弹幕：拉开距离也躲不掉，必须真的走位
     bulletPattern: 'ring',
     attackCooldown: 2.6, attackRange: 300, projectileSpeed: 180,
@@ -232,6 +237,7 @@ export const ENEMIES = [
   {
     id: 'elite_spitter', name: '毒液女王', hp: 120, speed: 120, damage: 8, radius: 26,
     color: '#c6e04a', shape: 'blob', behavior: 'shooter', xp: 10, materials: 12,
+      projectileShape: 'drop',      // 185 轮：毒液女王三连酸液水滴
     elite: true, attackCooldown: 1.3, attackRange: 280, projectileSpeed: 260,
     projectileDamage: 7, projectileCount: 3, projectileSpread: 26,
     desc: '精英敌人。三连吐酸，压制力很强。',

@@ -21,6 +21,8 @@ import { drawZigzagBlade } from './dmc-blades.js';
 // 第一百八十四轮：万圣节双猫战渲染（发光弹幕 / Bloom / 墓地背景 / 灯珠字母 / 像素 HUD），
 // 全部在独立模块，渲染器只留调用点
 import * as HR from './halloween-render.js';
+// 第一百八十五轮：敌弹视觉语言 v2（白核彩环 + 柔光 + 7 种弹型），laser / jade 仍走旧渲染
+import * as BFX from './bullet-fx.js';
 // 眼睛锚点（第九轮）：贴图按 2.6r 画，眼睛必须按同一个尺度画在"脸"上，
 // 否则就会像用户看到的那样"眼睛飞到脸外面"。见 data/enemy-eyes.js 的说明。
 import { eyeAnchor, eyePlacement } from '../data/enemy-eyes.js';
@@ -336,6 +338,7 @@ export class Renderer {
     if (world.halloweenFight) HR.drawCats(ctx, world.halloweenFight);
 
     // ---- 敌人子弹 ----
+    BFX.beginFrame(world.enemyBullets.items.length);   // 按弹量选 LOD（拖尾/柔光）
     for (const b of world.enemyBullets.items) {
       if (b.halloween) continue;   // 万圣节弹走自己的发光批处理（下面 HR.drawWorldFx）
       if (!camera.isVisible(b.x, b.y, 40)) continue;
@@ -2994,6 +2997,10 @@ export class Renderer {
       ctx.restore();
       return;
     }
+
+    // 第一百八十五轮：除了大玉(jade，带红色判定圈)之外的敌弹全部走 bullet-fx v2
+    //（白核 + 彩色边框 + 柔光 + 余烬尾，7 种弹型）。下面是旧实现，只剩 jade 在用。
+    if (b.shape !== 'jade') { BFX.drawEnemyBullet(ctx, b); return; }
 
     // 第九轮：敌方弹幕也要看得清，但**不能比自机子弹更亮** ——
     // 否则满屏弹幕时玩家分不清哪些是自己的伤害、哪些要躲。
