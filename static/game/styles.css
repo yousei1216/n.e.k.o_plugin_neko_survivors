@@ -1260,3 +1260,159 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .has-sprite .slot-glyph { visibility: hidden; }
 /* HUD 武器格里的贴图稍微收紧一点，40px 的格子留白太多会显小 */
 .hud-weapon.has-sprite .sprite-img { inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); }
+
+
+/* ============================================================
+   UI v2 设计层（第一百八十五轮 · 全局美化第 8 步）
+   用户："整体 ui 变好看一些，比如我们的倒计时表还是很一般，其他 ui 可能也不如你的能力。"
+   "UI 没有特别的要求，整体统一好看就行。"
+   做法：纯加法覆盖（不改 DOM / JS 逻辑，只多一个 .urgent 类）。
+   统一语言 = 「板件」：深紫玻璃底 + 粉金细边 + 内高光 + 左侧发光色条；
+   猫耳（计时器）/ 四角金色括号（面板）/ 扫光（按钮）是三处点题的装饰。
+   ============================================================ */
+:root {
+  --plate-bg: linear-gradient(168deg, rgba(62,42,92,.80), rgba(20,13,36,.92));
+  --plate-edge: rgba(255,160,205,.40);
+  --plate-shadow: inset 0 1px 0 rgba(255,255,255,.20), inset 0 -1px 0 rgba(0,0,0,.50), 0 6px 22px rgba(0,0,0,.42);
+  --glow-pink: 0 0 20px rgba(255,123,172,.22);
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+}
+
+/* ---- HUD 板件：波次 / 材料 ---- */
+.hud-wave, .hud-materials {
+  position: relative;
+  background: var(--plate-bg);
+  border: 1px solid var(--plate-edge);
+  border-radius: 12px 12px 12px 4px;
+  box-shadow: var(--plate-shadow), var(--glow-pink);
+}
+.hud-wave::before, .hud-materials::before {
+  content: ''; position: absolute; left: -1px; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #ffd0e6, var(--pink) 50%, #a06bf5);
+  box-shadow: 0 0 10px rgba(255,123,172,.7);
+}
+.hud-materials::before {
+  background: linear-gradient(180deg, #fff0b8, var(--gold) 55%, #d98a1a);
+  box-shadow: 0 0 10px rgba(255,200,87,.7);
+}
+
+/* ---- 倒计时：猫耳板 + 大号渐变数字 + 刻度光条 ---- */
+.hud-timer {
+  top: 9px;                       /* 整板高 ≈ 52px，下沿 ≤ 61：不压 Boss 血条(y=62)与提示条(y=84) */
+  width: 280px;
+  padding: 4px 20px 6px;
+  background: var(--plate-bg);
+  border: 1px solid var(--plate-edge);
+  border-radius: 16px 16px 22px 22px;
+  box-shadow: var(--plate-shadow), var(--glow-pink);
+}
+.hud-timer::before, .hud-timer::after {
+  content: ''; position: absolute; top: -8px; width: 20px; height: 11px;
+  background: linear-gradient(180deg, #ff9fc8, #6a3f9a 80%);
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
+.hud-timer::before { left: 30px; transform: rotate(-8deg); }
+.hud-timer::after { right: 30px; transform: rotate(8deg); }
+#hud-timer-text {
+  font-size: 28px; font-weight: 900; letter-spacing: .04em; line-height: 1.05;
+  background: linear-gradient(180deg, #ffffff 10%, #ffd6ea 55%, #ff9fc8);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)) drop-shadow(0 0 10px rgba(255,123,172,.35));
+}
+.hud-timer.flandre #hud-timer-text { background-image: linear-gradient(180deg, #ffffff 5%, #ffb0d0 50%, #ff6f9e); }
+#hud-timer-label {
+  font-size: 10px; letter-spacing: .3em; text-indent: .3em; line-height: 1.1;
+  color: #ffc4dc; text-shadow: 0 0 8px rgba(255,123,172,.5), 0 2px 6px rgba(0,0,0,.6);
+}
+.hud-timer-bar {
+  position: relative; margin-top: 4px; height: 7px;
+  background: rgba(0,0,0,.6);
+  border: 1px solid rgba(255,160,205,.30);
+  border-radius: 99px; overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.7);
+}
+#hud-timer-fill {
+  position: relative;
+  background: linear-gradient(90deg, #5fd3e8, #b794f6 55%, #ff7bac);
+  box-shadow: 0 0 10px rgba(255,123,172,.55);
+}
+#hud-timer-fill::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.45), rgba(255,255,255,0) 55%);
+}
+.hud-timer-bar::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(0,0,0,.55) calc(10% - 1px) 10%);
+}
+/* 最后 5 秒：数字变红、光条变红、板件红光脉动 */
+.hud-timer.urgent { border-color: rgba(255,95,109,.75); animation: timerPulse .6s ease-in-out infinite; }
+.hud-timer.urgent #hud-timer-text { background-image: linear-gradient(180deg, #ffffff 5%, #ff9aa4 50%, #ff3a4c); }
+.hud-timer.urgent #hud-timer-fill { background: linear-gradient(90deg, #ff3a4c, #ff7a6a); box-shadow: 0 0 12px rgba(255,60,80,.8); }
+@keyframes timerPulse {
+  0%, 100% { box-shadow: var(--plate-shadow), 0 0 14px rgba(255,60,80,.25); }
+  50%      { box-shadow: var(--plate-shadow), 0 0 30px rgba(255,60,80,.62); }
+}
+
+/* ---- 武器格 / 提示条 ---- */
+.hud-weapon { border-radius: 9px; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 2px 8px rgba(0,0,0,.45); }
+.hud-weapon.tier-4 { animation: tierGlow 2.4s ease-in-out infinite; }
+@keyframes tierGlow {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 0 8px rgba(255,200,87,.3); }
+  50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 0 16px rgba(255,200,87,.6); }
+}
+.hud-toast .toast {
+  background: var(--plate-bg); border: 1px solid var(--plate-edge);
+  box-shadow: var(--plate-shadow); backdrop-filter: blur(8px);
+}
+
+/* ---- 面板：双层细框 + 四角金色括号 ---- */
+.screen { position: relative; border-radius: 18px; border-color: var(--plate-edge); }
+.screen::before {
+  content: ''; position: absolute; inset: 6px; border-radius: 13px; pointer-events: none;
+  border: 1px solid rgba(255,210,120,.12);
+}
+.screen::after {
+  content: ''; position: absolute; inset: 11px; pointer-events: none;
+  --b: rgba(255,214,130,.78);
+  background:
+    linear-gradient(var(--b), var(--b)) top left / 20px 2px no-repeat,
+    linear-gradient(var(--b), var(--b)) top left / 2px 20px no-repeat,
+    linear-gradient(var(--b), var(--b)) top right / 20px 2px no-repeat,
+    linear-gradient(var(--b), var(--b)) top right / 2px 20px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom left / 20px 2px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom left / 2px 20px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom right / 20px 2px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom right / 2px 20px no-repeat;
+  filter: drop-shadow(0 0 4px rgba(255,200,100,.45));
+}
+
+/* ---- 按钮：扫光 ---- */
+.btn { position: relative; overflow: hidden; }
+.btn::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.30) 50%, transparent 70%);
+  transform: translateX(-120%); transition: transform .55s var(--ease-out);
+}
+.btn:hover:not(:disabled)::after { transform: translateX(120%); }
+.btn.primary { text-shadow: 0 1px 0 rgba(255,255,255,.25); }
+
+/* ---- 卡片：左上高光 + 悬停抬起发光 ---- */
+.card::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(135deg, rgba(255,255,255,.075), rgba(255,255,255,0) 42%);
+}
+.card:hover:not(.cant-afford) { box-shadow: 0 12px 28px rgba(0,0,0,.42), 0 0 20px rgba(255,123,172,.2); }
+
+/* ---- 浮动提示 / 数值面板 ---- */
+.tip-float { background: var(--plate-bg); border: 1px solid var(--plate-edge); box-shadow: var(--plate-shadow); }
+.stat-panel { background: var(--plate-bg); border-color: var(--plate-edge); box-shadow: var(--plate-shadow); }
+
+::selection { background: rgba(255,123,172,.4); }
+:focus-visible { outline: 2px solid rgba(255,214,130,.8); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .hud-timer.urgent, .hud-weapon.tier-4 { animation: none; }
+  .btn::after { transition: none; }
+}

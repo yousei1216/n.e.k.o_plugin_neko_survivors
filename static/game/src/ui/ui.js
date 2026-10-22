@@ -164,6 +164,12 @@ export class UI {
       e.timerFill.style.transform = `scaleX(${pct})`;
     }
 
+    // 185 轮：最后 5 秒计时器变红脉动（UI v2；CSS .hud-timer.urgent）
+    if (timerBox) {
+      const lf = Math.ceil(disp ? disp.left : game.waveTimeLeft);
+      timerBox.classList.toggle('urgent', lf > 0 && lf <= 5);
+    }
+
     // 材料
     // 第五十八轮：芙兰战的右上角被符卡名/消弹提示/EP倒计时（画布层）占用，
     // 材料框下移给它们腾位置 —— 用户："符卡显示会被金币数量盖住……
