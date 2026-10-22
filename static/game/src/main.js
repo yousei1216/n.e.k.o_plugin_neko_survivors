@@ -350,7 +350,7 @@ export class Game {
     // 体检修复（第九十二轮）：按字段逐个合并默认值。旧 meta（或手改 meta）
     // 缺字段时，_endRun 的 += / Math.max 会算出 NaN 并写回存档
     // （表现为统计偶尔清零一局）。
-    const DEFAULTS = { unlocked: [], bestWave: 0, totalKills: 0, runs: 0, wins: 0, retries: 0, flandreUnlocked: false };
+    const DEFAULTS = { unlocked: [], bestWave: 0, totalKills: 0, runs: 0, wins: 0, retries: 0, manualRetries: 0, flandreUnlocked: false };
     try {
       const raw = localStorage.getItem(META_KEY) || localStorage.getItem(LEGACY_META_KEY);
       if (raw) {
@@ -362,6 +362,7 @@ export class Game {
             runs: Number(parsed.runs) || 0,
             wins: Number(parsed.wins) || 0,
             retries: Number(parsed.retries) || 0,
+            manualRetries: Number(parsed.manualRetries) || 0,
             unlocked: Array.isArray(parsed.unlocked) ? parsed.unlocked : [],
           };
         }
@@ -3264,7 +3265,7 @@ try {
           let last = performance.now(); const dts = [];
           const prof = (now) => { dts.push(now - last); last = now; if (dts.length < 3000) requestAnimationFrame(prof); };
           requestAnimationFrame(prof);
-          for (const t of [14000, 20000, 26000]) {
+          for (const t of [20000, 35000, 50000, 58000]) {
             setTimeout(() => {
               try {
                 const g2 = game;
@@ -3283,6 +3284,8 @@ try {
                     pickups: w?.pickups?.items?.length ?? 0,
                     enemies: w?.enemies?.items?.length ?? 0,
                   },
+                  bossHp: (() => { try { const vf = w?.vergilFight; return vf ? { hp: Math.round(vf.boss.hp), max: Math.round(vf.boss.maxHp), invuln: Math.round(vf.boss.bossPhase?.invulnTimer ?? 0), phase: vf.phase, st: vf.state } : null; } catch { return null; } })(),
+                  mates: (() => { try { const vf = w?.vergilFight; if (!vf) return null; return w.partners().map((pl) => ({ id: pl.characterId, d: Math.round(Math.hypot(pl.x - vf.boss.x, pl.y - vf.boss.y)), weap: (pl.weapons || []).map((wp) => wp?.def?.kind ?? '?') })); } catch { return null; } })(),
                 };
                 fetch('http://127.0.0.1:8033/probe?name=perf-' + t, { method: 'POST', body: JSON.stringify(snap) });
               } catch { /* */ }

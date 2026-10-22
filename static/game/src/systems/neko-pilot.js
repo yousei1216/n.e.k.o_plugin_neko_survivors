@@ -355,9 +355,17 @@ export class NekoPilot {
     const enemies = world?.enemies?.items;
     let fleeX = 0, fleeY = 0, nearest = null, nearestD = Infinity;
     let bossE = null, bossD = Infinity;   // 普通波的 boss（交战拉力用）
+    // ---- 第一百八十四轮（用户："修复之后猫娘ai好像也不打他了"，实测
+    // boss 血一滴不掉 + AI 卡在 250~570）—— boss 战的 flee 排斥必须
+    // **跳过 boss 本体**：维吉尔实体也在 enemies 列表里，贴身 95 时
+    // "位置排斥 + 最近敌人 1.1 权重" 合成出 ~200px 的逃逸向量，把
+    // 环绕目标点顶到斥力平衡点（250+）—— 越想贴身被推得越远，AI
+    // 永远悬在武器射程外。boss 战的威胁是**弹幕**，不是他的站桩身体。
+    const bossBody = world?.vergilFight?.boss ?? world?.flandreFight?.boss ?? null;
     if (Array.isArray(enemies)) {
       for (const e of enemies) {
         if (!e || e.dead || e.isChest) continue;
+        if (e === bossBody) continue;
         const dx = p.x - e.x, dy = p.y - e.y;
         const d = Math.hypot(dx, dy) || 1;
         if (d < nearestD) { nearestD = d; nearest = e; }
@@ -548,20 +556,23 @@ export class NekoPilot {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy) || 1;
         // ---- 第一百八十四轮（用户："猫娘ai打维吉尔会一直卡远程射击位，
-        // 而维吉尔可以格挡远程伤害"）—— guarding 只拦**远程**（meleee 拼刀
-        // 照常结算，v0.3.80 已修）。站位按武器类型分：
-        //   · 有近战 → guarding 期贴身 95~150 拼刀（唯一有效输出窗口）
-        //   · 纯远程 → guarding 期退到 260~330 保存血量（打不进别白挨砍），
-        //     等 cast/pause 窗口（非 guarding）全队压射程内全力输出。
+        // 而维吉尔可以格挡远程伤害"+"修复之后猫娘ai好像也不打他了"）——
+        // guarding 只拦**远程**（melee 拼刀照常结算，v0.3.80 已修）。
+        // 站位必须匹配**武器实际射程**（melee 射程仅 54~78）：
+        //   · 有近战 → 全程贴身：guarding 95~150 拼刀、非 guarding 压到
+        //     70~120（v0.3.81 曾让非 guarding 也外圈环绕 170~330，近战
+        //     武器永远够不着 → AI 输出归零 = "不打维吉尔"，实测 boss 血
+        //     一滴不掉，本版修正）。
+        //   · 纯远程 → guarding 期退 260~330 保存血量（打不进别白挨砍）；
+        //     非 guarding 压到 200~280（ranged 射程 300+，留弹道余量）。
         const guarding = vf?.guarding === true && !ff;
         const hasMelee = (p.weapons || []).some((w) => w?.def?.kind === 'melee');
-        const inner = guarding ? (hasMelee ? 95 : 260) : 170;
-        const outer = guarding ? (hasMelee ? 150 : 330) : 330;
-        const closeIn = guarding ? hasMelee : true;
-        if (d < inner) { tx = p.x + (dx / d) * (closeIn ? inner - 15 : 240); ty = p.y + (dy / d) * (closeIn ? inner - 15 : 240); }
-        else if (d > outer) { tx = b.x + (dx / d) * (closeIn ? 130 : 300); ty = b.y + (dy / d) * (closeIn ? 130 : 300); }
+        const inner = guarding ? (hasMelee ? 95 : 260) : (hasMelee ? 70 : 200);
+        const outer = guarding ? (hasMelee ? 150 : 330) : (hasMelee ? 120 : 280);
+        if (d < inner) { tx = p.x + (dx / d) * (inner - 15); ty = p.y + (dy / d) * (inner - 15); }
+        else if (d > outer) { tx = b.x + (dx / d) * (outer - 25); ty = b.y + (dy / d) * (outer - 25); }
         else { // 环绕切向移动，不吃直线弹幕
-          const tang = closeIn ? (guarding ? 90 : 150) : 120;
+          const tang = hasMelee ? (guarding ? 90 : 60) : (guarding ? 120 : 110);
           tx = p.x + (-dy / d) * tang; ty = p.y + (dx / d) * tang;
         }
         // ---- 第一百八十四轮（用户："4ai猫娘都不躲芙兰弹幕"）----
@@ -613,7 +624,13 @@ export class NekoPilot {
         tx = p.x + fleeX * fleeMag;
         ty = p.y + fleeY * fleeMag;
       }
-    } else {
+    } else if (!vergilMode) {
+      // ---- 第一百八十四轮（用户："修复之后猫娘ai好像也不打他了"）——
+      // 这个分支是**普通波**的"风筝/捡漏/巡逻"移动，boss 战绝不能进：
+      // 修掉 boss 排斥后 flee=0 → hasThreat=false → 落进下面的巡逻
+      // 分支，把环绕目标点整个覆盖成 0.72×半场巡逻圈（~400px）——AI
+      // 永远悬在射程外，实测 boss 血一滴不掉。boss 战的移动就是上面的
+      // 武器分站位环绕（弹幕躲避已按 dodgeW 混入），到此为止。
       const hasThreat = (fleeX !== 0 || fleeY !== 0);
       if (hasThreat) {
         // 风筝：逃离威胁（旋转 ~34° 走弧线 —— 纯直线逃跑会被直线弹幕
