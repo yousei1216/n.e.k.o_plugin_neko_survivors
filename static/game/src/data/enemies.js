@@ -394,6 +394,35 @@ export const ENEMIES = [
   //   2 阶段：冲刺更频繁、更快，开始甩液体弹幕
   //   3 阶段：连续冲刺 + 大范围液体爆发，压迫感最强
   // ============================================================
+  // ---- 第一百八十五轮：2 个新的普通远程 Boss（与旧远程 Boss 各占一半远程名额）----
+  // 用户："闲暇之余给我们设计 2 个新的普通 boss 出来"。招牌技能见 systems/boss-signatures.js，
+  // 素材取自 rabiribi 弹幕库：潘多拉「格镜落弹」、诺诺「天幕横雨 + 三向落柱」。
+  // 数值沿用同波次旧 Boss（血量/护甲/奖励/伤害完全对齐），平衡口径不变；只换"玩法"。
+  {
+    id: 'boss_pandora', name: '格镜魔女·潘多拉', hp: 1860, speed: 110, damage: 19.2, radius: 44,
+    color: '#c56cf0', shape: 'star', behavior: 'boss', armor: 10,
+    xp: 60 * BOSS_LOOT_MUL, materials: 60 * BOSS_LOOT_MUL,
+    boss: true, bossName: '格镜魔女·潘多拉',
+    attackCooldown: 2.8, attackRange: 340, projectileSpeed: 200, projectileDamage: 12,
+    projectileCount: 6, projectileSpread: 360, summonCount: 3, summonCooldown: 9,
+    bulletJitterDeg: [5, 15],
+    noCanvasEyes: true,
+    kite: 'flee',
+    signature: 'pandora',
+    desc: '第 10 波的守关 Boss（魔女）。弹幕按 64px 网格左右镜像砸落，正对你的位置留着安全缝；血越少，侧击与星弹螺旋越多。',
+  },
+  {
+    id: 'boss_nono', name: '天幕机兵·诺诺', hp: 2250, speed: 100, damage: 26.4, radius: 50,
+    color: '#4ab8ff', shape: 'star', behavior: 'boss', armor: 18,
+    xp: 120 * BOSS_LOOT_MUL, materials: 120 * BOSS_LOOT_MUL,
+    boss: true, bossName: '天幕机兵·诺诺',
+    attackCooldown: 2.4, attackRange: 360, projectileSpeed: 220, projectileDamage: 16.8,
+    projectileCount: 8, projectileSpread: 360, summonCount: 4, summonCooldown: 8,
+    bulletJitterDeg: [5, 15],
+    noCanvasEyes: true,
+    signature: 'nono',
+    desc: '第 20 波的守关 Boss（机器人）。斜雨铺满天幕，二阶段起三向落柱围出三块安全方块，三阶段预判你的走位。',
+  },
   {
     id: 'boss_acid_cat',
     name: '蒜蓉粉丝开背虾',
@@ -668,6 +697,8 @@ export const BOSS_SPRITE_IDS = new Set([
   'boss_cat_king',    // 第 10 关远程：路过被殴打的猫娘
   'boss_acid_cat',    // 第 10 关近战：蒜蓉粉丝开背虾
   'boss_void_lord',   // 第 20 关远程：黑化开发猫猫
+  'boss_pandora',     // 第 10 关远程(新)：格镜魔女·潘多拉（185 轮，几何绘制立绘 tools/make-boss-art.py）
+  'boss_nono',        // 第 20 关远程(新)：天幕机兵·诺诺
   // 第四十九轮：芙兰朵露全套（本体 + 常态三帧 + 抱腿坐姿三帧 + 莱万汀姿势）
   'flandre',
   'flandre_idle2',
@@ -709,8 +740,9 @@ export const BOSS_ENEMIES = getBossEnemies();
  * waves.js 里写死的那个（见 pickBossForWave 的兜底）。
  */
 export const BOSS_VARIANTS = {
-  10: { ranged: 'boss_cat_king', melee: 'boss_acid_cat' },
-  20: { ranged: 'boss_void_lord', melee: 'boss_apple_cider' },
+  // rangedAlt（185 轮）：远程名额里的"备选"；远程 50% 里 ranged 与 rangedAlt 平分。
+  10: { ranged: 'boss_cat_king', rangedAlt: ['boss_pandora'], melee: 'boss_acid_cat' },
+  20: { ranged: 'boss_void_lord', rangedAlt: ['boss_nono'], melee: 'boss_apple_cider' },
 };
 
 /** 近战 Boss 的 id 集合（测试和渲染器判断"要不要画蓄力预警线"用） */
@@ -736,6 +768,13 @@ export function isMeleeBoss(defOrId) {
 export function pickBossForWave(wave1based, rng, forceMelee = null) {
   const pair = BOSS_VARIANTS[wave1based];
   if (!pair) return null;
-  const melee = forceMelee === null ? rng.next() < 0.5 : !!forceMelee;
-  return melee ? pair.melee : pair.ranged;
+  // 185 轮：**仍然只抽一次 rng**（随机流消耗与旧版逐位一致，种子复现的存档不会错位）。
+  // 把 u ∈ [0,1) 劈成两半：u<0.5 → 近战；否则远程，并用剩下的 0.5 再均分给 ranged 与 rangedAlt。
+  // forceMelee 显式传 true/false 时语义不变（false → 主远程 pair.ranged，测试依赖这一点）。
+  if (forceMelee !== null) return forceMelee ? pair.melee : pair.ranged;
+  const u = rng.next();
+  if (u < 0.5) return pair.melee;
+  const pool = [pair.ranged, ...(pair.rangedAlt ?? [])];
+  const sub = (u - 0.5) * 2;                                  // [0,1)
+  return pool[Math.min(pool.length - 1, Math.floor(sub * pool.length))];
 }

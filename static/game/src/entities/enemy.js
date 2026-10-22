@@ -5,6 +5,8 @@
 import { Entity } from './entity.js';
 import { angleTo, clamp, dist, TAU } from '../core/math.js';
 import { BossPhaseState } from '../data/boss-phases.js';
+// 第一百八十五轮：新 Boss 的招牌技能（潘多拉·格镜落弹 / 诺诺·天幕横雨+三向落柱）
+import { runBossSignature } from '../systems/boss-signatures.js';
 import { isMeleeEnemy } from '../data/enemies.js';
 import { resolveTerrain } from '../data/terrain.js';
 // 第十二轮：远程怪射速/弹速 +20%、近战怪基础血量 +20%（都不含 Boss）
@@ -1607,6 +1609,9 @@ export class Enemy extends Entity {
       // 复用 charger 的状态机（windup → charge → recover）
       if (this.state !== 'idle') this._runChargeStates(dt, nx, ny, 0.5);
     }
+
+    // 185 轮：招牌技能（def.signature；没配的 Boss 完全不受影响）
+    if (def.signature) runBossSignature(def.signature, this, dt, player, world, this.bossPhase?.phase ?? 1, pm);
   }
 
   /**
