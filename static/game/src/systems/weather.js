@@ -19,6 +19,7 @@ import { RNG } from '../core/rng.js';
 // 第一百六十二轮：移动端天气视觉密度档位（桌面 MOBILE=false，数量全部不变）
 import { MOBILE } from '../core/mobile.js';
 import { WEATHER_DEFS, WEATHER_MAP } from '../data/weather.js';
+import { warm as warmWeatherFx } from './weather-fx.js';   // 185 轮：特效精灵预热
 
 const ROLL_INTERVAL = 3;     // 每 3 秒一次判定
 const ROLL_CHANCE = 0.2;     // 20% 进天气
@@ -32,6 +33,7 @@ const WEATHER_RNG_SALT = 0x57ea7ca1;
 
 export class WeatherSystem {
   constructor(rng) {
+    try { warmWeatherFx(); } catch { /* Node 测试环境无 document */ }
     this.rng = rng.fork(WEATHER_RNG_SALT);   // 独立流（铁律 1）
     this.phase = 'idle';       // idle → active → cooldown → idle
     this.id = null;

@@ -19,6 +19,8 @@ import { PET_VACUUM_RADIUS } from '../entities/pet.js';
 import { ARENA, PURGE_CD } from './flandre.js';
 // 第一百八十五轮：芙兰战渲染 v2 版本 A（水晶翅膀背景 / 专属星形法阵 / 宣言冲击波 / 铭牌 HUD）
 import * as FR from './flandre-render.js';
+// 第一百八十五轮：天气特效 v2（流星雨火球/燃烧区、血月、太阳、花瓣、热浪、雨纹）
+import * as WFX from './weather-fx.js';
 import { drawZigzagBlade } from './dmc-blades.js';
 // 第一百八十四轮：万圣节双猫战渲染（发光弹幕 / Bloom / 墓地背景 / 灯珠字母 / 像素 HUD），
 // 全部在独立模块，渲染器只留调用点
@@ -4395,125 +4397,19 @@ export class Renderer {
         const pulse = 0.5 + 0.5 * Math.sin(t * 12 + m.x * 0.37);   // 呼吸闪烁
         const prog = 1 - Math.max(0, m.warnT);                     // 0→1 倒计时
         ctx.save();
-        // ---- 阶段 1：收缩环 + 内部倒计时填充 ----
-        const gFill = ctx.createRadialGradient(m.x, m.y, m.r * (1 - prog) * 0.3, m.x, m.y, m.r);
-        gFill.addColorStop(0, `rgba(255,64,30,${0.34 * prog})`);
-        gFill.addColorStop(0.8, `rgba(255,74,36,${0.17 * prog})`);
-        gFill.addColorStop(1, 'rgba(255,74,36,0)');
-        ctx.fillStyle = gFill;
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, m.r, 0, TAU);
-        ctx.fill();
-        // 从外向内收缩的主环（1.5r → 1.0r），边缘呼吸
-        const shrink = m.r * (1.5 - 0.5 * prog);
-        ctx.strokeStyle = `rgba(255,44,26,${0.5 + 0.4 * pulse})`;
-        ctx.lineWidth = 2.5 + prog * 1.8;
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, shrink, 0, TAU);
-        ctx.stroke();
-        // 外圈第二道淡环（双重压迫）
-        ctx.strokeStyle = `rgba(255,60,34,${0.18 + 0.1 * pulse})`;
-        ctx.lineWidth = 1.2;
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, shrink + 7, 0, TAU);
-        ctx.stroke();
+        // ---- 阶段 1：收缩环 + 倒计时（185 轮：加法辉光 + 向内收拢的刻度，WFX.drawMeteorWarn）----
+        WFX.drawMeteorWarn(ctx, m, prog, pulse);
         ctx.restore();
 
-        // ---- 阶段 2：火球（最后 0.55 秒从屏幕外斜砸下来）----
+        // ---- 阶段 2：火球（最后 0.55 秒从屏幕外斜砸下来；185 轮：白热核 + 火团 + 12 团余烬尾，WFX.drawMeteorBall）----
         if (m.warnT < 0.55) {
           const f = 1 - m.warnT / 0.55;
-          const k = f * f;                        // 平方 → 越落越快
-          const ox = m.side * 520, oy = -760;     // 入射起点偏移
-          const px = m.x + ox * (1 - k), py = m.y + oy * (1 - k);
-          ctx.save();
-          // 拖尾：沿来路 11 个圆，由大变小、由亮变暗（大气摩擦燃烧）
-          for (let i = 1; i <= 11; i++) {
-            const tb = Math.max(0, k - i * 0.05);
-            const tx = m.x + ox * (1 - tb), ty = m.y + oy * (1 - tb);
-            const rr = (15 - i * 1.1) * (0.55 + 0.45 * (1 - i / 11));
-            ctx.globalAlpha = Math.max(0, 0.42 - i * 0.034) * ramp;
-            ctx.fillStyle = i < 4 ? '#ff8a3a' : '#e0401f';
-            ctx.beginPath();
-            ctx.arc(tx, ty, Math.max(2, rr), 0, TAU);
-            ctx.fill();
-          }
-          // 本体：金色高亮核心 + 不规则暗红边缘（4 个错位暗红圆叠边）
-          const gBall = ctx.createRadialGradient(px - 3, py - 3, 2, px, py, 17);
-          gBall.addColorStop(0, '#fff3c8');
-          gBall.addColorStop(0.45, '#ffd166');
-          gBall.addColorStop(0.8, '#ff7a2a');
-          gBall.addColorStop(1, '#e8542a');
-          for (let i = 0; i < 4; i++) {
-            const ea = i * 1.7 + t * 9;
-            ctx.globalAlpha = 0.85 * ramp;
-            ctx.fillStyle = '#b3301c';
-            ctx.beginPath();
-            ctx.arc(px + Math.cos(ea) * 8, py + Math.sin(ea) * 8, 11, 0, TAU);
-            ctx.fill();
-          }
-          ctx.globalAlpha = ramp;
-          ctx.fillStyle = gBall;
-          ctx.beginPath();
-          ctx.arc(px, py, 14, 0, TAU);
-          ctx.fill();
-          // 前方炽热光晕（加法混合，压在落点方向）
-          ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
-          ctx.globalAlpha = 0.35 * ramp;
-          const gGlow = ctx.createRadialGradient(px, py, 4, px, py, 46);
-          gGlow.addColorStop(0, 'rgba(255,190,90,0.7)');
-          gGlow.addColorStop(1, 'rgba(255,120,40,0)');
-          ctx.fillStyle = gGlow;
-          ctx.beginPath();
-          ctx.arc(px, py, 46, 0, TAU);
-          ctx.fill();
-          ctx.restore();
+          WFX.drawMeteorBall(ctx, m, m.side * 520, -760, f * f, ramp, t);
         }
       }
-
-      // ---- 阶段 4：持续燃烧区（3 秒，与烧灼伤害同寿命）----
-      for (const z of w.burnZones) {
-        const fade = Math.min(1, z.t / 0.8);      // 结束前 0.8s 渐隐
-        ctx.save();
-        // 地面余烬红圈
-        ctx.fillStyle = `rgba(255,70,30,${0.12 * fade})`;
-        ctx.beginPath();
-        ctx.arc(z.x, z.y, z.r, 0, TAU);
-        ctx.fill();
-        ctx.strokeStyle = `rgba(255,58,26,${0.5 * fade})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(z.x, z.y, z.r, 0, TAU);
-        ctx.stroke();
-        // 3 簇跳动的火焰（堆叠圆 + 高频抖动）
-        for (let c = 0; c < 3; c++) {
-          const ca = (c / 3) * TAU + z.x * 0.013;
-          const fxp = z.x + Math.cos(ca) * z.r * 0.42;
-          const fyp = z.y + Math.sin(ca) * z.r * 0.42;
-          for (let i = 0; i < 3; i++) {
-            const fl = 0.5 + 0.5 * Math.sin(t * 13 + c * 2.1 + i * 1.7);
-            const fr = (13 - i * 3.4) * (0.7 + fl * 0.5);
-            ctx.globalAlpha = (0.55 - i * 0.14) * fade * (0.65 + fl * 0.35);
-            ctx.fillStyle = ['#ffd166', '#ff9a3a', '#e8542a'][i];
-            ctx.beginPath();
-            ctx.arc(fxp, fyp - i * 5 - fl * 4, fr, 0, TAU);
-            ctx.fill();
-          }
-        }
-        // 火星噪点（6 颗闪烁小点）
-        ctx.fillStyle = '#ffcf8a';
-        for (let i = 0; i < 6; i++) {
-          const ea = i * 2.63 + z.y * 0.02;
-          const fl = 0.5 + 0.5 * Math.sin(t * 17 + i * 2.4);
-          ctx.globalAlpha = 0.25 + 0.45 * fl * fade;
-          ctx.beginPath();
-          ctx.arc(z.x + Math.cos(ea) * z.r * 0.6,
-            z.y + Math.sin(ea * 1.7) * z.r * 0.6, 1.6 + fl, 0, TAU);
-          ctx.fill();
-        }
-        ctx.restore();
-      }
+      // ---- 阶段 4：持续燃烧区（3 秒，与烧灼伤害同寿命；185 轮：精灵火舌 + 上飘火星，WFX.drawBurnZone）----
+      for (const z of w.burnZones) WFX.drawBurnZone(ctx, z, t, Math.min(1, z.t / 0.8));
     }
-
     // ---- 浓雾：视野圈（最上层）----
     // 第一百三十六轮二次重写（用户："插件市场里玩正常的，通过插件市场的
     // 浏览器玩还是闪"—— 那个"浏览器"是系统 Edge）。上一版虽然把渐变
@@ -4618,6 +4514,7 @@ export class Renderer {
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, W, H * 0.45);
       ctx.restore();
+      WFX.drawBloodMoon(ctx, W, H, t, ramp);   // 185 轮：巨大的血色月亮 + 上升红色余烬
     }
 
     // 台风：底色只压成暗冷色调（第一百一十轮 —— 用户："现在的底色不用
@@ -4675,6 +4572,7 @@ export class Renderer {
       ctx.fillStyle = `rgba(255,252,235,${0.10 * ramp})`;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
+      if (!MOBILE) WFX.drawPetals(ctx, W, H, t, ramp);   // 185 轮：花瓣与嫩叶顺风飘
     }
 
     // 烈日：暖度 + 亮度（橙罩 + 淡黄加法）
@@ -4686,23 +4584,13 @@ export class Renderer {
       ctx.fillStyle = `rgba(255,210,110,${0.07 * ramp})`;
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
+      if (!MOBILE) WFX.drawHeat(ctx, W, H, t, ramp);   // 185 轮：地表热浪 + 底部橙色辉光
     }
 
-    // 快晴：角落"太阳"光斑（离玩家最远的角，加法混合）
+    // 快晴：右上的太阳（185 轮：核心 + 缓转日光射线 + 光尘，取代单个渐变光斑）
     if (d.id === 'clear') {
-      ctx.save();
-      const sunX = player.screenX ?? W * 0.82;   // 无投影时右上角
-      const sunY = H * 0.16;
-      const g = ctx.createRadialGradient(sunX, sunY, 20, sunX, sunY, Math.min(W, H) * 0.5);
-      const pulse = 0.8 + 0.2 * Math.sin(t * 1.3);
-      g.addColorStop(0, `rgba(255,240,180,${0.5 * ramp * pulse})`);
-      g.addColorStop(1, 'rgba(255,240,180,0)');
-      ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
+      WFX.drawSun(ctx, W, H, player.screenX ?? W * 0.82, t, ramp);
     }
-
     // 雾雨：小雨（170 滴，单路径批量一次 stroke —— 性能红线见类头注释）
     if (d.id === 'rain' && w.drops) {
       const dt = 1 / 60;
@@ -4722,6 +4610,7 @@ export class Renderer {
       }
       ctx.stroke();
       ctx.restore();
+      if (!MOBILE) WFX.drawRainExtras(ctx, W, H, t, ramp);   // 185 轮：地面水纹 + 低空薄雾
     }
   }
 
