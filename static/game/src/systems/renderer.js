@@ -16,7 +16,9 @@ import { sprites } from '../core/assets.js';
 // 吸取半径要从宠物那边取，避免渲染器和逻辑各写一个数字导致环和实际范围对不上
 import { PET_VACUUM_RADIUS } from '../entities/pet.js';
 // 第五十四轮：芙兰战空气墙可视化的竞技场矩形（和逻辑层同一个数值来源）
-import { ARENA } from './flandre.js';
+import { ARENA, PURGE_CD } from './flandre.js';
+// 第一百八十五轮：芙兰战渲染 v2 版本 A（水晶翅膀背景 / 专属星形法阵 / 宣言冲击波 / 铭牌 HUD）
+import * as FR from './flandre-render.js';
 import { drawZigzagBlade } from './dmc-blades.js';
 // 第一百八十四轮：万圣节双猫战渲染（发光弹幕 / Bloom / 墓地背景 / 灯珠字母 / 像素 HUD），
 // 全部在独立模块，渲染器只留调用点
@@ -2444,6 +2446,10 @@ export class Renderer {
     }
     if (alpha <= 0.004) return;
 
+    // 第一百八十五轮：符卡专属星形法阵（叠在原有紫/黄两层阵外）+ 宣言冲击波
+    FR.drawSigil(ctx, fight, anchor, alpha);
+    FR.drawDeclare(ctx, fight, anchor);
+
     const purple = this._tintedMagicCircle('rgb(224,191,255)');
     const yellow = this._tintedMagicCircle('rgb(255,255,32)');
     if (!purple || !yellow) return;   // 素材没就绪：不画，战斗照常
@@ -2612,6 +2618,8 @@ export class Renderer {
       }
       ctx.restore();
     }
+    // ④ 第一百八十五轮：水晶翅膀剪影 + 红雾 + 余烬 + 暗角（屏幕空间，墙外也有）
+    FR.drawBg(ctx, fight, W / 2 + (ARENA.cx - camera.cx), H / 2 + (ARENA.cy - camera.cy), W, H);
   }
 
   /**
@@ -3880,35 +3888,8 @@ export class Renderer {
   _drawScreenOverlay(ctx, world, player, W, H) {
     // ---- 第四十九轮：芙兰朵露战 HUD（右上角符卡名 + 消弹冷却）----
     const flandre = world.flandreFight;
-    if (flandre && flandre.spellName) {
-      ctx.save();
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'top';
-      ctx.font = 'bold 20px "Microsoft YaHei", sans-serif';
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillText(flandre.spellName, W - 22 + 1, 18 + 1);
-      ctx.fillStyle = '#ff9fb3';
-      ctx.fillText(flandre.spellName, W - 22, 18);
-      // 小小猫娘消弹：就绪 / 冷却秒数（空格触发）
-      const ready = flandre.purgeCd <= 0;
-      ctx.font = '13px "Microsoft YaHei", sans-serif';
-      ctx.fillStyle = ready ? '#aef3ff' : 'rgba(255,255,255,0.55)';
-      ctx.fillText(ready
-        ? '空格：小小猫娘消弹 就绪！'
-        : `空格：小小猫娘消弹 ${Math.ceil(flandre.purgeCd)}s`,
-        W - 22, 46);
-      // 第六十五轮：移速提示（就在小小猫娘消弹 CD 下面）
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.fillText('按住 Shift 慢速移动（移速减半）', W - 22, 66);
-      let hintY = 86;
-      // Extra Phantom 倒计时
-      if (flandre.phase === 'extra') {
-        ctx.fillStyle = '#ffd166';
-        ctx.fillText(`Extra Phantom 存活 ${Math.ceil(flandre.extraLeft)}s`, W - 22, hintY);
-        hintY += 20;
-      }
-      ctx.restore();
-    }
+    // 第一百八十五轮：符卡名铭牌 + 消弹冷却进度条 + EP 倒计时 + 宣言白闪（旧的纯文字版已退役）
+    if (flandre && flandre.spellName) FR.drawHud(ctx, flandre, W, H, this.dpr, PURGE_CD);
 
     // 受伤红边
     const hpPct = player.hp / player.maxHp;
