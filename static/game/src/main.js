@@ -442,9 +442,10 @@ export class Game {
       // 难度芙兰之后永久开启。" EP（Extra Phantom）存活 60 秒拿到
       // outcome 'beat' 时置 meta.flandreUnlocked（localStorage 永久）。
       onFlandreTest: this.meta.flandreUnlocked ? () => this._debugStartFlandre() : null,
-      // 第一百八十四轮：直通万圣节双猫按钮 —— 打败过芙兰（flandreUnlocked）
-      // 就出现（她排在芙兰后面出场）。测试期 ?halloween=1 也能直达。
-      onHalloweenTest: this.meta.flandreUnlocked ? () => this._startHalloweenTest() : null,
+      // 第一百八十四轮：直通万圣节双猫按钮 —— 测试期**常显**（用户：
+      // "我的标题页没有按钮……加个新的测试按钮看看吧"；她的解锁排芙兰
+      // 后面，正式版再按 halloweenUnlocked 收口）。
+      onHalloweenTest: () => this._startHalloweenTest(),
       // 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮 + ?vergil=1 直达）
       // 第一百五十五轮：测试按钮下线（用户："测试完毕，很不错，把测试
       // 大排档椅子的按钮隐藏，ui布局看一下不难看就行"）—— 传 null 隐藏
