@@ -897,8 +897,11 @@ export class NekoPilot {
       // —— 改成看**等效生命值**：EHP = maxHp × (1 + min(1, armor/30))
       // （30 甲=50% 减伤≈2倍血），EHP>50 的一击线足够，负面升级正常
       // 参与评分；血薄时照旧否决。
-      const maxHpU = p.stats?.get?.('maxHp') ?? p.maxHp ?? 0;
-      const ehpU = maxHpU * (1 + Math.min(1, (p.stats?.get?.('armor') ?? 0) / 30));
+      const maxHpU = ent.stats?.get?.('maxHp') ?? ent.maxHp ?? 0;
+      const ehpU = maxHpU * (1 + Math.min(1, (ent.stats?.get?.('armor') ?? 0) / 30));
+      // （v0.3.80 曾把这里的 ent 误写成 p —— 方法内无 p，ReferenceError 被
+      // tick 的静默 catch 吞掉，1P adopt 模式选卡整段跳过 = "AI 的 1P 需要
+      // 手动升级"。用户实测抓出，v0.3.82 修复。）
       if (o?.pct && Object.values(o.pct).some((v) => Number(v) < 0) && ehpU <= 50) s -= 1000;
       if (s > bestS) { bestS = s; bestI = i; }
     });
