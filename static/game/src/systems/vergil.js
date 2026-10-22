@@ -460,6 +460,10 @@ export class VergilFight {
     // 近战不在此拦（拼刀他挡不住，melee 伤害照常走 dealDamage）。
     const wasGuard = this.guarding;
     this.guarding = this.phase <= 2 && this.state === 'wander' && !p.dead;
+    // ---- 第一百八十四轮（用户："格挡特效改成一轮技能只生效1-2次……
+    // 他每个动作间隔格挡那一小会次数减少了也不会太突兀"）—— 每次进入
+    // 格挡（wander 期开始）重置本 burst 的特效计数（parryAt 里判）。
+    if (this.guarding && !wasGuard) this._parryBurstN = 0;
     if (this.guarding) this.guardT += dtReal;
     if (wasGuard && !this.guarding && this.guardT > 0.4) {
       this.guardShatterT = 0.35;       // 出招了 —— 光圈闪烁破碎
@@ -836,10 +840,13 @@ export class VergilFight {
     if (!this.guarding) return false;
     // ---- 第一百八十四轮（用户实测真机"开头就卡顿"）—— 4 只 AI 贴脸
     // 输出后，每秒几十发弹被挡 → 每发一次斩击线+火花+伤害字+音效，真机
-    // 渲染直接被刷爆。0.05s 全局节流：特效照放但不堆积；格挡判定本身
-    // （返回 true）不受节流影响。
+    // 渲染直接被刷爆。0.05s 全局节流 + **每 wander 期最多 2 次特效**
+    // （用户："一轮技能只生效1-2次……次数减少了也不会太突兀"）：格挡
+    // 判定本身（返回 true，弹照样碎）不受任何节流影响。
     if ((this._parryFxT ?? 0) > 0) return true;
+    if ((this._parryBurstN ?? 0) >= 2) return true;
     this._parryFxT = 0.05;
+    this._parryBurstN = (this._parryBurstN ?? 0) + 1;
     this._parryCount++;
     this.parryFx.push({ x, y, seed: (Math.random() * 1e9) | 0, t: 0, life: 0.1 });
     const n = 3 + ((Math.random() * 2) | 0);
