@@ -661,7 +661,12 @@ export class World {
     {
       const k = this.players().length - 1;
       if (k > 0) {
-        const hpMul = 1 + (def.boss ? 0.6 : def.elite ? 0.4 : 0.2) * k;
+        // ---- 184 轮削弱（用户："把多人加血从每个人+20%小怪40%精英60%boss
+        // 改成 15% 30% 45%吧。试试削弱一下看看，这样4个人小怪血量低了
+        // 15%boss45%也不少了。不然她们几乎无法打过后期的怪"）：
+        // 每额外玩家小怪 +15% / 精英 +30% / Boss +45%
+        // —— 4P = ×1.45 / ×1.90 / ×2.35（原 ×1.6 / ×2.2 / ×2.8）。
+        const hpMul = 1 + (def.boss ? 0.45 : def.elite ? 0.3 : 0.15) * k;
         e.maxHp = Math.round(e.maxHp * hpMul);
         e.hp = e.maxHp;
       }
