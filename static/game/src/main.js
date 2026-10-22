@@ -604,6 +604,12 @@ export class Game {
     }
     this._partySize = party;
     this._duoEnabled = party >= 2 || !!opts.duo;
+    // ---- 万圣节战实测纠偏（用户："ai猫娘的倒地系统疑似失效"）：pilot 的救援分支读
+    // `globalThis.__duo || g.__duo`，而这两个标志此前只在标题菜单的 2P/3P/4P 按钮和
+    // ?party= 里置位 —— 测试按钮 / 任何直接 startRun({party}) 的入口里它们是 undefined，
+    // 救援 AI 整段被短路。统一在 startRun 里按人数置位，入口再多也不会漏。
+    window.__duo = this._duoEnabled;
+    this.__duo = this._duoEnabled;
     // 第一百零八轮：天气系统 —— 随机判定走独立流（rng.fork），主随机
     // 流一个字不动；实体通过 world.weather / player.world 读旗标。
     this.weather = new WeatherSystem(this.rng);

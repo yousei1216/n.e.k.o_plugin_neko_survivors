@@ -1019,7 +1019,11 @@ export class Player extends Entity {
     this.onFlandrePlayerHit?.(sourceX, sourceY);
     if (this.hp <= 0) {
       this.hp = 0;
-      this.dead = true;
+      // ---- 万圣节战实测纠偏（用户："ai猫娘的倒地系统疑似失效"）：多人模式下 hp≤0 必须
+      // 先转**倒地**等队友救援（与 takeDamage 同口径）。此前这里直接 dead=true，绕过了
+      // 整套倒地/救援系统 —— AI 被打中就是真死，不会躺下，也救不起来。
+      if (this.duoMode) this.down();
+      else this.dead = true;
     }
     return dmg;
   }

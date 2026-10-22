@@ -479,22 +479,28 @@ export class HalloweenFight {
         pk.t -= dt;
         if (pk.t <= 0) {
           pk.boom = 0.35;
+          pk.age = 0;           // 爆后时间：渲染层据此做"生长 → 判定期 → 余辉淡出"
           sfx('etc13', 0.25);   // 原版爆风音
           for (let i = 0; i < 4; i++) {
             this._shot(pk.x, pk.y, i * Math.PI / 2, 3.0, { color: 'amber', radius: 8, range: 420 });
           }
         }
-      } else if (pk.boom > 0) {
-        pk.boom -= dt;
-        // 爆风持续判定：十字线附近 30px 内的玩家吃 10% 真伤
-        for (const pl of this.main.world.players()) {
-          if (!pl || pl.dead || pl.downed || pl.invuln > 0 || pl.halloweenHit == null) continue;
-          const dx = pl.x - pk.x, dy = pl.y - pk.y;
-          if ((Math.abs(dx) < 30 || Math.abs(dy) < 30) && Math.hypot(dx, dy) < 210) pl.halloweenHit(pk.x, pk.y);
+      } else {
+        pk.age = (pk.age ?? 0) + dt;
+        // 判定窗口仍是 0.35s（boom）；age 超过它之后只是视觉余辉，**不再伤人**
+        if (pk.boom > 0) {
+          pk.boom -= dt;
+          // 爆风持续判定：十字线附近 30px 内的玩家吃 10% 真伤
+          for (const pl of this.main.world.players()) {
+            if (!pl || pl.dead || pl.downed || pl.invuln > 0 || pl.halloweenHit == null) continue;
+            const dx = pl.x - pk.x, dy = pl.y - pk.y;
+            if ((Math.abs(dx) < 30 || Math.abs(dy) < 30) && Math.hypot(dx, dy) < 210) pl.halloweenHit(pk.x, pk.y);
+          }
         }
       }
     }
-    this.pumpkins = this.pumpkins.filter((pk) => pk.t > 0 || pk.boom > 0);
+    // 余辉 0.9s 才移除（用户："十字火焰断的有点太明显了，稍微过渡一丢丢"）
+    this.pumpkins = this.pumpkins.filter((pk) => pk.t > 0 || (pk.age ?? 0) < 0.9);
 
     // 时间轴推进
     if (this.phaseIdx < this.sections.length) {

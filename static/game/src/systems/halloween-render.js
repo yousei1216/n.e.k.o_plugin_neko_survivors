@@ -122,6 +122,32 @@ function bakeBeam() {
   return c;
 }
 
+/**
+ * 末端渐隐的光柱（十字爆风用）：截面同 bakeBeam，沿长度方向 0.42 之后平滑衰减到 0。
+ * 用户："南瓜爆炸之后的十字火焰断的有点太明显了，稍微过渡一丢丢" —— 原来四条臂是
+ * 等宽硬截止（215px 处突然没有）+ 0.35s 一刀切消失；现在臂端渐隐、再叠末端柔光帽。
+ */
+function bakeBeamTaper() {
+  const c = mk(128, 128);
+  const g = c.getContext('2d');
+  g.drawImage(bakeBeam(), 0, 0, 128, 128);
+  g.globalCompositeOperation = 'destination-in';
+  const l = g.createLinearGradient(0, 0, 128, 0);
+  // 实测教训：渐隐从 42% 才开始 + 三层加法叠加 → 臂身亮度饱和在 ~230/255，渐隐被
+  // "白色平台"吃掉，掉出饱和线后三步内骤降 43%（看起来仍是一刀切）。现在渐隐从 18% 起、
+  // 更长更缓（≈ cos 曲线），配合下面降低叠加强度避免过曝。
+  l.addColorStop(0, 'rgba(0,0,0,0.9)');
+  l.addColorStop(0.06, 'rgba(0,0,0,1)');
+  l.addColorStop(0.18, 'rgba(0,0,0,1)');
+  l.addColorStop(0.40, 'rgba(0,0,0,0.78)');
+  l.addColorStop(0.62, 'rgba(0,0,0,0.44)');
+  l.addColorStop(0.82, 'rgba(0,0,0,0.16)');
+  l.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = l;
+  g.fillRect(0, 0, 128, 128);
+  return c;
+}
+
 /** 像素南瓜灯（15×13 点阵 × 倍率，最近邻），雕刻面 #2A0A00，蒂 #4A5A18（报告 §1.3） */
 const PUMPKIN_ROWS = [
   '......SS.......',
@@ -235,6 +261,7 @@ function sprites() {
     bloomOf,
     core: bakeCore(),
     beam: bakeBeam(),
+    beamTaper: bakeBeamTaper(),
     pumpkin3: bakePumpkin(3),
     pumpkin4: bakePumpkin(4),
     paw: bakePaw(),
@@ -508,13 +535,13 @@ function ensureBloom(W, H) {
 }
 
 /** 带旋转/拉伸地画一根光柱（沿 +x，宽 w，长 len） */
-function beamDraw(c, x, y, ang, len, w, alpha, k = 1) {
+function beamDraw(c, x, y, ang, len, w, alpha, k = 1, spr = null) {
   const S = SPR;
   c.save();
   c.translate(x * k, y * k);
   c.rotate(ang);
   c.globalAlpha = alpha;
-  c.drawImage(S.beam, 0, (-w / 2) * k, len * k, w * k);
+  c.drawImage(spr ?? S.beam, 0, (-w / 2) * k, len * k, w * k);
   c.restore();
 }
 
@@ -570,19 +597,29 @@ export function drawWorldFx(ctx, world, hf, camera, W, H) {
       ctx.globalAlpha = 0.7;
       ctx.drawImage(S.glow.red, pk.x - 70, sy - 70, 140, 140);
       bglow(S.glow.amber, pk.x, sy, 170, 0.5);
-    } else if (pk.boom > 0) {
-      const k = pk.boom / 0.35;
-      // 十字爆风 = 四条软边光柱（宽随时间收窄，亮度衰减）
-      const w = 22 + 46 * k;
+    } else if ((pk.age ?? 0) < 0.9) {
+      // 十字爆风三段式（判定窗口仍只有前 0.35s，余辉纯视觉）：
+      //   0~0.10s 由中心向外"长出"（ease-out）→ 0.10~0.35s 满亮 → 0.35~0.90s 缓出
+      const age = pk.age ?? 0;
+      const gu = Math.min(1, age / 0.10);
+      const grow = 1 - (1 - gu) * (1 - gu);
+      const fade = age < 0.35 ? 1 : Math.pow(Math.max(0, 1 - (age - 0.35) / 0.55), 1.6);
+      const len = 215 * grow;
+      const w = 24 + 46 * Math.max(0, 1 - age / 0.9);     // 由粗到细
       for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-        beamDraw(ctx, pk.x, pk.y, a, 215, w, 0.95 * k);
-        beamDraw(ctx, pk.x, pk.y, a, 215, w * 0.34, k);
-        beamDraw(bc, pk.x - ox, pk.y - oy, a, 215, w * 2.2, 0.5 * k, BLOOM_K);
+        // 强度刻意压低（0.62/0.5/0.3）：三层加法 + Bloom 叠起来才刚好接近白热，不再裁切在 255
+        beamDraw(ctx, pk.x, pk.y, a, len, w, 0.62 * fade, 1, S.beamTaper);
+        beamDraw(ctx, pk.x, pk.y, a, len, w * 0.34, 0.5 * fade, 1, S.beamTaper);
+        beamDraw(bc, pk.x - ox, pk.y - oy, a, len, w * 2.2, 0.3 * fade, BLOOM_K, S.beamTaper);
+        // 臂端柔光帽（小而淡，只负责把尖端融进夜空）
+        ctx.globalAlpha = 0.3 * fade * grow;
+        const ex = pk.x + Math.cos(a) * len * 0.8, ey = pk.y + Math.sin(a) * len * 0.8;
+        ctx.drawImage(S.glow.amber, ex - 26, ey - 26, 52, 52);
       }
-      ctx.globalAlpha = k;
-      const d = 190 * (1.3 - 0.3 * k);
+      ctx.globalAlpha = fade;
+      const d = 190 * (1.3 - 0.3 * fade);
       ctx.drawImage(S.glow.amber, pk.x - d / 2, pk.y - d / 2, d, d);
-      bglow(S.glow.amber, pk.x, pk.y, 340, 0.8 * k);
+      bglow(S.glow.amber, pk.x, pk.y, 340, 0.8 * fade);
     }
   }
 
@@ -900,9 +937,9 @@ export function drawHud(ctx, hf, W, H, dpr) {
     const vimg = hf.frameImg('vanilla', 0), cimg = hf.frameImg('choco', 0);
     const vd = hf.frames('vanilla')?.[0]?.size ?? [21, 36];
     const cd = hf.frames('choco')?.[0]?.size ?? [21, 36];
-    drawBar(ctx, x0, yBase, pw, ph, prog, 'HALLOWEEN CAT VANILLA SPECIAL LV.361',
+    drawBar(ctx, x0, yBase, pw, ph, prog, 'HALLOWEEN CAT VANILLA SPECIAL',
       `X${Math.ceil(prog * 50) + 1}`, sc, dpr, { img: vimg, w: vd[0], h: vd[1], bg: '#3a2a52' });
-    drawBar(ctx, x0, yBase + 44 * sc, pw, ph, Math.pow(prog, 1.12), 'HALLOWEEN CAT CHOCOLATE SPECIAL LV.349',
+    drawBar(ctx, x0, yBase + 44 * sc, pw, ph, Math.pow(prog, 1.12), 'HALLOWEEN CAT CHOCOLATE SPECIAL',
       `X${Math.ceil(Math.pow(prog, 1.12) * 50) + 2}`, sc, dpr, { img: cimg, w: cd[0], h: cd[1], bg: '#5a2e14' });
   }
 

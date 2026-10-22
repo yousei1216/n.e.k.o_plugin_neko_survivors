@@ -347,6 +347,7 @@ export class NekoPilot {
     }
     // 节流：每 4 帧重算一次目标（~0.13s）——太慢会被噩梦怪海围死
     if (++this._aimT % 4 !== 1) return;
+    this._dodgeNow = false;   // 本次决策是否处于"躲弹中"（置位后跳过走位低通，指令直达）
 
     const world = g.world;
     const half = world?.halfSize ?? 700;
@@ -405,17 +406,24 @@ export class NekoPilot {
           const dx = p.x - b.x, dy = p.y - b.y;
           const d = Math.hypot(dx, dy);
           if (d > 230 || d < 1) continue;
-          const bv = Math.hypot(b.vx ?? 0, b.vy ?? 0);
+          // ---- 万圣节战实测纠偏：EnemyBullet 是 angle+speed 运动，从不写 vx/vy
+          // （Entity 基类的 vx=vy=0 一直是 0）→ 旧写法 bv 恒为 0，**每一发敌弹都被当成
+          // "静止的"跳过**，184 轮起整套弹幕躲避对全游戏敌弹都是空转。
+          // 现在优先用 vx/vy（有的实体会写），否则由 angle/speed 还原速度向量。
+          const spd0 = b.speed ?? 0;
+          const bvx = b.vx || Math.cos(b.angle ?? 0) * spd0;
+          const bvy = b.vy || Math.sin(b.angle ?? 0) * spd0;
+          const bv = Math.hypot(bvx, bvy);
           if (bv < 40) continue;   // 慢速/静止的（燃烧带之类走专门逻辑）
           // 接近性：弹速方向与"弹→我"方向的夹角余弦 > 0.55 才算朝我来
-          const dot = ((b.vx / bv) * dx + (b.vy / bv) * dy) / d;
+          const dot = ((bvx / bv) * dx + (bvy / bv) * dy) / d;
           if (dot < 0.55) continue;
           // 瞄准线垂距：打不着的弹不躲（省下走位专心输出）
           const along = d * dot;
           const miss = Math.sqrt(Math.max(0, d * d - along * along));
           if (miss > 46) continue;
           // 垂直闪避：两侧选离弹更远的一边，越近权重越大
-          const px = -b.vy / bv, py = b.vx / bv;
+          const px = -bvy / bv, py = bvx / bv;
           const side = (dx * px + dy * py) >= 0 ? 1 : -1;
           const w = (1 - d / 230) * 2.4;
           fleeX += px * side * w;
@@ -585,9 +593,16 @@ export class NekoPilot {
         // 根本绕不开。现在把敌人排斥+弹幕闪避的合成向量按 0.8 权重叠进
         // 环绕目标（低血 1.1 更怂），再统一 clamp 场内 —— 环绕照跑、
         // 弹幕照躲，两者不再互斥。
+        // ---- 万圣节战实测纠偏：fleeX/fleeY 是**权重**（量级≈1），不是像素。旧写法
+        // `fleeX * dodgeW * (fleeMag/210)` 只把目标点挪了约 1px，闪避等于没有。
+        // 现在按方向 × min(|flee|,1.6) × fleeMag（≈210px）× dodgeW 折算成像素。
         const dodgeW = lowHp ? 1.1 : 0.8;
-        tx += fleeX * dodgeW * (fleeMag / 210);
-        ty += fleeY * dodgeW * (fleeMag / 210);
+        const fm = Math.hypot(fleeX, fleeY);
+        if (fm > 0.01) {
+          const kpx = (Math.min(fm, 1.6) / fm) * fleeMag * dodgeW;
+          tx += fleeX * kpx;
+          ty += fleeY * kpx;
+        }
       } else if (hf) {
         // ---- 第一百八十四轮：万圣节双猫战 —— 她俩没有 hitbox 不可打，
         // AI 的全部工作是**活下来**：场内大圈巡游（0.6×宽 / 0.55×高），
@@ -596,9 +611,10 @@ export class NekoPilot {
         this._hwA = (this._hwA ?? Math.random() * 6.283) + 0.5 / 60;
         tx = arena.cx + Math.cos(this._hwA) * arena.hw * 0.6;
         ty = arena.cy + Math.sin(this._hwA) * arena.hh * 0.55;
-        const hwDodge = lowHp ? 1.1 : 0.85;
-        tx += fleeX * hwDodge * (fleeMag / 210);
-        ty += fleeY * hwDodge * (fleeMag / 210);
+        // 躲弹幕/激光/南瓜十字：预测式找缝（见 _safeStep）。没危险时返回原目标，照常巡游。
+        const ss = this._safeStep(g, p, tx, ty, arena);
+        tx = ss.x; ty = ss.y;
+        this._dodgeNow = !!ss.danger;
       } else {
         // boss 不在场（演出阶段）：守在场地中心附近待命，绝不乱跑出框
         tx = arena.cx; ty = arena.cy;
@@ -693,7 +709,8 @@ export class NekoPilot {
     // 威胁向量帧间微小变化 → 目标点左右横跳（实测"鬼畜般高速抖动"）。
     // 新目标先和旧目标按 4:6 混合；混合后位移 <26px 就不更新 —— 角色继续
     // 朝旧目标走，只有真正有意义的方向变化才会改道。
-    let mix = this._tgt
+    // 躲弹中(_dodgeNow)不做低通：0.52s 的预测窗口里，60% 旧目标惯性会让闪避慢半拍
+    let mix = (this._tgt && !this._dodgeNow)
       ? { x: tx * 0.4 + this._tgt.x * 0.6, y: ty * 0.4 + this._tgt.y * 0.6 }
       : { x: tx, y: ty };
     // ---- 第一百八十四轮：墙 = 大颗弹幕（路径穿墙预判绕行）----
@@ -804,6 +821,88 @@ export class NekoPilot {
     this._tgt = mix;
     // 直设实体自己的 agentMoveTarget（第一百七十一轮修复，不走全局 doAction）
     p.agentMoveTarget = { x: mix.x, y: mix.y };
+  }
+
+  /**
+   * 预测式躲避（第一百八十五轮，万圣节战 A/B 实测驱动）。
+   *
+   * 为什么要它：旧的"朝我来的弹 → 往垂直方向闪"只对单发追踪有效；面对环形弹、弹墙这类
+   * 密集图样，左右相邻的弹把垂直力互相抵消，AI 根本不知道"缝在哪"。实测同样 9 秒弹幕，
+   * 修完速度向量/像素换算之后命中数仍是 6~17 次（基线 7~17），所以必须换算法。
+   *
+   * 做法：对"原地 + 16 个方向"每个候选，按弹的直线轨迹模拟未来 0.52s（4 个采样点），
+   * 取候选位置到每颗弹的最小间隙（扣掉双方判定半径 + 6px 余量）；再叠加万圣节的两类
+   * 非弹危险区（旋转激光射线、南瓜十字爆风）。评分 = 间隙 − 离"原本想去的位置"的距离 × 0.06，
+   * 所以没危险时仍走原来的环绕/巡游，有危险时才被推进缝里。
+   * 仅用于万圣节战；返回新的目标点（离开当前位置 ≤160px）。
+   */
+  _safeStep(g, p, tx, ty, arena) {
+    const world = g.world;
+    const hf = world?.halloweenFight;
+    const ebs = world?.enemyBullets?.items;
+    const SCAN = 290;
+    const th = [];   // 扁平数组：x, y, vx, vy, r
+    if (Array.isArray(ebs)) {
+      for (const b of ebs) {
+        if (!b || b.dead || b.hostileToEnemies) continue;
+        const dx = b.x - p.x, dy = b.y - p.y;
+        if (dx * dx + dy * dy > SCAN * SCAN) continue;
+        const sp = b.speed ?? 0;
+        th.push(b.x, b.y, b.vx || Math.cos(b.angle ?? 0) * sp, b.vy || Math.sin(b.angle ?? 0) * sp, b.hitRadius ?? b.radius ?? 7);
+      }
+    }
+    const lasers = hf?.waves ?? [];
+    const pumpkins = hf?.pumpkins ?? [];
+    if (!th.length && !lasers.length && !pumpkins.length) return { x: tx, y: ty, danger: 0 };
+
+    const myR = p.hitR ?? p.radius ?? 10;
+    const spd = Math.max(120, (p.baseSpeed ?? 220) * (p.stats?.moveSpeedMultiplier ?? 1));
+    const TAUS = [0.10, 0.22, 0.36, 0.52];
+    const minX = arena.cx - arena.hw + 40, maxX = arena.cx + arena.hw - 40;
+    const minY = arena.cy - arena.hh + 40, maxY = arena.cy + arena.hh - 40;
+
+    // 非弹危险区代价：激光射线 / 南瓜十字（预警期也避，免得到点才反应）
+    const hazard = (x, y, tau) => {
+      let cost = 0;
+      for (const w of lasers) {
+        const ang = w.angle + w.rot * tau;
+        const dx = x - w.x, dy = y - w.y;
+        const proj = dx * Math.cos(ang) + dy * Math.sin(ang);
+        if (proj <= 0) continue;
+        if (Math.abs(-dx * Math.sin(ang) + dy * Math.cos(ang)) < 38) cost += 70;
+      }
+      for (const pk of pumpkins) {
+        const active = (pk.t > 0) ? tau >= pk.t - 0.12 : (pk.boom ?? 0) > 0;
+        if (!active) continue;
+        const dx = x - pk.x, dy = y - pk.y;
+        if ((Math.abs(dx) < 50 || Math.abs(dy) < 50) && Math.hypot(dx, dy) < 235) cost += 70;
+      }
+      return cost;
+    };
+
+    let best = null, bestScore = -Infinity, stayClear = 99;
+    for (let k = -1; k < 16; k++) {
+      const ang = k < 0 ? 0 : (k * Math.PI) / 8;
+      const ux = k < 0 ? 0 : Math.cos(ang), uy = k < 0 ? 0 : Math.sin(ang);
+      let clear = 99, hz = 0, lx = p.x, ly = p.y;
+      for (const tau of TAUS) {
+        const x = Math.max(minX, Math.min(maxX, p.x + ux * spd * tau));
+        const y = Math.max(minY, Math.min(maxY, p.y + uy * spd * tau));
+        lx = x; ly = y;
+        for (let i = 0; i < th.length; i += 5) {
+          const bx = th[i] + th[i + 2] * tau, by = th[i + 1] + th[i + 3] * tau;
+          const gap = Math.hypot(x - bx, y - by) - (myR + th[i + 4] + 6);
+          if (gap < clear) clear = gap;
+        }
+        if (lasers.length || pumpkins.length) hz += hazard(x, y, tau);
+      }
+      if (k < 0) stayClear = clear;
+      const c = clear < 0 ? clear * 3 : Math.min(clear, 36);
+      const score = c - hz - Math.hypot(lx - tx, ly - ty) * 0.06;
+      if (score > bestScore) { bestScore = score; best = { ux, uy, k }; }
+    }
+    if (!best || best.k < 0) return { x: p.x, y: p.y, danger: stayClear < 30 ? 1 : 0, stay: true };
+    return { x: p.x + best.ux * 160, y: p.y + best.uy * 160, danger: stayClear < 30 ? 1 : 0 };
   }
 
   /** 420 内最近拾取物（巡逻时顺路捡） */
