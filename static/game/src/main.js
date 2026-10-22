@@ -33,7 +33,7 @@ import { clamp } from './core/math.js';
 import { sprites, buildPreloadPlan } from './core/assets.js';
 import { WEAPONS } from './data/weapons.js';
 import { ITEMS } from './data/items.js';
-import { BACKGROUNDS, DEFAULT_BACKGROUND, backgroundForWave } from './data/backgrounds.js';
+import { BACKGROUNDS, DEFAULT_BACKGROUND, backgroundForWave, backgroundForBossWave } from './data/backgrounds.js';
 import { BOSS_BANNED_BACKGROUNDS } from './data/terrain.js';
 // 属性修正的存档读写收拢在 core/stats.js（StatSheet 自己所在的模块）：
 // 见那边的长注释 —— 在 main.js 手抄字段名正是 curse 漏存的根因。
@@ -791,14 +791,10 @@ export class Game {
     // 往后找一张可用的 —— 复用它的"下一张"逻辑，而不是自己再随机一次，
     // 这样仍然保持"同一波次永远给同一张图"的可复现性。
     if (this.renderer) {
-      let bg = backgroundForWave(index, this._prevBackgroundId ?? null);
-      if (isBossWave && bg && BOSS_BANNED_BACKGROUNDS.includes(bg)) {
-        // 往后试几张，找一个 Boss 波能用的（同时仍然不和上一波重复）
-        for (let k = 1; k <= BACKGROUNDS.length && bg; k++) {
-          const cand = backgroundForWave(index + k, this._prevBackgroundId ?? null);
-          if (cand && !BOSS_BANNED_BACKGROUNDS.includes(cand)) { bg = cand; break; }
-        }
-      }
+      // 185 轮：Boss 波选图抽成 backgroundForBossWave（窗口放宽 + 确定性兜底，见 backgrounds.js）
+      const bg = isBossWave
+        ? backgroundForBossWave(index, this._prevBackgroundId ?? null, BOSS_BANNED_BACKGROUNDS)
+        : backgroundForWave(index, this._prevBackgroundId ?? null);
       if (bg) {
         this.renderer.backgroundId = bg;
         this._prevBackgroundId = bg;

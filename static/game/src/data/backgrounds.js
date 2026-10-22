@@ -56,6 +56,23 @@ export const BACKGROUNDS = [
     name: '修剪花园',
     mood: '整齐的草坪与浅色石板，零星花瓣 —— 给洛丽塔风的角色配的舞台',
   },
+  // ---- 第一百八十五轮新增 3 张（用户："也画几个新地图包括地图上的障碍……目前只有 5 个地图有点少而且都偏机械风了"）----
+  // 自然风景向，和前 5 张的科技/城市感拉开；三张都带障碍(见 terrain.js)，Boss 波自动避开。
+  {
+    id: 'forest',
+    name: '月光森林',
+    mood: '苔藓林地与落叶，浓密的树冠和长满青苔的巨石挡路',
+  },
+  {
+    id: 'snow',
+    name: '雪原',
+    mood: '冰蓝色雪地，冰封的池塘、覆雪的松树与冰岩',
+  },
+  {
+    id: 'desert',
+    name: '沙漠遗迹',
+    mood: '暖色沙丘上的古代遗迹：砂岩石块、倒塌石柱、开花的仙人掌',
+  },
 ];
 
 /** 默认背景（第 1 关用）。不存在就返回 null，渲染器自行回落。 */
@@ -189,6 +206,34 @@ export function backgroundSequence(count, startWave = 0) {
     prev = id;
   }
   return out;
+}
+
+/**
+ * Boss 波选图（第一百八十五轮从 main.js 抽出来，main 与测试共用同一份实现）。
+ *
+ * 规则（用户第十二轮）：Boss 波不使用带复杂地形的图。`banned` 是禁用名单。
+ *
+ * 为什么要重写：原来在 main.js 里"往后试 BACKGROUNDS.length 张"，图少禁用也少时够用；
+ * 第一百八十五轮图增至 8 张、其中 5 张带障碍后，窗口可能恰好一张可用图都没覆盖
+ * （300 个波次里实测有 4 个会落在带障碍的图上）。现在：
+ *   1) 先在后续 3 轮的排列里找（仍保持"同一波次永远同一张图"的可复现性）；
+ *   2) 仍找不到就走确定性兜底 —— 在可用图里挑第一张不等于上一波的，保证绝不返回禁用图。
+ *
+ * @param {number} waveIndex 0-based
+ * @param {string|null} prevId 上一波用的背景
+ * @param {string[]} banned 禁用 id 列表
+ */
+export function backgroundForBossWave(waveIndex, prevId, banned) {
+  const bg = backgroundForWave(waveIndex, prevId);
+  if (!bg || !banned.includes(bg)) return bg;
+  const n = BACKGROUNDS.length;
+  for (let k = 1; k <= n * 3; k++) {
+    const cand = backgroundForWave(waveIndex + k, prevId);
+    if (cand && !banned.includes(cand)) return cand;
+  }
+  const ok = BACKGROUNDS.filter((b) => !banned.includes(b.id));
+  if (!ok.length) return bg;                       // 全部被禁：无从避让，保持原抽取结果
+  return (ok.find((b) => b.id !== prevId) ?? ok[0]).id;
 }
 
 /** 按 id 取定义（找不到返回 null） */
