@@ -53,7 +53,8 @@ export const LEAD = 0.6;                  // 提前量系数（VS-HANDOFF 4.2 �
 // 竞技场：地图中心偏上方（用户原话"或者说地图中心偏上方"）
 // 第五十五轮：左右各扩 100（用户："可移动区域过小了，左右各扩大100像素
 // 点空气墙位置"）。420 → 520。
-export const ARENA = { cx: 0, cy: -80, hw: 520, hh: 470 };
+import { ARENA as _ARENA } from './flandre-consts.js';
+export const ARENA = _ARENA;   // 185 轮：数值搬到 flandre-consts.js（避免与 flandre-spells.js 循环依赖），此处原样再导出
 
 const COLORS = {
   red: '#ff4060', dark: '#c81e3c', white: '#fff2f4',
@@ -934,6 +935,13 @@ const SPELLS = {
     },
   },
 };
+
+// ---- 第一百八十五轮：符卡重做（版本 B/C）----
+// 新脚本放在 flandre-spells.js，按 id 覆盖上面的旧实现；没重做的卡继续用旧的。
+// 这样可以分批上线、随时回退（删掉 NEW_SPELLS 里对应项即可），也方便在 Node 里无头模拟（tools/_spell-sim.mjs）。
+import { NEW_SPELLS } from './flandre-spells.js';
+Object.assign(SPELLS, NEW_SPELLS);
+export { SPELLS };
 
 // ============================================================
 // 战斗控制器

@@ -2676,6 +2676,7 @@ export class Renderer {
    */
   _drawFlandreEmitters(ctx, vis) {
     for (const v of vis) {
+      if (v.kind === 'glow') { FR.drawGlowEmitter(ctx, v, this.world?.flandreFight?.t ?? 0); continue; }   // 185 轮：新符卡发射器 = 发光球
       ctx.save();
       ctx.translate(v.x, v.y);
       if (v.kind === 'blood') {

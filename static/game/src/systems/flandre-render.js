@@ -341,6 +341,26 @@ export function drawDeclare(ctx, fight, anchor) {
   ctx.restore();
 }
 
+/** 发射器发光体（符卡脚本 st.vis 里 kind:'glow'）：白热核 + 主题色辉光 + 缓慢旋转的十字星芒，加法 */
+export function drawGlowEmitter(ctx, v, t) {
+  ensure();
+  const a = (v.a ?? 1);
+  const pulse = 0.85 + 0.15 * Math.sin(t * 7 + (v.x + v.y) * 0.01);
+  const d = v.r * 5.2 * pulse;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = a * 0.9;
+  ctx.drawImage(glowOf(v.color), v.x - d / 2, v.y - d / 2, d, d);
+  ctx.globalAlpha = a;
+  const cd = v.r * 2.0;
+  ctx.drawImage(glowOf('#FFFFFF'), v.x - cd / 2, v.y - cd / 2, cd, cd);
+  ctx.globalAlpha = a * 0.55;
+  ctx.translate(v.x, v.y); ctx.rotate(t * 1.3);
+  const R = v.r * 3.1;
+  ctx.drawImage(RAYS, -R, -R, R * 2, R * 2);
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------
 // HUD：符卡名铭牌 + 消弹冷却条 + EP 倒计时 + 宣言白闪
 // ---------------------------------------------------------------
