@@ -7,4 +7,4 @@
 //
 // 发版约定：每次 bump 时与 neko-plugins/neko_survivors/plugin.toml 的
 // version **同步修改**（test/round156-check.mjs 有一致性断言拦漏改）。
-export const GAME_VERSION = '0.3.86';
+export const GAME_VERSION = '0.3.87';

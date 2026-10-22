@@ -127,6 +127,9 @@ export const BGM_POOLS = {
   //（touhou-flandre/bgm-out）。15 = U.N. Owen（她的主题曲，新典编曲），
   // 16 = 新典新增的 BOSS 曲（Extra Phantom 阶段用）。
   flandre: ['boss_flandre.ogg'],
+  // 第一百八十四轮：万圣节双猫 —— Rabi-Ribi 万圣节 DLC 曲 Mischievous
+  // Masquerade（bgm13.ogg → halloween.ogg），场景变亮后播放。
+  halloween: ['halloween.ogg'],
   flandre_ex: ['boss_flandre_ex.ogg'],
 };
 
@@ -134,7 +137,7 @@ export const BGM_POOLS = {
 export const BGM_ALL_TRACKS = [...new Set(Object.values(BGM_POOLS).flat())];
 
 /** 支持的场景名 */
-export const BGM_SCENES = ['open', 'shop', 'end', 'stage', 'boss', 'flandre', 'flandre_ex'];
+export const BGM_SCENES = ['open', 'shop', 'end', 'stage', 'boss', 'flandre', 'flandre_ex', 'halloween'];
 
 /**
  * 每类武器的攻击音最小间隔（毫秒）—— 第十轮，用户要求"做个播放限制"。

@@ -43,6 +43,8 @@ import { neko, EVENT } from './neko-integration.js';
 import { pluginBridge } from './plugin-bridge.js';
 // 第四十九轮：隐藏挑战 Boss 芙兰朵露（素材与弹幕规格来自 touhou-flandre 拆包）
 import { FlandreFight, flandreUnlockOk, ARENA } from './systems/flandre.js';
+// 第一百八十四轮：万圣节双猫（巧克力 & 香草）—— Rabi-Ribi 万圣节 DLC 拆包素材
+import { HalloweenFight, ARENA as HALLOWEEN_ARENA } from './systems/halloween.js';
 import { VergilFight, VERGIL_MAX_HP, ARENA as VARENA } from './systems/vergil.js';
 import { NekoPilot } from './systems/neko-pilot.js';
 
@@ -56,6 +58,7 @@ export const STATE = {
   RESULT: 'result',
   // 第四十九轮：隐藏挑战 Boss 芙兰朵露的专属状态（世界活着，波次系统停摆）
   FLANDRE: 'flandre',
+  HALLOWEEN: 'halloween',
   // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同芙兰骨架）
   VERGIL: 'vergil',
 };
@@ -439,6 +442,9 @@ export class Game {
       // 难度芙兰之后永久开启。" EP（Extra Phantom）存活 60 秒拿到
       // outcome 'beat' 时置 meta.flandreUnlocked（localStorage 永久）。
       onFlandreTest: this.meta.flandreUnlocked ? () => this._debugStartFlandre() : null,
+      // 第一百八十四轮：直通万圣节双猫按钮 —— 打败过芙兰（flandreUnlocked）
+      // 就出现（她排在芙兰后面出场）。测试期 ?halloween=1 也能直达。
+      onHalloweenTest: this.meta.flandreUnlocked ? () => this._startHalloweenTest() : null,
       // 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮 + ?vergil=1 直达）
       // 第一百五十五轮：测试按钮下线（用户："测试完毕，很不错，把测试
       // 大排档椅子的按钮隐藏，ui布局看一下不难看就行"）—— 传 null 隐藏
@@ -900,6 +906,8 @@ export class Game {
       case STATE.FLANDRE: this._updateFlandre(dt); break;
       // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同款骨架 + 大招全场 timeScale）
       case STATE.VERGIL: this._updateVergil(dt); break;
+      // 第一百八十四轮：万圣节双猫（巧克力&香草）纯演出生存战
+      case STATE.HALLOWEEN: this._updateHalloween(dt); break;
       case STATE.PAUSED:
         if (this.input.pressed('Escape')) this._resume();
         break;
@@ -1933,6 +1941,123 @@ export class Game {
     this.state = STATE.FLANDRE;
   }
 
+  /**
+   * 第一百八十四轮：万圣节双猫（巧克力 & 香草）纯演出生存战。
+   * 触发：①芙兰战胜利（beat）后 3 秒黑屏衔接 —— 用户："演出就老规矩，
+   * 打完芙兰，芙兰撤场3秒黑屏，在3秒换到rabiribi的背景"；②测试直入
+   * ?halloween=1 或标题页【直接挑战万圣节双猫！】按钮（onHalloweenTest）。
+   * 弹幕每发 10% 真伤、战斗期间回血无效（用户拍板的测试口径）；
+   * 无 hitbox：双猫只存在于演出层，玩家武器索敌列表里没有她们。
+   */
+  _startHalloween(opts = {}) {
+    const p = this.player;
+    // 整场万圣节战：回血和吸血全部无效（用户："做成每发弹幕10%真伤
+    // 不给回血和护甲看看"）—— 真伤走 halloweenHit 天然无视护甲，
+    // 回血由 noHeal 统一拦（小小猫娘 force 治疗保留，芙兰同款）。
+    p.noHeal = true;
+    this.world.noSpawn = true;
+    this.world.enemies.items.forEach((e) => { e.dead = true; });   // 撤场：清掉残余敌人
+    this.world.enemyBullets.items.forEach((b) => { b.dead = true; });
+    audio.stopMusic();                // 黑屏期间静默，场景变亮后才起 Mischievous Masquerade
+    this.halloween = new HalloweenFight(this, {
+      chain: !!opts.chain,
+      onDone: (outcome) => this._halloweenFinish(outcome),
+    });
+    this.world.halloweenFight = this.halloween;
+    this.state = STATE.HALLOWEEN;
+  }
+
+  _updateHalloween(dt) {
+    try {
+      const hf = this.halloween;
+      const arena = HALLOWEEN_ARENA;
+      const p = this.player;
+      p.update(dt, { moveAxis: () => this.input.moveAxis() }, this.camera, this.world);
+      // 队友照常参战（AI 大脑每帧走 NekoAgent._tick 驱动 agentMoveTarget）
+      const p2h = this.world.player2;
+      if (p2h) {
+        const ax2h = this.input.moveAxisP2();
+        p2h.update(dt, { moveAxis: () => ax2h, p2SkillSlow: () => this.input.p2SkillSlow() }, this.camera, this.world);
+      }
+      for (const pl of [this.world.player3, this.world.player4]) {
+        if (pl) pl.update(dt, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
+      }
+      this.world.update(dt, p, 0);
+      // 全员关进宽屏场地
+      const minX = arena.cx - arena.hw, maxX = arena.cx + arena.hw;
+      const minY = arena.cy - arena.hh, maxY = arena.cy + arena.hh;
+      for (const pl of [p, ...this.world.partners()]) {
+        if (!pl) continue;
+        pl.x = clamp(pl.x, minX, maxX);
+        pl.y = clamp(pl.y, minY, maxY);
+      }
+      // 镜头锁舞台中心
+      this.camera.x = arena.cx;
+      this.camera.y = arena.cy;
+      this.camera.update(dt);
+      this.ui.updateHud(this);
+      hf?.update(dt);
+    } catch (e) { console.error('halloween update', e); }
+  }
+
+  _halloweenFinish(outcome) {
+    this._teardownHalloween();
+    audio.stopMusic();
+    const p = this.player;
+    if (outcome !== 'death') {
+      // 通关奖励：芙兰结算同级再翻一档（万圣节糖果大礼包）
+      const def = getEnemy('boss_void_lord');
+      const scaling = this.world.waveScaling ?? { xp: 1, materials: 1 };
+      const xp = Math.round((def?.xp ?? 120) * 4 * (scaling.xp ?? 1));
+      const mats = Math.round((def?.materials ?? 120) * 4 * (scaling.materials ?? 1));
+      p.gainXp(xp);
+      p.gainMaterials(mats);
+      audio.play('bossKill');
+      this.ui.toast(`双猫玩累了回家啦！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
+      if (!this.meta.halloweenUnlocked) {
+        this.meta.halloweenUnlocked = true;
+        this._saveMeta();
+      }
+    }
+    this._teardownFlandre();          // 复用芙兰战的收尾（noHeal/锁速/世界复位）
+    if (this._halloweenChain) {
+      // 连战模式（芙兰→双猫）：双猫演完 = 芙兰原本的"20 波通关"走无尽询问
+      this._halloweenChain = false;
+      this._askEndless(this.waveIndex + 1);
+    } else {
+      this.state = STATE.SHOP;        // 测试局：回商店整备
+      this._openShop();
+    }
+  }
+
+  _teardownHalloween() {
+    if (this.world.halloweenFight) this.world.halloweenFight = null;
+    if (this.halloween) this.halloween = null;
+    const p = this.player;
+    p.noHeal = this.world.flandreFight ? p.noHeal : false;
+    p.onFlandrePlayerHit = null;
+  }
+
+  /**
+   * 第一百八十四轮：直通万圣节双猫测试局（?halloween=1 / 标题页按钮）。
+   * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，AI 大脑全开 —— 人工跑一轮演出用。
+   */
+  _startHalloweenTest() {
+    try {
+      this.setDifficulty('nightmare');
+      this.startRun('yui', { party: 4 });   // 4P 阵容（AI 猫娘一起躲弹幕）
+      this.player.addWeapon('meow_cannon');
+      this.player.addWeapon('meow_cannon');
+      this.player.addWeapon('meow_cannon');
+      this.player.charMul = { ...this.player.charMul, damage: 5 };
+      for (const id of ['cat_taffy', 'warm_milk', 'warm_milk']) this.player.addItem(id);
+      this.meta.retries = 0;
+      this._bindPartyPilots(4);
+      window.NekoAgent?.pilot?.adopt(this);
+      this._startHalloween({ test: true });
+    } catch { /* */ }
+  }
+
   /** 第一百八十四轮：直通芙兰战测试局（?flandre=1，同维吉尔实验室口子）。
    * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，AI 大脑全开 —— 弹幕躲避调参用。 */
   _startFlandreTest() {
@@ -2113,6 +2238,16 @@ export class Game {
       p.dead = false;
       p.hp = p.stats.get('maxHp');
       p.invuln = Math.max(p.invuln ?? 0, 1.5);
+    }
+
+    // ---- 第一百八十四轮（用户："演出就老规矩，打完芙兰，芙兰撤场3秒
+    // 黑屏，在3秒换到rabiribi的背景"）—— 芙兰战胜（beat）→ 3 秒黑屏
+    // 换场 → 万圣节双猫纯演出生存战（连战）。奖励照常发，双猫战胜利
+    // 后再走无尽询问；双猫战败 = 本次挑战结束（回商店整备再试）。
+    if (outcome === 'beat') {
+      this._halloweenChain = true;
+      this._startHalloween({ chain: true });
+      return;
     }
 
     // 游戏不结束：正常进入 20 波通关结算（继续 21 波）
@@ -3251,10 +3386,15 @@ try {
   if (q.has('flandre')) {
     game._startFlandreTest();
   }
+  // ?halloween=1：直通万圣节双猫测试局（人工跑一轮演出 —— 用户要求
+  // "你试试跑一轮加个测试按钮，我人工跑跑看"）。
+  if (q.has('halloween')) {
+    game._startHalloweenTest();
+  }
   // ?probe=1：把对局画面/状态定时 POST 给本地探针服务器（184 轮 4P
   // 修复验证用 —— headless 环境没有 CDP 截图通道，canvas 自证最干净）。
   // 与 party/flandre 任一开局参数搭配使用。
-  if (q.get('probe') === '1' && (party >= 1 || q.has('flandre') || q.has('cont'))) {
+  if (q.get('probe') === '1' && (party >= 1 || q.has('flandre') || q.has('cont') || q.has('halloween'))) {
     const cv = canvas;
     // ---- 184 轮：vergil=1（与 party 组合）—— 8s 时直接走正式入口进维
     // 吉尔战（保留 4P 阵容），并在 dump 里挂帧时长 profiler 定位卡顿。

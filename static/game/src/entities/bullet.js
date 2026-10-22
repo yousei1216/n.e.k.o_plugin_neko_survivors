@@ -210,6 +210,8 @@ export class EnemyBullet extends Entity {
     // 第四十九轮：芙兰朵露弹幕 —— 命中走 30% 真实伤害（无视护甲/闪避），
     // 由 player.flandreHit() 处理；其余敌人子弹走普通 takeDamage。
     this.flandre = !!cfg.flandre;
+    // ---- 第一百八十四轮：万圣节双猫弹幕 —— 10% 真伤通道（halloweenHit）
+    this.halloween = !!cfg.halloween;
     // 第一百三十二轮：波次真伤档位（1 小怪 / 2 精英 / 3 Boss；0 = 不附加，
     // 芙兰弹与未标注来源的弹）—— 命中时按当时的 world.currentWave 结算。
     this.trueTier = cfg.trueTier ?? 0;
@@ -319,6 +321,9 @@ export class EnemyBullet extends Entity {
       // 第九十六轮：敌弹命中 → 弹幕档无敌帧 0.6s（其余伤害仍是 0.8s）
       // 第一百三十二轮：附加 trueBonus（round96 的 projectile 标记保留）
       if (this.flandre) player.flandreHit?.(this.x, this.y);
+      // ---- 第一百八十四轮：万圣节双猫弹幕 —— 每发 10% 真伤（用户：
+      // "做成每发弹幕10%真伤不给回血和护甲看看"），走 halloweenHit 通道。
+      else if (this.halloween) player.halloweenHit?.(this.x, this.y);
       else player.takeDamage(this.damage * (wxW?.enemyOut ?? 1), this.x, this.y, { projectile: true, trueBonus });
       this.dead = true;
       return;

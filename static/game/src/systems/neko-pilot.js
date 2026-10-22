@@ -25,6 +25,7 @@
 import { blockedAt } from '../data/terrain.js';
 import { ARENA as VIRGIL_ARENA } from './vergil.js';
 import { ARENA as FLAN_ARENA } from './flandre.js';
+import { ARENA as HALLOWEEN_ARENA } from './halloween.js';
 
 /** 选卡打分表：属性 id → 权重（噩梦通关的稳健成长序）
  *  luna 基础 10 血 —— 血量/移速/护甲是风筝流的生命线，权重给足。
@@ -306,6 +307,7 @@ export class NekoPilot {
         case 'playing': this._combat(g, false, p); break;
         case 'vergil': this._combat(g, true, p); break;
         case 'flandre': this._combat(g, true, p); break;   // 芙兰战同款环绕（20 波后挑战）
+      case 'halloween': this._combat(g, true, p); break; // 第一百八十四轮：万圣节双猫纯演出（躲弹幕游走即可）
         case 'level_up': this._pickUpgrade(g, p); break;
         case 'shop': this._nextWave(g, p); break;
         case 'result': if (!this.entity) this._settle(g); break;
@@ -550,8 +552,10 @@ export class NekoPilot {
       //    ③ 环绕距离收紧（攻击欲望——用户："对 boss 攻击欲望很低"）。
       const vf = world?.vergilFight;
       const ff = world?.flandreFight;
+      const hf = world?.halloweenFight;
       const b = vf?.boss ?? ff?.boss;
-      const arena = ff ? FLAN_ARENA : VIRGIL_ARENA;
+      // 第一百八十四轮：万圣节双猫战用宽屏场地（用户："移动场地可以大点"）
+      const arena = hf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : VIRGIL_ARENA;
       if (b && !b.dead) {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -565,7 +569,7 @@ export class NekoPilot {
         //     一滴不掉，本版修正）。
         //   · 纯远程 → guarding 期退 260~330 保存血量（打不进别白挨砍）；
         //     非 guarding 压到 200~280（ranged 射程 300+，留弹道余量）。
-        const guarding = vf?.guarding === true && !ff;
+        const guarding = vf?.guarding === true && !ff && !hf;
         const hasMelee = (p.weapons || []).some((w) => w?.def?.kind === 'melee');
         const inner = guarding ? (hasMelee ? 95 : 260) : (hasMelee ? 70 : 200);
         const outer = guarding ? (hasMelee ? 150 : 330) : (hasMelee ? 120 : 280);
@@ -584,6 +588,17 @@ export class NekoPilot {
         const dodgeW = lowHp ? 1.1 : 0.8;
         tx += fleeX * dodgeW * (fleeMag / 210);
         ty += fleeY * dodgeW * (fleeMag / 210);
+      } else if (hf) {
+        // ---- 第一百八十四轮：万圣节双猫战 —— 她俩没有 hitbox 不可打，
+        // AI 的全部工作是**活下来**：场内大圈巡游（0.6×宽 / 0.55×高），
+        // 弹幕/南瓜/激光躲避照常叠加（flee 向量按 dodgeW 混入）。
+        // 用户："4人模式……她们几乎无法打过后期的怪" → AI 别站桩吃弹。
+        this._hwA = (this._hwA ?? Math.random() * 6.283) + 0.5 / 60;
+        tx = arena.cx + Math.cos(this._hwA) * arena.hw * 0.6;
+        ty = arena.cy + Math.sin(this._hwA) * arena.hh * 0.55;
+        const hwDodge = lowHp ? 1.1 : 0.85;
+        tx += fleeX * hwDodge * (fleeMag / 210);
+        ty += fleeY * hwDodge * (fleeMag / 210);
       } else {
         // boss 不在场（演出阶段）：守在场地中心附近待命，绝不乱跑出框
         tx = arena.cx; ty = arena.cy;

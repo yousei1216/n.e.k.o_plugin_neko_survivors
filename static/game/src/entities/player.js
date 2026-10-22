@@ -659,6 +659,7 @@ export class Player extends Entity {
    */
   heal(amount, opts = {}) {
     if (this.noHeal && !opts.force) return 0;
+    if (this.noHeal && !opts.force) return 0;
     // ---- 第一百三十四轮：猫娘奶糖 —— 生命低于 50% 时治疗翻倍 ----
     // "受到的所有治疗效果"：入口处翻倍，regen/吸血/血包全走 heal()，
     // 一处改动全覆盖（与 gainXp 的入口策略同一思路）。
@@ -1002,6 +1003,27 @@ export class Player extends Entity {
    * 与 flandre.js 的 HIT_FRAC 保持一致。
    * 每次命中回调 onFlandrePlayerHit（main.js 用来触发小小猫娘自动消弹）。
    */
+  /**
+   * 第一百八十四轮：万圣节双猫战 —— 每发弹幕 10% 最大生命真实伤害
+   * （用户："做成每发弹幕10%真伤不给回血和护甲看看"）。真伤天然无视
+   * 护甲；战斗期间 heal() 统一禁用（见 heal() 入口的 halloweenFight 拦截）。
+   * 受击无敌帧沿用芙兰的 1 秒口径。
+   */
+  halloweenHit(sourceX, sourceY) {
+    if (this.invuln > 0 || this.dead) return 0;
+    const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.10));
+    this.hp -= dmg;
+    this.damageTaken += dmg;
+    this.invuln = FLANDRE_HIT_INVULN;
+    this.hurtFlash = 0.25;
+    this.onFlandrePlayerHit?.(sourceX, sourceY);
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.dead = true;
+    }
+    return dmg;
+  }
+
   flandreHit(sourceX, sourceY) {
     if (this.invuln > 0 || this.dead) return 0;
     const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.22
