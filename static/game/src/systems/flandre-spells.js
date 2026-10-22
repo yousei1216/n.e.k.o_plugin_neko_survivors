@@ -208,4 +208,198 @@ export const NEW_SPELLS = {
       st.vis = [glow(f.bx, f.by, 14, C.gold, f.t)];
     },
   },
+
+  // ============================================================
+  // ===== 版本 C ===============================================
+  // ============================================================
+
+  // 禁弹「Catadioptric」· 镜面
+  // 她左右各立一面"镜"(发射点)，两面镜交替向玩家打出一扇会减速的蓝/红碎片（先快后缓，像光被折射后慢下来）；
+  // 保留用户指定的机制：每 3 秒一轮 5 颗蓝紫大玉（上→右→左），三面反弹，沿途掉落尾随的大球与小球。
+  catadioptric: {
+    tick(sp, dt, f) {
+      const st = sp.st, k = clamp01(sp.t / sp.dur);
+      st.acc = (st.acc ?? 0.5) + dt;
+      if (st.acc >= lerp(1.0, 0.75, k)) {
+        st.acc = 0; st.n = (st.n ?? 0) + 1;
+        for (const side of [-1, 1]) {
+          const ex = f.bx + side * 140, ey = f.by + 10;
+          const base = f.aim(ex, ey) + side * 0.3 * (st.n % 2 ? 1 : -1);
+          const N = 12;   // 模拟器：9 发/扇→站桩只被打 3 次；15 发/扇→AI 被打 6 次必死；取 12
+          for (let i = 0; i < N; i++) {
+            const off = (i / (N - 1) - 0.5) * 1.35;
+            shot(f, ex, ey, base + off, 270 - Math.abs(off) * 70, side < 0 ? C.blue : C.red, 'shard', 5.6, { decel: 150, floorSpeed: 78, range: 1200 });
+          }
+        }
+      }
+      // —— 用户指定：蓝紫大玉三面反弹 + 尾随弹（原样保留）——
+      const DIRS = [-Math.PI / 2, 0, Math.PI];
+      st.vAcc = (st.vAcc ?? 1.0) + dt;
+      if (st.vAcc >= 3) {
+        st.vAcc -= 3;
+        const dir = DIRS[st.vIdx = ((st.vIdx ?? -1) + 1) % 3];
+        const wall = st.wall ?? (st.wall = { minX: ARENA.cx - ARENA.hw, maxX: ARENA.cx + ARENA.hw, minY: ARENA.cy - ARENA.hh });
+        for (let i = 0; i < 5; i++) {
+          const a = dir + ((i / 4) - 0.5) * (Math.PI / 2);
+          f.emit({ x: f.bx, y: f.by, angle: a, speed: 115, radius: 30, hitRadius: 13, shape: 'jade', jadeColor: '#6f5ff0', wall, range: 1600, tag: 'catadioptric' });
+        }
+      }
+      st.tAcc = (st.tAcc ?? 0) + dt;
+      if (st.tAcc >= 0.3) {
+        st.tAcc -= 0.3;
+        const jades = f.main.world.enemyBullets.items.filter((b) => !b.dead && b.tag === 'catadioptric' && b.shape === 'jade');
+        for (const j of jades) {
+          f.emit({ x: j.x, y: j.y, angle: f.rnd() * TAU, speed: 22, radius: 12, color: '#9f8cf5', range: 140 });
+          f.emit({ x: j.x, y: j.y, angle: f.rnd() * TAU, speed: 55, radius: 5, color: '#c9befa', range: 190 });
+        }
+      }
+      st.vis = [glow(f.bx - 140, f.by + 10, 12, C.blue, f.t), glow(f.bx + 140, f.by + 10, 12, C.red, f.t)];
+    },
+  },
+
+  // 禁弹「过后一时辰的时钟」· 时针分针
+  // 两根看不见的"指针"从她身上伸出：分针(金)转得快、时针(冰蓝)转得慢，沿针身每隔一段就缓缓漂出一颗弹，
+  // 针扫过的地方留下一片渐渐散开的螺旋弹带——像时钟被拧着走。每 6 秒"报时"：12 颗金色大珠等分炸开。
+  clock: {
+    tick(sp, dt, f) {
+      const st = sp.st, k = clamp01(sp.t / sp.dur);
+      st.hands = st.hands ?? [
+        { ang: f.rnd() * TAU, w: 1.25, col: C.gold, rs: [100, 190, 280, 370, 460], acc: 0, shape: 'orb' },
+        { ang: f.rnd() * TAU, w: -0.5, col: '#A8C8FF', rs: [130, 250, 370, 490], acc: 0, shape: 'rice' },
+      ];
+      for (const h of st.hands) {
+        h.ang += h.w * lerp(1, 1.3, k) * dt;
+        h.acc += dt;
+        while (h.acc >= 0.2) {
+          h.acc -= 0.2;
+          for (const r of h.rs) {
+            const x = f.bx + Math.cos(h.ang) * r, y = f.by + Math.sin(h.ang) * r;
+            if (Math.abs(x - ARENA.cx) > ARENA.hw || y < ARENA.cy - ARENA.hh || y > ARENA.cy + ARENA.hh) continue;
+            shot(f, x, y, h.ang + (h.w > 0 ? Math.PI / 2 : -Math.PI / 2), 46, h.col, h.shape, h.shape === 'orb' ? 6 : 4.4, { range: 520 });
+          }
+        }
+      }
+      st.chime = (st.chime ?? 3.5) + dt;
+      if (st.chime >= 6) {
+        st.chime = 0;
+        const base = f.rnd() * TAU;
+        for (let i = 0; i < 12; i++) shot(f, f.bx, f.by, base + (i * TAU) / 12, 140, C.gold, 'orb', 9);
+        for (let i = 0; i < 12; i++) shot(f, f.bx, f.by, base + ((i + 0.5) * TAU) / 12, 95, '#A8C8FF', 'ring', 6);
+      }
+      st.aim = (st.aim ?? 0) + dt;
+      if (st.aim >= 2.0) { st.aim = 0; f.fan(f.bx, f.by, f.aim(f.bx, f.by), 3, 26, 180, C.white, 5, 'rice', { hitRadius: 3 }); }
+      st.vis = [glow(f.bx, f.by, 15, C.gold, f.t), ...st.hands.map((h) => glow(f.bx + Math.cos(h.ang) * 70, f.by + Math.sin(h.ang) * 70, 8, h.col, f.t, 0.8))];
+    },
+  },
+
+  // 咒弹「Fragile Wing」· 羽
+  // 两片翅膀(左右镜像)像扇子一样来回扫，每次扫出一把彩虹花瓣；花瓣先快后慢最后悬停成一片缓缓下沉的"羽雾"。
+  // 8.5 秒后第二波：7 片羽翼从她身后同时炸开，各自带一圈螺旋。
+  fragile: {
+    tick(sp, dt, f) {
+      const st = sp.st, k = clamp01(sp.t / sp.dur);
+      st.acc = (st.acc ?? 0) + dt;
+      st.slot = st.slot ?? 0;
+      const step = lerp(0.15, 0.1, k);
+      while (st.acc >= step) {
+        st.acc -= step; st.slot = (st.slot + 1) % 7;
+        const sweep = Math.sin(sp.t * 1.05) * 1.05;
+        const aim0 = f.aim(f.bx, f.by);
+        for (const side of [-1, 1]) {
+          const a = aim0 + sweep * side + side * 0.35;
+          shot(f, f.bx + side * 28, f.by, a, 235, RAINBOW[(st.slot + (side > 0 ? 3 : 0)) % 7], 'petal', 5.4, { decel: 105, floorSpeed: 44, range: 560 });
+        }
+      }
+      // 瞄准花瓣扇：每 1.1s 一把 7 瓣、先快后缓，逼人别站在原地（模拟器：纯扫射站桩只被打 2 次）
+      st.seed = (st.seed ?? 0.5) + dt;
+      if (st.seed >= lerp(1.3, 0.95, k)) {
+        st.seed = 0;
+        f.fan(f.bx, f.by, f.aim(f.bx, f.by), 7, 38, 215, RAINBOW[(st.slot + 2) % 7], 5.6, 'petal', { hitRadius: 3.4, decel: 90, floorSpeed: 60, range: 700 });
+      }
+      if (!st.burst && sp.t >= 8.5) {
+        st.burst = true; st.burstT = 0;
+      }
+      if (st.burst) {
+        st.burstT += dt;
+        st.bacc = (st.bacc ?? 0) + dt;
+        while (st.bacc >= 0.2 && st.burstT < 6) {
+          st.bacc -= 0.2; st.bslot = ((st.bslot ?? 0) + 1) % 7;
+          for (let i = 0; i < 7; i++) {
+            const a = -Math.PI / 2 + (i / 7) * TAU + st.burstT * 0.9 * (i % 2 ? 1 : -1);
+            shot(f, f.bx, f.by, a, 180, RAINBOW[(st.bslot + i) % 7], 'petal', 5, { decel: 70, floorSpeed: 50, range: 1100 });
+          }
+        }
+        if (st.burstT >= 6) st.burst = false, st.burstDone = true;
+      }
+      if (sp.t >= 8.5 && !st.burstDone && !st.burst) st.burst = true;
+      st.vis = [glow(f.bx - 28, f.by, 10, RAINBOW[st.slot], f.t), glow(f.bx + 28, f.by, 10, RAINBOW[(st.slot + 3) % 7], f.t)];
+    },
+  },
+
+  // 咒弹「伏行之血痕」· 血雨
+  // 5 颗发光的血珠从场顶依次落下，每颗边下沉边甩出双臂旋转的"水滴"血线，水滴每隔 2.6 秒再炸开一圈白色米弹；
+  // 保留用户指定的粉色大玉自机狙。
+  bloodstain: {
+    tick(sp, dt, f) {
+      const st = sp.st, k = clamp01(sp.t / sp.dur);
+      st.ems = st.ems ?? []; st.n = st.n ?? 0;
+      while (st.n < 5 && sp.t >= 0.7 + st.n * 1.0) {
+        st.ems.push({ x: ARENA.cx + (f.rnd() * 2 - 1) * (ARENA.hw - 90), y: ARENA.cy - ARENA.hh + 10, a: f.rnd() * TAU, spin: (f.rnd() > 0.5 ? 1 : -1) * (0.9 + f.rnd() * 0.6), fire: 0, ring: 1 + f.rnd() * 1.2 });
+        st.n++;
+      }
+      for (const em of st.ems) {
+        if (em.y < ARENA.cy + 60) em.y += 30 * dt;
+        em.a += em.spin * dt; em.fire += dt; em.ring += dt;
+        while (em.fire >= 0.16) {
+          em.fire -= 0.16;
+          for (let arm = 0; arm < 2; arm++) shot(f, em.x, em.y, em.a + arm * Math.PI, 105, '#FF2030', 'drop', 5.4);
+        }
+        if (em.ring >= 2.6) {
+          em.ring = 0;
+          const base = f.rnd() * TAU;
+          for (let i = 0; i < 16; i++) shot(f, em.x, em.y, base + (i * TAU) / 16, 85, C.white, 'rice', 4.4);
+        }
+      }
+      st.aim = (st.aim ?? 0) + dt;
+      if (st.aim >= lerp(1.8, 1.4, k)) {
+        st.aim = 0;
+        f.fan(f.bx, f.by, f.aim(f.bx, f.by), 3, 24, 185, C.pink, 30, 'jade', { hitRadius: 13, jadeColor: C.pink });
+      }
+      st.vis = st.ems.map((e) => glow(e.x, e.y, 15, '#FF2030', f.t));
+    },
+  },
+
+  // 「弹幕的心脏」· 玫瑰
+  // 每个心跳(1.1 秒)，她打出一整圈弹，但每颗弹的速度按玫瑰线 |cos(3θ)| 调制——快的跑到外面、慢的留在里面，
+  // 圈在扩散中自己长成一朵三瓣玫瑰，并一直慢慢自转；颜色从花心的紫渐变到花瓣尖的粉与金。左右两个心室另打一对反向旋转的晶体扇。
+  heart: {
+    tick(sp, dt, f) {
+      const st = sp.st, k = clamp01(sp.t / sp.dur);
+      if (!st.init) { st.init = true; if (f.boss) { f.boss.x = ARENA.cx; f.boss.y = ARENA.cy - 270; } }
+      st.beat = (st.beat ?? 0.6) + dt;
+      if (st.beat >= lerp(1.2, 0.95, k)) {
+        st.beat = 0; st.n = (st.n ?? 0) + 1;
+        const N = 66, petals = st.n % 2 ? 3 : 4, rot = st.n * 0.37 + f.rnd() * 0.2;
+        for (let i = 0; i < N; i++) {
+          const th = (i / N) * TAU;
+          const c = Math.abs(Math.cos(petals * th * 0.5));
+          const spd = 70 + 150 * c;
+          const col = c > 0.82 ? C.gold : c > 0.5 ? C.pink : '#c56cf0';
+          shot(f, f.bx, f.by, th + rot, spd, col, c > 0.82 ? 'star' : 'shard', c > 0.82 ? 5.6 : 5, { range: 900 });
+        }
+      }
+      st.rot = (st.rot ?? 0) + dt;
+      st.fire = (st.fire ?? 0) + dt;
+      while (st.fire >= 0.22) {
+        st.fire -= 0.22;
+        for (const side of [-1, 1]) {
+          const ex = f.bx + side * 70, ey = f.by + 36;
+          f.fan(ex, ey, Math.PI / 2 + side * Math.sin(st.rot * 0.8) * 0.9, 3, 18, 150, side < 0 ? C.pink : C.gold, 5, 'shard', { hitRadius: 3 });
+        }
+      }
+      st.aim = (st.aim ?? 0) + dt;
+      if (st.aim >= 2.2) { st.aim = 0; f.fan(f.bx, f.by, f.aim(f.bx, f.by), 3, 24, 95, C.red, 5, 'shard', { hitRadius: 3 }); }
+      st.vis = [glow(f.bx, f.by, 16, C.pink, f.t), glow(f.bx - 70, f.by + 36, 9, C.pink, f.t), glow(f.bx + 70, f.by + 36, 9, C.gold, f.t)];
+    },
+  },
 };
