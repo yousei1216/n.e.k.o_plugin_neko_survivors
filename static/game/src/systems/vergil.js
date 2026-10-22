@@ -663,8 +663,12 @@ export class VergilFight {
     if (this.hitCd > 0) return false;
     const all = this.main.world?.players?.() ?? [this.main.player];
     const alive = all.filter((pl) => pl && !pl.dead && !pl.downed);
-    const r = this.main.rng ?? Math.random;
-    const p = alive.length ? alive[Math.floor(r() * alive.length) % alive.length] : this.main.player;
+    // （v0.3.77 曾把随机数写成 `main.rng ?? Math.random` 赋给 r 再调用——
+    // main.rng 是 RNG 实例对象（.next()），不是函数，r() 每次抛 TypeError
+    // 并炸穿当帧 update——用户控制台实锤"vergil.js:667 r is not a function"，
+    // 拉人圈这类每帧命中判定的技能必定卡。改用 Math.random，
+    // 攻击分散不需要种子。）
+    const p = alive.length ? alive[(Math.random() * alive.length) | 0] : this.main.player;
     if (p.dead) return false;
     p.takeDamage(0, this.bx, this.by, {
       ignoreIFrames: true,

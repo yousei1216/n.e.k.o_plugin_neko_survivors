@@ -3299,7 +3299,7 @@ try {
         } catch { /* 探针失败不影响游戏 */ }
       }, t);
     }
-    for (const t of [4500, 12500]) {
+    for (const t of [4500, 25000, 38000, 50000]) {
       setTimeout(() => {
         try {
           const g2 = game;
@@ -3311,11 +3311,12 @@ try {
             state: g2.state,
             wave: g2.waveIndex,
             w2: !!g2.world.player2, w3: !!g2.world.player3, w4: !!g2.world.player4,
-            p1: { x: Math.round(g2.player.x), y: Math.round(g2.player.y), tgt: !!g2.player.agentMoveTarget },
+            p1: { x: Math.round(g2.player.x), y: Math.round(g2.player.y), tgt: !!g2.player.agentMoveTarget, mats: Math.round(g2.player.materials ?? 0) },
             mates: g2.world.partners().map((pl) => ({
               id: pl.characterId, x: Math.round(pl.x), y: Math.round(pl.y),
               tgt: !!pl.agentMoveTarget, down: pl.downed, dead: pl.dead,
               pilotOn: (window.NekoAgent?.pilots ?? []).some((pt) => pt.entity === pl),
+              mats: Math.round(pl.materials ?? 0),
               armor: Math.round((pl.stats?.get?.('armor') ?? 0) * 10) / 10,
               armorWave: pl._armorWave,
               hpRegen: Math.round((pl.stats?.get?.('hpRegen') ?? 0) * 10) / 10,
@@ -3324,6 +3325,16 @@ try {
           fetch('http://127.0.0.1:8033/probe?name=state-' + t, { method: 'POST', body: JSON.stringify(snap) });
         } catch { /* */ }
       }, t);
+    }
+    // ?probe=1&rush=1：钱包预算压测 —— 每 3s 强开商店（跳过战斗），
+    // 快速堆到高波次看 matCap 是否仍把各人钱包压在水位内。
+    if (q.has('rush')) {
+      setInterval(() => {
+        try {
+          const g2 = game;
+          if (g2.state === 'playing' && Number.isInteger(g2.waveIndex)) g2._openShop();
+        } catch { /* */ }
+      }, 3000);
     }
     // ?probe=1&rescue=1：救援行为验证 —— 6s 时强制打倒一只猫娘，
     // 之后每 2s dump 其余 AI 与倒地者的距离（应持续缩小 = 在去救）。
