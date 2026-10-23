@@ -254,3 +254,132 @@ export function drawRainExtras(ctx, W, H, t, ramp) {
   }
   ctx.restore();
 }
+
+// =================================================================
+// 台风（第一百九十九轮重画，用户："龙卷风川雾啥的……只要你能做的更好看就动"）
+// =================================================================
+// 保留你第一百一十轮定下的规格：3~4 层叠加、内圈快外圈慢、青灰白、外缘柔和渐隐、风暴眼、吸入粒子线段。
+// 提升体积感：①锥形渐隐的螺旋臂（预烘焙软边精灵，3 层，内快外慢）②被卷起的落叶/尘团由外向内螺旋收拢
+// ③风暴眼 = 深色核 + 细亮环 ④地面风暴阴影 ⑤内部偶发闪光。只改渲染；半径/推力/吸力等玩法数值一律不动。
+let TY = null;
+function ensureTy() {
+  if (TY) return TY;
+  const soft = (size, stops) => radial(size, stops);
+  // 螺旋臂：沿对数螺旋盖一串软边圆章，宽度中段最大、两头收尖，透明度由根部到梢部渐隐
+  const arm = (seed, sweep, turns) => {
+    const N = 256, c = mk(N, N), g = c.getContext('2d');
+    const stamp = soft(32, [[0, 'rgba(255,255,255,0.9)'], [0.5, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]);
+    const K = 70;
+    for (let k = 0; k < K; k++) {
+      const u = k / (K - 1);
+      const ang = u * sweep;
+      const rr = 128 * (0.18 + 0.78 * Math.pow(u, 0.85));
+      const w = 9 + 24 * Math.sin(Math.PI * Math.min(1, u * 0.92 + 0.04)) * (0.8 + 0.2 * hash(k, seed));
+      g.globalAlpha = (0.20 + 0.55 * Math.sin(Math.PI * Math.min(1, u * 0.9 + 0.05))) * (1 - 0.35 * u);
+      g.drawImage(stamp, 128 + Math.cos(ang) * rr - w, 128 + Math.sin(ang) * rr - w, w * 2, w * 2);
+      void turns;
+    }
+    return c;
+  };
+  TY = {
+    arms: [arm(1, 1.9, 1), arm(2, 2.2, 1), arm(3, 1.6, 1)],
+    shadow: soft(128, [[0, 'rgba(14,22,40,0.55)'], [0.55, 'rgba(14,22,40,0.28)'], [1, 'rgba(14,22,40,0)']]),
+    puff: soft(64, [[0, 'rgba(235,244,252,0.8)'], [0.45, 'rgba(220,234,246,0.38)'], [1, 'rgba(210,226,242,0)']]),
+    eye: soft(128, [[0, 'rgba(6,10,20,0.85)'], [0.6, 'rgba(14,20,36,0.4)'], [1, 'rgba(14,20,36,0)']]),
+    flash: soft(96, [[0, 'rgba(255,255,255,0.9)'], [0.3, 'rgba(190,225,255,0.5)'], [1, 'rgba(160,200,255,0)']]),
+    leaf: ['#9db86a', '#c9a45a', '#8fae7c'].map((col) => {
+      const c = mk(20, 20), g = c.getContext('2d'); g.translate(10, 10);
+      g.fillStyle = col; g.beginPath(); g.moveTo(-8, 0); g.quadraticCurveTo(0, -6, 8, 0); g.quadraticCurveTo(0, 6, -8, 0); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.45)'; g.lineWidth = 0.9; g.beginPath(); g.moveTo(-7, 0); g.lineTo(7, 0); g.stroke();
+      return c;
+    }),
+  };
+  return TY;
+}
+
+/** 一个台风：tp = {x,y,r,spin,parts}；ctx 已处于世界坐标（本函数内部 translate）；t 为天气视觉时间；ramp 为渐入渐出 */
+export function drawTyphoon(ctx, tp, t, ramp) {
+  ensure(); ensureTy();
+  const R = tp.r;
+  ctx.save();
+  ctx.translate(tp.x, tp.y);
+  // 1) 地面风暴阴影（让它"压"在地上，而不是浮在上面）
+  ctx.globalAlpha = 0.55 * ramp;
+  ctx.drawImage(TY.shadow, -R * 1.35, -R * 1.35, R * 2.7, R * 2.7);
+  // 2) 外缘柔和的风环（沿用旧版"外圈柔和渐变"的意图）
+  ctx.globalAlpha = 0.5 * ramp;
+  ctx.drawImage(S.mist, -R * 1.3, -R * 1.3, R * 2.6, R * 2.6);
+  // 3) 螺旋臂 3 层：[半径比, 角速度, 臂数, 透明度, 精灵序号] —— 内圈快而密、外圈慢而疏（1/110 轮规格）
+  const LAY = [[0.62, 4.0, 5, 0.50, 0], [0.98, 2.4, 4, 0.36, 1], [1.34, 1.3, 3, 0.22, 2]];
+  for (const [rm, spd, nArms, al, si] of LAY) {
+    const rot = t * spd * tp.spin + rm * 5.1, size = R * rm * 2;
+    ctx.globalAlpha = al * ramp;
+    for (let i = 0; i < nArms; i++) {
+      ctx.save();
+      ctx.rotate(rot + (i * Math.PI * 2) / nArms);
+      ctx.drawImage(TY.arms[si], -size / 2, -size / 2, size, size);
+      ctx.restore();
+    }
+  }
+  // 4) 被卷起的落叶 / 尘团：由外向内螺旋收拢，近中心更快；两端淡入淡出
+  const NP = 16;
+  for (let i = 0; i < NP; i++) {
+    const u = (hash(i, 1) + t * (0.05 + 0.03 * hash(i, 2))) % 1;
+    const rr = R * (1.2 - 1.0 * u);
+    const a = hash(i, 3) * Math.PI * 2 + t * tp.spin * (1.0 + 2.6 * u * u) * (0.8 + 0.4 * hash(i, 4));
+    const x = Math.cos(a) * rr, y = Math.sin(a) * rr * 0.92;
+    const fade = Math.sin(Math.PI * u);
+    if (i % 3 === 0) {
+      const s = R * (0.16 + 0.1 * hash(i, 5));
+      ctx.globalAlpha = 0.5 * fade * ramp; ctx.drawImage(TY.puff, x - s, y - s, s * 2, s * 2);
+    } else {
+      const s = 9 + 6 * hash(i, 6);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(t * (2 + 3 * hash(i, 7)) + i); ctx.scale(1, 0.5 + 0.5 * Math.abs(Math.sin(t * 3 + i)));
+      ctx.globalAlpha = 0.85 * fade * ramp; ctx.drawImage(TY.leaf[i % 3], -s / 2, -s / 2, s, s);
+      ctx.restore();
+    }
+  }
+  // 5) 风暴眼：深色核 + 细亮环（呼吸）
+  const ey = R * 0.5;
+  ctx.globalAlpha = 0.75 * ramp; ctx.drawImage(TY.eye, -ey, -ey, ey * 2, ey * 2);
+  ctx.strokeStyle = '#d6e6f4'; ctx.lineWidth = 1.6;
+  for (let i = 0; i < 2; i++) {
+    const rr = R * (0.2 + 0.1 * i) + Math.sin(t * 4.6 * tp.spin - i * 1.8) * R * 0.03;
+    ctx.globalAlpha = (0.2 - i * 0.07) * ramp;
+    ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI * 2); ctx.stroke();
+  }
+  // 6) 内部偶发闪光（每台风每 ~4.3s 一次，持续 0.18s，位置由时间槽哈希决定）
+  const slot = Math.floor(t / 4.3), ph = t - slot * 4.3;
+  if (ph < 0.18) {
+    const fx = (hash(slot + tp.x * 0.01, 11) - 0.5) * R * 1.2, fy = (hash(slot + tp.x * 0.01, 12) - 0.5) * R * 1.2;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = (1 - ph / 0.18) * 0.7 * ramp; ctx.drawImage(TY.flash, fx - R * 0.35, fy - R * 0.35, R * 0.7, R * 0.7);
+    ctx.restore();
+  }
+  // 7) 吸入粒子线段（沿用游戏状态里的 tp.parts：越近中心越快越亮）
+  ctx.strokeStyle = '#e6f2fa'; ctx.lineCap = 'round';
+  for (const p of (tp.parts ?? [])) {
+    const k = 1 - p.d / (R * 1.75);
+    ctx.globalAlpha = Math.min(0.75, 0.16 + k * 0.55) * ramp;
+    ctx.lineWidth = p.s * (0.7 + k * 0.8);
+    const pa = p.a - p.w * 0.05;
+    ctx.beginPath(); ctx.moveTo(Math.cos(pa) * p.d, Math.sin(pa) * p.d); ctx.lineTo(Math.cos(p.a) * p.d, Math.sin(p.a) * p.d); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** 浓雾里流动的雾絮：8 团柔边椭圆，绕玩家缓慢漂移并随时间拉伸（取代旧的 8 个硬边白圆盘）。ctx 为世界坐标 */
+export function drawFogWisps(ctx, px, py, t, a) {
+  ensure();
+  ctx.save();
+  for (let i = 0; i < 8; i++) {
+    const fx = px + Math.cos(t * 0.35 + i * 2.3) * (240 + (i % 3) * 60);
+    const fy = py + Math.sin(t * 0.28 + i * 1.7) * (200 + (i % 4) * 50);
+    const stretch = 1.5 + 0.5 * Math.sin(t * 0.4 + i), w = 150 + (i % 3) * 40, h = w / stretch;
+    ctx.globalAlpha = (0.20 + 0.06 * Math.sin(t * 0.6 + i * 1.3)) * a;
+    ctx.translate(fx, fy); ctx.rotate(0.5 * Math.sin(t * 0.2 + i));
+    ctx.drawImage(S.mist, -w / 2, -h / 2, w, h);
+    ctx.rotate(-0.5 * Math.sin(t * 0.2 + i)); ctx.translate(-fx, -fy);
+  }
+  ctx.restore();
+}

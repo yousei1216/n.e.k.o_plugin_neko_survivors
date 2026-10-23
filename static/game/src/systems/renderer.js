@@ -4308,89 +4308,14 @@ export class Renderer {
     // 暗银色，看起来更像狂风。" 外圈柔和渐变用一环径向渐变（一帧一次
     // createRadialGradient，性能可扛），弧线全部按层批量 stroke。
     if (d.id === 'typhoon') {
-      const LAYERS = [
-        // [半径比, 角速度, 弧段数, 线宽, 透明度, 颜色] 内圈快而密，外圈慢而疏
-        [0.30, 4.0, 7, 2.2, 0.50, '#eef3f8'],
-        [0.52, 2.6, 5, 3.2, 0.36, '#dde8f2'],
-        [0.76, 1.6, 4, 4.6, 0.24, '#c3d3e3'],
-        [1.00, 0.9, 3, 6.5, 0.13, '#a8bccf'],
-      ];
+      // 199 轮：整个绘制挪进 weather-fx.js 的 drawTyphoon（锥形螺旋臂 + 落叶尘团 + 风暴眼 + 地面阴影 + 内部闪光 + 吸入粒子）。
+      // 110 轮的规格（3~4 层叠加、内快外慢、青灰白、外缘柔和）原样保留；只改渲染，半径/推力/吸力等玩法数值不动。
       for (const tp of w.typhoons) {
-        if (tp.x < vx0 - tp.r * 1.3 || tp.x > vx0 + vw + tp.r * 1.3
-          || tp.y < vy0 - tp.r * 1.3 || tp.y > vy0 + vh + tp.r * 1.3) continue;
-        ctx.save();
-        ctx.translate(tp.x, tp.y);
-
-        // 外圈柔和渐变环（暗银，边缘渐隐）
-        const rg = ctx.createRadialGradient(0, 0, tp.r * 0.62, 0, 0, tp.r * 1.28);
-        rg.addColorStop(0, 'rgba(150,172,196,0)');
-        rg.addColorStop(0.55, `rgba(150,172,196,${0.10 * ramp})`);
-        rg.addColorStop(0.8, `rgba(168,188,207,${0.16 * ramp})`);
-        rg.addColorStop(1, 'rgba(168,188,207,0)');
-        ctx.fillStyle = rg;
-        ctx.beginPath();
-        ctx.arc(0, 0, tp.r * 1.28, 0, TAU);
-        ctx.fill();
-
-        // 四层气旋弧臂：每层按自己的角速度+相位转，弧段不均匀分布
-        // 更像乱流而不是仪表盘
-        for (const [rm, spdL, count, lw, al, col] of LAYERS) {
-          ctx.strokeStyle = col;
-          ctx.globalAlpha = al * ramp;
-          ctx.lineWidth = lw;
-          ctx.lineCap = 'round';
-          const rot = t * spdL * tp.spin + rm * 7.3;
-          const rr = tp.r * rm;
-          ctx.beginPath();
-          for (let i = 0; i < count; i++) {
-            const a0 = rot + i * (TAU / count) + Math.sin(i * 2.7 + rm * 5) * 0.55;
-            const arcLen = 0.55 + Math.abs(Math.sin(i * 1.9 + rm * 3.1)) * 0.75;
-            ctx.moveTo(rr * Math.cos(a0), rr * Math.sin(a0));   // 跳到本段起点
-            ctx.arc(0, 0, rr, a0, a0 + arcLen);
-          }
-          ctx.stroke();
-        }
-
-        // 中心风暴眼（暗色调核心 + 一点亮心）
-        const eye = ctx.createRadialGradient(0, 0, 0, 0, 0, tp.r * 0.34);
-        eye.addColorStop(0, `rgba(10,14,22,${0.30 * ramp})`);
-        eye.addColorStop(0.7, `rgba(20,26,40,${0.16 * ramp})`);
-        eye.addColorStop(1, 'rgba(20,26,40,0)');
-        ctx.fillStyle = eye;
-        ctx.beginPath();
-        ctx.arc(0, 0, tp.r * 0.34, 0, TAU);
-        ctx.fill();
-
-        // 近心波纹（增强 4：模拟空气扭曲，两圈慢呼吸细环）
-        ctx.lineWidth = 1.4;
-        ctx.strokeStyle = '#cfe0ee';
-        for (let i = 0; i < 2; i++) {
-          const rr = tp.r * (0.18 + 0.09 * i) + Math.sin(t * 4.6 * tp.spin - i * 1.8) * tp.r * 0.03;
-          ctx.globalAlpha = 0.14 * ramp;
-          ctx.beginPath();
-          ctx.arc(0, 0, rr, 0, TAU);
-          ctx.stroke();
-        }
-
-        // 吸入粒子（螺旋拖尾线段，越近中心越快越亮）
-        ctx.strokeStyle = '#e6f2fa';
-        ctx.lineCap = 'round';
-        for (const p of (tp.parts ?? [])) {
-          const k = 1 - p.d / (tp.r * 1.75);
-          ctx.globalAlpha = Math.min(0.75, (0.16 + k * 0.55)) * ramp;
-          ctx.lineWidth = p.s * (0.7 + k * 0.8);
-          const px = Math.cos(p.a) * p.d, py = Math.sin(p.a) * p.d;
-          // 拖尾 = 半个步长前的位置（沿弧的近似弦）
-          const pa = p.a - p.w * 0.05;
-          ctx.beginPath();
-          ctx.moveTo(Math.cos(pa) * p.d, Math.sin(pa) * p.d);
-          ctx.lineTo(px, py);
-          ctx.stroke();
-        }
-        ctx.restore();
+        if (tp.x < vx0 - tp.r * 1.5 || tp.x > vx0 + vw + tp.r * 1.5
+          || tp.y < vy0 - tp.r * 1.5 || tp.y > vy0 + vh + tp.r * 1.5) continue;
+        WFX.drawTyphoon(ctx, tp, t, ramp);
       }
     }
-
     // ---- 流星雨：四阶段全流程（第一百一十二轮重做）----
     // 用户原话："【阶段 1】不要只是一个静态红圈。做一个从外向内收缩的
     // 红色环形，或者内部有红色倒计时填充的圈。边缘加一点轻微的呼吸闪
@@ -4478,19 +4403,8 @@ export class Renderer {
         if (bx1 < vx0 + vw) ctx.fillRect(bx1, my0, vx0 + vw - bx1, my1 - my0);                  // 右
       }
       ctx.restore();
-      // 雾里加一点流动的白色噪点感（8 团慢飘雾,批量两次 fill）
-      ctx.save();
-      ctx.globalAlpha = 0.06 * a;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      for (let i = 0; i < 8; i++) {
-        const fx = player.x + Math.cos(t * 0.35 + i * 2.3) * (240 + (i % 3) * 60);
-        const fy = player.y + Math.sin(t * 0.28 + i * 1.7) * (200 + (i % 4) * 50);
-        ctx.moveTo(fx + 46, fy);
-        ctx.arc(fx, fy, 46, 0, TAU);
-      }
-      ctx.fill();
-      ctx.restore();
+      // 雾里流动的雾絮（199 轮：原来是 8 个硬边白圆盘 —— 柔雾里唯一的硬边；换成柔边椭圆雾絮精灵，随机漂移 + 缓慢拉伸）
+      WFX.drawFogWisps(ctx, player.x, player.y, t, a);
     }
   }
 
