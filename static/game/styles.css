@@ -1416,3 +1416,73 @@ input[type="range"].fx-slider::-moz-range-thumb {
   .hud-timer.urgent, .hud-weapon.tier-4 { animation: none; }
   .btn::after { transition: none; }
 }
+
+/* =====================================================================
+   UI v3 精修层（第二百零一轮 · 用户："UI 目前只是能用，和好看勾不上边……有好想法就动"）
+   原则：全部是追加覆盖，不改任何 DOM 结构与逻辑；每一条都来自「量化体检」(tools/_ui-audit.js)，不是凭感觉：
+     ① 真 bug：面板高于视口时顶部被裁到负坐标且滚不上去（#overlay 用 align-items:center + overflow:auto）；
+     ② 文字：138 处 ≤11px、card-role 对比度 3.6~4.3（<4.5）；
+     ③ 点击目标：2P/3P/4P 按钮只有 27px 高；
+     ④ 层次/质感：标题渐变描边、卡片选中态更清晰、焦点环、统一的柔和阴影。
+   ===================================================================== */
+
+/* ① 溢出居中：用 margin:auto 居中——空间够就居中，不够就顶对齐并可滚动（flex 居中会把上半部分裁到负坐标） */
+#overlay { align-items: flex-start; justify-content: flex-start; scrollbar-gutter: stable both-edges; }
+#overlay > .screen, #overlay > .title-scene, #overlay > .shop-screen { margin: auto; }
+#overlay > :not(.screen):not(.title-scene):not(.shop-screen) { margin: auto; }
+
+/* ② 文字下限与对比度 */
+.card .card-role { font-size: 12px; padding: 2px 10px; letter-spacing: .02em; text-shadow: 0 1px 2px rgba(0,0,0,.55); filter: saturate(1.1) brightness(1.18); }
+.card .card-desc { font-size: 12.5px; line-height: 1.55; color: #b4bcd2; }
+.card .stat-line { font-size: 12px; }
+.card .stat-line .k { color: #aeb7cf; }
+.card .stat-line .v { font-size: 12.5px; }
+.card .stat-line .v.down { color: #ff7f8b; }
+.card .card-name { font-size: 16px; letter-spacing: .01em; }
+:root { --text-dim: #aab3ca; }
+
+/* ③ 点击目标 ≥ 36px（含 2P/3P/4P、小按钮） */
+#overlay .btn, #overlay button { min-height: 36px; }
+#overlay .btn.small { padding-top: 7px; padding-bottom: 7px; }
+
+/* ④ 选中卡：更清楚的"我选了这个"——柔和外发光 + 顶部高光条 + 轻微抬起；未选中卡不再靠透明度发灰 */
+.char-grid .card:not(.selected) { opacity: .88; filter: saturate(.9); }
+.char-grid .card.selected {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 34px rgba(0,0,0,.5), 0 0 0 1px rgba(255,150,200,.55), 0 0 26px rgba(255,123,172,.28);
+}
+.char-grid .card.selected::after {
+  content: ''; position: absolute; left: 12px; right: 12px; top: 0; height: 3px; border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, transparent, var(--pink), var(--gold), var(--pink), transparent); opacity: .95;
+}
+
+/* ⑤ 键盘焦点环（原先没有，Tab 键切换时完全看不出焦点在哪） */
+#overlay .btn:focus-visible, #overlay button:focus-visible, .card:focus-visible {
+  outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 10px;
+}
+
+/* ⑥ 窄/矮窗口：面板边距收紧，避免 800px 以下的窗口上有一半内容在滚动区外 */
+@media (max-height: 860px) {
+  #overlay { padding: 14px; }
+  .screen { padding: 20px 24px 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .screen { animation: none; }
+  .char-grid .card.selected { transform: none; }
+}
+
+/* ⑦ 角色卡的「能力/技能」说明是卡片里最重要的内容，却只有 10px / 9.5px —— 提到可读尺寸 */
+.card .skill-text { font-size: 11.5px; line-height: 1.5; color: #c3cadd; }
+.card .skill-tag { font-size: 10.5px; padding: 1px 7px; letter-spacing: .02em; }
+/* ⑧ 标题页操作提示被 opacity:.5 压到 3.1:1 —— 抬到 ≥4.5:1 */
+.title-panel .key { font-size: 12px; opacity: .82; }
+.title-panel .keys { opacity: 1; }
+
+/* ⑨ 商店的小字：9px / 8.5px 的「出售 +6」「普通」「?」在 1080p 以下基本读不出来，统一抬到 ≥10px */
+.weapon-slot .slot-name { font-size: 10.5px; }
+.weapon-slot .slot-tier { font-size: 10px; letter-spacing: .02em; }
+.weapon-slot .slot-sell { font-size: 10.5px; }
+.tier-badge, .tier-badge.t1 { font-size: 11px; }
+.hint { font-size: 12px; }
+.sp-title { font-size: 12px; }
+.sp-info { font-size: 10.5px; }
