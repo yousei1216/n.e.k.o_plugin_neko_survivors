@@ -101,19 +101,40 @@ function ensure() {
   return true;
 }
 
-/** 把白色的法阵染成目标色（原 sprite 主体近白，乘法染色即得原版效果） */
+/**
+ * 把白色的法阵染成目标色。
+ * 206 轮修复：原来用 multiply + destination-in 两步合成，结果 alpha 没保住 ——
+ * 画出来是两个半透明大方块（用户截图里那两块黄/紫方块就是它）。
+ * 改成逐像素染色：直接读 ImageData，只乘 RGB，alpha 原样保留，绝不会把圆形裁成方块。
+ */
 function tintSigil(hex) {
   if (!ready(IMG.sigil)) return null;
   const n = 512;
   const c = makeCanvas(); c.width = n; c.height = n;
   const g = c.getContext('2d');
   g.drawImage(IMG.sigil, 0, 0, n, n);
-  g.globalCompositeOperation = 'multiply';
-  g.fillStyle = hex;
-  g.fillRect(0, 0, n, n);
-  g.globalCompositeOperation = 'destination-in';   // 保住原图的 alpha
-  g.drawImage(IMG.sigil, 0, 0, n, n);
-  g.globalCompositeOperation = 'source-over';
+  const h = hex.replace('#', '');
+  const tr = parseInt(h.slice(0, 2), 16) / 255;
+  const tg = parseInt(h.slice(2, 4), 16) / 255;
+  const tb = parseInt(h.slice(4, 6), 16) / 255;
+  try {
+    const img = g.getImageData(0, 0, n, n);
+    const px = img.data;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] === 0) continue;
+      px[i] = Math.min(255, px[i] * tr);
+      px[i + 1] = Math.min(255, px[i + 1] * tg);
+      px[i + 2] = Math.min(255, px[i + 2] * tb);
+    }
+    g.putImageData(img, 0, 0);
+  } catch {
+    // getImageData 被跨域策略拦下（本地 file:// 打开才会）：退回纯色遮罩，
+    // 至少不会出现方块 —— 用 source-in 只保留图片 alpha 形状。
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = hex;
+    g.fillRect(0, 0, n, n);
+    g.globalCompositeOperation = 'source-over';
+  }
   return c;
 }
 
@@ -306,18 +327,9 @@ export function drawRemilia(ctx, fight) {
   ctx.drawImage(s.backing, b.x - R * 1.5, b.y - R * 1.5, R * 3, R * 3);
   ctx.restore();
 
-  // 蓄力时的纯蝙蝠翼（20/21 帧）—— 旧版用 sin() 开闸，每 2.6 秒闪一下；
-  // 现在恒定半透明常驻，只做很轻的呼吸，不再有"忽然亮一下"的闪烁。
-  if ((b.wing ?? 0) > 0) {
-    const tip = img.frames[20];
-    if (ready(tip)) {
-      const tw = R * 3.6, th = tw * (tip.naturalHeight / tip.naturalWidth);
-      ctx.save();
-      ctx.globalAlpha = 0.26 * (b.alpha ?? 1);
-      ctx.drawImage(tip, b.x - tw / 2, b.y - th * 0.42, tw, th);
-      ctx.restore();
-    }
-  }
+  // 206 轮（用户："蕾米的左右两侧有2个小蝙蝠很奇怪，去掉"）：
+  // 这里原本会把她自己的「纯蝙蝠翼」帧（20/21）叠在身后，画出来就是左右各一只小蝙蝠。
+  // 整块删掉，不画了。
 
   drawAura(ctx, s.aura, b.x, b.y, R * 1.9, (0.30 + 0.06 * Math.sin(t * 2.6)) * (b.alpha ?? 1));
 

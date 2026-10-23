@@ -1861,3 +1861,48 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .hud-sub { color: #6d8099; }
 .hud-wave .hud-label { color: #5b7190; }
 .result-stat.tone-gold .v { color: #a86f00; }
+
+/* ---------- 206 轮：浅底上还读不出来的几处 ---------- */
+
+/* 品质角标（商店卡右上角"普通/精良/稀有"）：原来黑底 + 浅灰字，白卡上糊成一团 */
+.tier-badge {
+  background: #eef4fb;
+  border: 1px solid #dbe6f2;
+  border-radius: 999px;
+  font-weight: 800;
+}
+.tier-1 .tier-badge, .tier-badge.t1 { color: #61728c; }
+.tier-2 .tier-badge, .tier-badge.t2 { color: #1c86a3; }
+.tier-3 .tier-badge, .tier-badge.t3 { color: #7a5ec8; }
+.tier-4 .tier-badge, .tier-badge.t4 { color: #a8730c; }
+
+/* 商店卡里"每升一级 伤害+12% · 冷却-4%"那一行：给它一个小胶囊，别和普通数值混在一起 */
+.card .stat-line .v.up-tip {
+  color: #2f7fd0;
+  background: #eef7ff;
+  border: 1px solid #cfe6ff;
+  border-radius: 7px;
+  padding: 0 6px;
+  font-weight: 800;
+}
+
+/* 小小猫娘 / 系统提示条：原来深底 + 浅绿字，浅色主题下几乎看不见 */
+.hud-toast .toast {
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid #dbe9fa;
+  color: #1d3c63;
+  box-shadow: 0 8px 22px rgba(26, 62, 120, .18);
+  font-weight: 800;
+}
+.hud-toast .toast.good { border-color: #8fe0bb; color: #12855a; }
+.hud-toast .toast.bad { border-color: #ffb8c2; color: #cf2f4a; }
+.hud-toast .toast.info { border-color: #b9d9f7; color: #2f7fd0; }
+
+/* 小小猫娘对话气泡：原来深底 + var(--text)，而 --text 现在是深蓝 —— 深字压深底，直接看不见 */
+.neko-bubble-slot > *,
+#neko-bubble-slot > * {
+  background: rgba(255, 255, 255, .96);
+  border: 1px solid #ffc2dd;
+  color: #1d3c63;
+  box-shadow: 0 8px 22px rgba(26, 62, 120, .16);
+}

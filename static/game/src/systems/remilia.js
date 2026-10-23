@@ -385,17 +385,20 @@ export class RemiliaFight {
     const casting = ph === 'cards';
     // 205 轮：cut-in 那段影像已删；咏唱姿势改成换段后头 0.7 秒播放，保留'她在念符卡'的感觉
     const pool = casting ? (this.cardT < 0.7 ? REMI_CHANT : REMI_CAST) : REMI_IDLE;
-    // 205 轮：每帧 0.11s（约 9fps）太快，放到 0.19s（约 5.3fps）
-    R.frame = pool[Math.floor(R.ft / 0.19) % pool.length];
+    // 206 轮：用户说"动画再慢一点点" —— 0.19s/帧（约 5.3fps）放到 0.26s/帧（约 3.8fps）
+    R.frame = pool[Math.floor(R.ft / 0.26) % pool.length];
     // 蓄力时背后的纯蝙蝠翼（20/21 帧）
     // 204 轮：这里原来用 0.55+0.45*sin(t*2.4)，2.6 秒一个周期掉到 0.10 —— 渲染层当年按 0.2 开闸，
     // 于是背后的蝙蝠翼每 2.6 秒闪一下。现在常量化，渲染层也不再按它开闸。
+    // 206 轮：那两片蝙蝠翼画出来就是"左右两侧两个小蝙蝠"，渲染层已经不再画它了。
     R.wing = ph === 'cards' ? 1 : 0.25;
-    // 芙兰：intro 前半还是抱腿，后半起身换飞行帧
+    // 芙兰：一进画面就是飞行姿势
     F.ft += dt;
-    const fly = ph !== 'intro' || F.rising > 0.55;
+    // 206 轮（用户："切换的时候可以看到芙兰在左下角抱腿姿势，提前让她准备好飞行姿势"）：
+    // 不再从抱腿慢慢起身，开场即飞行帧。
+    const fly = true;
     const fpool = fly ? FLAN_FLY : FLAN_SIT;
-    F.spriteId = fpool[Math.floor(F.ft / (fly ? 0.24 : 0.3)) % fpool.length];
+    F.spriteId = fpool[Math.floor(F.ft / (fly ? 0.3 : 0.3)) % fpool.length];
     F.wing = fly ? 1 : 0.2;
   }
 
@@ -478,7 +481,8 @@ export class RemiliaFight {
       radius: opts.radius ?? 6,
       hitRadius: opts.hitRadius ?? (opts.radius ?? 6) * 0.62,
       color: opts.color ?? '#ff3050',
-      range: opts.range ?? 1600,
+      // 206 轮：射程整体 x2（同上）
+      range: (opts.range ?? 1600) * 2,
       shape: opts.shape ?? 'orb',
       jadeColor: opts.jadeColor,
       decel: opts.decel ?? 0,

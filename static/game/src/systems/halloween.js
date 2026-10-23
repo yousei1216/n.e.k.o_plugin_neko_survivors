@@ -195,7 +195,8 @@ export class HalloweenFight {
       // （原版擦弹才刺激；之前 9px 判定 + 密度上去后会"明明没碰到也中弹"）
       hitRadius: opts.hitRadius ?? 5.5,
       color: opts.color ?? 'amber',    // 发光色带键：amber/red/gold/violet/cyan/green（见 halloween-render.js）
-      range: opts.range ?? 900,
+      // 206 轮（用户："很多弹幕飞着飞着就自己没了，把所有弹幕持续时间翻倍吧"）：射程整体 x2
+      range: (opts.range ?? 900) * 2,
       shape: opts.shape ?? 'orb',
       halloween: true,
       hwKind: opts.hwKind ?? '',
@@ -351,7 +352,7 @@ export class HalloweenFight {
     if (this._emit > 2.2) {
       this._emit = 0;
       const who = this._alt % 2 ? 'vanilla' : 'choco';
-      this.waves.push({ ...this._catPos(who), angle: Math.random() * TAU, rot: (Math.random() < 0.5 ? 1 : -1) * 0.9, t: 3.4, life: 3.4, who });
+      this.waves.push({ ...this._catPos(who), angle: Math.random() * TAU, rot: (Math.random() < 0.5 ? 1 : -1) * 0.9, t: 2.2, life: 2.2, who });
       this._alt++;
       sfx('laser13', 0.3);   // 原版激光音
     }
@@ -596,6 +597,13 @@ export class HalloweenFight {
     if (this.phaseIdx < this.sections.length) {
       const sec = this.sections[this.phaseIdx];
       const step = Math.min(dt, sec.dur - this.phaseT);
+      // 206 轮（用户："白猫（香草）会卡最后的激光很久很久，让她持续一会就消失"）：
+      // 激光束的寿命只在 _tickLaser 里递减，而它只在 laser 那一节被调用 ——
+      // 章节一结束，最后几束就再也没人 tick，永远冻在屏幕上。
+      // 这里补一条"离节残留衰减"：不在 laser 节时，把剩下的束按寿命继续走完。
+      if (sec.name !== 'laser' && this.waves.length) {
+        this.waves = this.waves.filter((b) => (b.t -= dt) > 0);
+      }
       // 单词"独奏窗口"：带单词的节开场 1.6s 不叠加其他攻击，让灯珠字先被看清
       // （实测：与环形/扇形弹混在一起时，义眼和玩家都读不出单词）
       if (!(sec.word && this.phaseT < 1.6)) {

@@ -875,7 +875,7 @@ export class UI {
         const effectHtml = isWeapon
           ? weaponStatRows(o.data).map(([k, v]) =>
               `<div class="stat-line"><span>${k}</span><span class="v">${v}</span></div>`).join('')
-            + `<div class="stat-line"><span>每升一级</span><span class="v">伤害 +12% · 冷却 -4%</span></div>`
+            + `<div class="stat-line"><span>每升一级</span><span class="v up-tip">伤害 +12% · 冷却 -4%</span></div>`
           : Object.entries({ ...(o.data.mods || {}) }).map(([k, v]) =>
               `<div class="stat-line"><span>${STAT_DEFS[k]?.name ?? k}</span><span class="v up">+${v}</span></div>`).join('')
             + Object.entries({ ...(o.data.pct || {}) }).map(([k, v]) =>
