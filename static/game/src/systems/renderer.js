@@ -356,7 +356,7 @@ export class Renderer {
     // 这场弹幕密度是全游戏最高的（终段 ~900 发），画在下面两人会被完全埋掉。
 
     // ---- 敌人子弹 ----
-    BFX.beginFrame(world.enemyBullets.items.length, !!world.flandreFight);   // 按弹量选 LOD（拖尾/柔光）；199 轮：芙兰战永远全质量，其它战斗带迟滞
+    BFX.beginFrame(world.enemyBullets.items.length, !!(world.flandreFight || world.remiliaFight));   // 按弹量选 LOD（拖尾/柔光）；199 轮：芙兰战永远全质量，其它战斗带迟滞
     // 199 轮：普通弹收集成一批交给 BFX.drawBatch（两遍绘制：柔光/余烬一次加法 + 本体一次普通；旋转 setTransform 合成）。
     // 激光(laser)与大玉(jade)是特例，仍走 _drawEnemyBullet，画在批之后（在最上层，大玉的判定圈要看得清）。
     const batch = this._bfxBatch ?? (this._bfxBatch = []);

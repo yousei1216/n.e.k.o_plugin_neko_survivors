@@ -1,47 +1,57 @@
 // ============================================================
-// 蕾米莉亚终演出 · 渲染层（第二百零三轮）
+// 蕾米莉亚终演出 · 渲染层（第二百零四轮重做）
 //
-// 素材：assets/boss/remilia/remilia_00..23.png（24 帧）+ cutin.png（eff07 符卡立绘）
-// 结构（自下而上）：
-//   ① 背景：深红夜空 + 血色月亮 + 红雾 + 远处的红魔馆剪影 + 飘落的蝙蝠
-//   ② 蝙蝠群（绕场飞的纯视觉小黑影）
-//   ③ 双人：蕾米（24 帧）+ 芙兰（敌人贴图 4 帧），各自带光晕/翅膀辉光/投影
-//   ④ 符卡 cut-in：cutin.png 从屏幕中央一闪（0.62s：0.28s 淡入、0.34s 淡出，伴随横向拉开）
-//   ⑤ 全屏红闪 + 屏幕层暗角/HUD
-// 全部走预烘焙精灵 + 一次 drawImage，避免每帧建渐变。
+// 用户反馈（逐条对应）：
+//  "3，每隔几秒钟背景的芙兰图会闪烁一次。"      → 见下方"闪烁"两处修复（翅膀呼吸闸门 + 帧高归一化）
+//  "5，弹幕会丢失渲染，弹幕的发光有时候会消失，把他维持全局。" → LOD 在 renderer 里对蕾米战强制全质量
+//  "7，场景也许可以试试还原？……背景只有一个超级大的血月慢慢旋转，背景旁边是红魔馆的时钟塔。"
+//        → tower.png / moonskin.png 都是从《东方红魔乡》新典六面标题画（frame_stage6）里抠出来的真素材
+//  "8，蕾米和芙兰没有背后的魔法阵……你可以直接用我们自己的芙兰背后魔法阵。"
+//        → sigil.png = 芙兰 Boss 的 magic_circle_86_hd（720²），按 MAGIC-CIRCLE.md 的原版配方双层反向旋转
+//
+// 素材：assets/boss/remilia/
+//   remilia_00..23.png  24 帧战斗精灵
+//   cutin.png           eff07 符卡立绘
+//   tower.png           时钟塔（抠好透明通道，底部渐隐）
+//   moonskin.png        月面贴图（旋转用）
+//   sigil.png           魔法阵
 // ============================================================
 import { makeCanvas } from './no-dom.js';
 
 const TAU = Math.PI * 2;
-const SC = 1;
 
 // ---- 贴图 ----
-const IMG = { frames: [], cutin: null };
+const IMG = { frames: [], cutin: null, tower: null, moon: null, sigil: null };
 function loadArt() {
   if (typeof Image === 'undefined') return;
   if (!IMG.frames.length) {
     for (let i = 0; i < 24; i++) {
       const im = new Image();
       im.src = `assets/boss/remilia/remilia_${String(i).padStart(2, '0')}.png`;
-      IMG.frames.push(im);   // 载入失败时 naturalWidth = 0，draw 时跳过走占位
+      IMG.frames.push(im);
     }
   }
-  if (!IMG.cutin) {
+  const one = (key, file) => {
+    if (IMG[key]) return;
     const im = new Image();
-    im.src = 'assets/boss/remilia/cutin.png';
-    IMG.cutin = im;
-  }
+    im.src = `assets/boss/remilia/${file}`;
+    IMG[key] = im;
+  };
+  one('cutin', 'cutin.png');
+  one('tower', 'tower.png');
+  one('moon', 'moonskin.png');
+  one('sigil', 'sigil.png');
 }
 const ready = (im) => im && im.naturalWidth > 0;
 
-// ---- 预烘焙精灵 ----
+// ---- 预烘焙 ----
 let S = null;
 function ensure() {
   if (typeof document === 'undefined') return false;
   if (S) return true;
   const mk = (w, h) => { const c = makeCanvas(); c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h)); return c; };
   const soft = (size, stops) => {
-    const c = mk(size * SC, size * SC);
+    const c = mk(size, size);
     const g = c.getContext('2d');
     const gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
     for (const [o, col] of stops) gr.addColorStop(o, col);
@@ -50,26 +60,30 @@ function ensure() {
     return c;
   };
   S = {
-    // 蕾米的光晕（绯红）
     aura: soft(128, [[0, 'rgba(255,90,130,0.55)'], [0.45, 'rgba(200,30,60,0.22)'], [1, 'rgba(140,10,40,0)']]),
-    // 芙兰的光晕（金粉）
     auraF: soft(128, [[0, 'rgba(255,200,140,0.5)'], [0.45, 'rgba(255,120,160,0.2)'], [1, 'rgba(200,60,110,0)']]),
-    // 脚下投影
     shadow: soft(96, [[0, 'rgba(10,0,10,0.55)'], [0.6, 'rgba(10,0,10,0.22)'], [1, 'rgba(10,0,10,0)']]),
-    // 蝙蝠翼辉光（蓄力时叠在身后）
-    wingGlow: soft(160, [[0, 'rgba(255,60,90,0.42)'], [0.5, 'rgba(180,20,50,0.18)'], [1, 'rgba(120,0,30,0)']]),
-    // 月亮
-    moon: soft(256, [[0, 'rgba(255,226,196,0.95)'], [0.42, 'rgba(255,150,120,0.55)'], [0.72, 'rgba(210,60,70,0.18)'], [1, 'rgba(160,20,50,0)']]),
-    // 红雾
-    fog: soft(160, [[0, 'rgba(190,30,60,0.28)'], [0.55, 'rgba(150,15,45,0.12)'], [1, 'rgba(120,0,30,0)']]),
-    // 角色背衬（暗色柔光）：两人飞过血月/亮弹幕时会被吃成一片，垫一层暗色让他们始终读得出来
     backing: soft(96, [[0, 'rgba(18,0,10,0.62)'], [0.55, 'rgba(18,0,10,0.3)'], [1, 'rgba(18,0,10,0)']]),
-    // 小蝙蝠（单帧，画的时候缩放）
+    fog: soft(160, [[0, 'rgba(190,30,60,0.28)'], [0.55, 'rgba(150,15,45,0.12)'], [1, 'rgba(120,0,30,0)']]),
+    moonShade: null,
     bat: null,
+    sigilCool: null,
+    sigilWarm: null,
   };
-  // 蝙蝠：一对翅膀的黑影
+  // 血月球体的明暗（中心偏暗 + 边缘微亮，压出球感）
   {
-    const c = mk(32, 20); const g = c.getContext('2d');
+    const n = 256, c = mk(n, n), g = c.getContext('2d');
+    const gr = g.createRadialGradient(n * 0.44, n * 0.42, n * 0.05, n / 2, n / 2, n / 2);
+    gr.addColorStop(0, 'rgba(120,0,26,0.30)');
+    gr.addColorStop(0.55, 'rgba(90,0,20,0.12)');
+    gr.addColorStop(0.86, 'rgba(255,90,110,0.10)');
+    gr.addColorStop(1, 'rgba(255,140,150,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, n, n);
+    S.moonShade = c;
+  }
+  // 小蝙蝠
+  {
+    const c = mk(32, 20), g = c.getContext('2d');
     g.fillStyle = 'rgba(28,4,14,0.92)';
     g.beginPath();
     g.moveTo(16, 12);
@@ -81,86 +95,126 @@ function ensure() {
     g.beginPath(); g.ellipse(16, 13, 2.6, 3.6, 0, 0, TAU); g.fill();
     S.bat = c;
   }
-  // 红魔馆远景剪影（尖塔钟楼），预烘焙成一条长图
-  {
-    const W = 1400, H = 260;
-    const c = mk(W, H); const g = c.getContext('2d');
-    g.fillStyle = 'rgba(22,2,12,0.95)';
-    const tower = (x, w, h) => {
-      g.beginPath();
-      g.moveTo(x, H); g.lineTo(x, H - h); g.lineTo(x + w * 0.5, H - h - w * 1.1); g.lineTo(x + w, H - h); g.lineTo(x + w, H);
-      g.closePath(); g.fill();
-    };
-    tower(300, 90, 120); tower(420, 130, 170); tower(580, 70, 96); tower(680, 110, 140);
-    // 连廊
-    g.fillRect(300, H - 60, 500, 60);
-    // 亮着的窗
-    g.fillStyle = 'rgba(255,180,90,0.75)';
-    for (let i = 0; i < 14; i++) { const x = 320 + i * 34, y = H - 96 + (i % 3) * 22; g.fillRect(x, y, 5, 8); }
-    S.castle = c;
-  }
   return true;
+}
+
+/** 把白色的法阵染成目标色（原 sprite 主体近白，乘法染色即得原版效果） */
+function tintSigil(hex) {
+  if (!ready(IMG.sigil)) return null;
+  const n = 512;
+  const c = makeCanvas(); c.width = n; c.height = n;
+  const g = c.getContext('2d');
+  g.drawImage(IMG.sigil, 0, 0, n, n);
+  g.globalCompositeOperation = 'multiply';
+  g.fillStyle = hex;
+  g.fillRect(0, 0, n, n);
+  g.globalCompositeOperation = 'destination-in';   // 保住原图的 alpha
+  g.drawImage(IMG.sigil, 0, 0, n, n);
+  g.globalCompositeOperation = 'source-over';
+  return c;
 }
 
 function art() {
   loadArt();
   ensure();
+  if (S && !S.sigilCool && ready(IMG.sigil)) {
+    S.sigilCool = tintSigil('#e0bfff');   // 17 号脚本：蓝紫，0.8×
+    S.sigilWarm = tintSigil('#ffff20');   // 18 号脚本：黄，1.0×
+  }
   return { IMG, S };
 }
 
-/** 预热（进入蕾米战时调用一次，避免第一帧现场烘焙/解码卡一下） */
+/** 预热 */
 export function warm() { art(); }
 
 // ---------------------------------------------------------------
-// 背景
+// 背景：超大的血月慢慢旋转 + 红魔馆的时钟塔
 // ---------------------------------------------------------------
 export function drawBg(ctx, fight, ax, ay, W, H) {
-  const { S: s } = art();
-  if (!s) return;
+  const { IMG: img, S: s } = art();
   const t = fight?.t ?? 0;
-  ctx.save();
-  // 深红夜空
-  ctx.fillStyle = '#180210';
+
+  // 底色：近黑的深红
+  const base = ctx.createLinearGradient(0, 0, 0, H);
+  base.addColorStop(0, '#1a0209');
+  base.addColorStop(0.55, '#2a0510');
+  base.addColorStop(1, '#120106');
+  ctx.fillStyle = base;
   ctx.fillRect(0, 0, W, H);
-  // 血色月亮（缓慢呼吸）
-  const moonR = Math.min(W, H) * 0.26;
-  const mx = ax + W * 0.26, my = ay - H * 0.34;
-  ctx.globalAlpha = 0.85 + 0.15 * Math.sin(t * 0.8);
-  ctx.drawImage(s.moon, mx - moonR, my - moonR, moonR * 2, moonR * 2);
-  ctx.globalAlpha = 1;
-  // 月亮里的剪影：一座小城堡的尖顶
-  ctx.fillStyle = 'rgba(60,6,24,0.55)';
-  ctx.beginPath();
-  ctx.moveTo(mx - 40, my + 30);
-  ctx.lineTo(mx - 22, my - 18);
-  ctx.lineTo(mx - 6, my + 4);
-  ctx.lineTo(mx + 12, my - 34);
-  ctx.lineTo(mx + 30, my + 6);
-  ctx.lineTo(mx + 46, my + 30);
-  ctx.closePath();
-  ctx.fill();
-  // 红雾（三层慢飘）
-  for (const [yy, sc, spd, a] of [[0.18, 1.5, 0.05, 0.5], [0.55, 2.1, -0.035, 0.42], [0.85, 1.7, 0.07, 0.34]]) {
-    const RR = Math.min(W, H) * sc;
-    for (let i = 0; i < 3; i++) {
-      const x = ax + Math.sin(t * spd + i * 2.1) * W * 0.35 + (i - 1) * W * 0.34;
-      const y = ay + (yy - 0.5) * H * 0.9 + Math.cos(t * spd * 1.3 + i) * 28;
-      ctx.globalAlpha = a;
-      ctx.drawImage(s.fog, x - RR / 2, y - RR / 2, RR, RR);
-    }
-  }
-  ctx.globalAlpha = 1;
-  // 红魔馆远景
-  const cw = Math.max(W * 1.6, 1400), ch = (s.castle.height / s.castle.width) * cw;
-  const drift = Math.sin(t * 0.1) * 22;
-  ctx.globalAlpha = 0.9;
-  ctx.drawImage(s.castle, ax - cw / 2 + drift, ay + H * 0.56 - ch * 0.55, cw, ch);
-  ctx.globalAlpha = 1;
+
+  // ---- 超大的血月：要"超级大"但必须读得出是一颗月亮（能看见边界）----
+  const R = Math.min(W, H) * 0.80;
+  const mx = ax + W * 0.26;
+  const my = ay - H * 0.06;
+
+  // 外圈光晕（很淡，只是让边缘柔一点）
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const halo = ctx.createRadialGradient(mx, my, R * 0.82, mx, my, R * 1.22);
+  halo.addColorStop(0, 'rgba(255,60,80,0.14)');
+  halo.addColorStop(1, 'rgba(180,10,40,0)');
+  ctx.fillStyle = halo;
+  ctx.fillRect(mx - R * 1.3, my - R * 1.3, R * 2.6, R * 2.6);
   ctx.restore();
+
+  // 月面：圆形裁剪 + 缓慢旋转（用户："超级大的血月慢慢旋转"）
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(mx, my, R, 0, TAU);
+  ctx.clip();
+  ctx.fillStyle = '#4a0812';                   // 底：深绯红（原来太亮，整屏被洗成粉）
+  ctx.fillRect(mx - R, my - R, R * 2, R * 2);
+  if (ready(img.moon)) {
+    ctx.globalAlpha = 0.62;                    // 月面贴图压暗
+    ctx.translate(mx, my);
+    ctx.rotate(t * 0.035);                     // 约 3 分钟一圈，慢到不抢戏
+    const S2 = R * 3.1;
+    ctx.drawImage(img.moon, -S2 / 2, -S2 / 2, S2, S2);
+    ctx.globalAlpha = 1;
+  }
+  // 圆内再压一层暗红（乘法感），把"月盘"和背景分开
+  ctx.fillStyle = 'rgba(70,4,16,0.34)';
+  ctx.fillRect(mx - R, my - R, R * 2, R * 2);
+  ctx.restore();
+  // 球体明暗
+  if (s) ctx.drawImage(s.moonShade, mx - R, my - R, R * 2, R * 2);
+  // 月缘：一圈细亮边，让圆盘轮廓明确
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = 'rgba(255,120,140,0.28)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(mx, my, R - 1, 0, TAU);
+  ctx.stroke();
+  ctx.restore();
+
+  // ---- 时钟塔（红魔馆 Big Ben，画在月亮前面）----
+  if (ready(img.tower)) {
+    const th = H * 1.06;
+    const tw = th * (img.tower.naturalWidth / img.tower.naturalHeight);
+    const tx = ax - W * 0.5 + tw * 0.16;       // 靠左
+    const ty = ay + H * 0.5 - th * 0.98;
+    ctx.save();
+    ctx.globalAlpha = 0.96;
+    ctx.drawImage(img.tower, tx, ty, tw, th);
+    ctx.restore();
+  }
+
+  // ---- 红雾（三层慢飘）----
+  if (s) {
+    for (const [yy, sc, spd, a] of [[0.16, 1.5, 0.05, 0.45], [0.55, 2.0, -0.035, 0.36], [0.86, 1.7, 0.07, 0.30]]) {
+      const RR = Math.min(W, H) * sc;
+      for (let i = 0; i < 3; i++) {
+        const x = ax + Math.sin(t * spd + i * 2.1) * W * 0.35 + (i - 1) * W * 0.34;
+        const y = ay + (yy - 0.5) * H * 0.9 + Math.cos(t * spd * 1.3 + i) * 28;
+        ctx.globalAlpha = a;
+        ctx.drawImage(s.fog, x - RR / 2, y - RR / 2, RR, RR);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
-// ---------------------------------------------------------------
-// 蝙蝠群
 // ---------------------------------------------------------------
 export function drawBats(ctx, fight, ax, ay) {
   const { S: s } = art();
@@ -168,7 +222,7 @@ export function drawBats(ctx, fight, ax, ay) {
   const t = fight?.t ?? 0;
   ctx.save();
   for (const b of (fight?.bats ?? [])) {
-    const R = 620 * b.r;
+    const R = 560 * b.r;
     const x = ax + Math.cos(b.a) * R;
     const y = ay + Math.sin(b.a) * R * 0.55;
     const flap = 0.55 + 0.45 * Math.sin(t * 13 + b.ph);
@@ -180,15 +234,44 @@ export function drawBats(ctx, fight, ax, ay) {
 }
 
 // ---------------------------------------------------------------
+// 背后的魔法阵（原版配方：冷色 0.8× 正向 + 暖色 1.0× 反向，加法混合）
+// ---------------------------------------------------------------
+export function drawSigil(ctx, x, y, radius, k, t) {
+  const { S: s } = art();
+  if (!s || !s.sigilCool || k <= 0.01) return;
+  const a = Math.max(0, Math.min(1, k));
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.translate(x, y);
+
+  // 冷色层：0.8×，+0.026 rad/帧
+  ctx.save();
+  ctx.globalAlpha = a * 0.85;
+  ctx.rotate(t * 1.56);
+  const r1 = radius * 0.8 * 1.25;
+  ctx.drawImage(s.sigilCool, -r1 / 2, -r1 / 2, r1, r1);
+  ctx.restore();
+
+  // 暖色层：1.0×，−0.026 rad/帧（反向；叠加处加法混合自然偏白）
+  ctx.save();
+  ctx.globalAlpha = a * 0.7;
+  ctx.rotate(-t * 1.56);
+  const r2 = radius * 1.25;
+  ctx.drawImage(s.sigilWarm, -r2 / 2, -r2 / 2, r2, r2);
+  ctx.restore();
+
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------
 // 双人
 // ---------------------------------------------------------------
-function drawAura(ctx, s, x, y, R, alpha) {
-  ctx.globalAlpha = alpha;
-  ctx.drawImage(s, x - R, y - R, R * 2, R * 2);
+function drawAura(ctx, img, x, y, R, alpha) {
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.drawImage(img, x - R, y - R, R * 2, R * 2);
   ctx.globalAlpha = 1;
 }
 
-/** 两人头顶的小名牌（同款美术太难分，演出里给名字最稳） */
 function drawName(ctx, x, y, text, color, alpha) {
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -208,76 +291,82 @@ function drawName(ctx, x, y, text, color, alpha) {
   ctx.restore();
 }
 
-/** 蕾米：24 帧精灵 + 绯红光晕 + 背后的蝙蝠翼辉光 + 投影 */
+/** 两人共用的精灵半径（用户："蕾米太大只了，让她和芙兰一样大"） */
+export const CHAR_R = 66;
+/** 精灵帧的标称高度 —— 帧原始尺寸在 135~151 之间浮动，用它做统一标度 */
+const NOMINAL_H = 150;
+
+/** 蕾米 */
 export function drawRemilia(ctx, fight) {
   const { IMG: img, S: s } = art();
   if (!s) return;
   const b = fight?.b?.remilia;
   if (!b) return;
   const t = fight?.t ?? 0;
-  const R = 82;                                  // 精灵绘制半径（帧本身 ~150px）
-  // 背衬（先垫暗色，保证在血月/密集弹幕上也读得出）
+  const R = CHAR_R;
+
+  // 背后的魔法阵（用户："蕾米和芙兰没有背后的魔法阵"）
+  const sig = b.sigil ?? 0;
+  if (sig > 0) drawSigil(ctx, b.x, b.y, R * 1.9, sig, t);
+
+  // 暗色背衬（在血月/密集弹幕上保证可读）
   ctx.save();
   ctx.globalAlpha = b.alpha ?? 1;
   ctx.drawImage(s.backing, b.x - R * 1.5, b.y - R * 1.5, R * 3, R * 3);
   ctx.restore();
-  // 投影
-  ctx.save();
-  ctx.globalAlpha = 0.5 * (b.alpha ?? 1);
-  ctx.drawImage(s.shadow, b.x - R * 0.9, b.y + R * 0.5, R * 1.8, R * 0.7);
-  ctx.restore();
-  // 背后的蝙蝠翼辉光（蓄力）
-  if ((b.wing ?? 0) > 0.2) {
+
+  // 蓄力时的纯蝙蝠翼（20/21 帧）—— 旧版用 sin() 开闸，每 2.6 秒闪一下；
+  // 现在恒定半透明常驻，只做很轻的呼吸，不再有"忽然亮一下"的闪烁。
+  if ((b.wing ?? 0) > 0) {
     const tip = img.frames[20];
-    const wg = R * 2.4;
-    ctx.save();
-    ctx.globalAlpha = 0.5 * b.wing * (b.alpha ?? 1);
-    ctx.drawImage(s.wingGlow, b.x - wg / 2, b.y - wg / 2, wg, wg);
     if (ready(tip)) {
-      ctx.globalAlpha = 0.6 * b.wing * (b.alpha ?? 1);
-      const tw = R * 3.9, th = tw * (tip.naturalHeight / tip.naturalWidth);
+      const tw = R * 3.6, th = tw * (tip.naturalHeight / tip.naturalWidth);
+      ctx.save();
+      ctx.globalAlpha = 0.26 * (b.alpha ?? 1);
       ctx.drawImage(tip, b.x - tw / 2, b.y - th * 0.42, tw, th);
+      ctx.restore();
     }
-    ctx.restore();
   }
-  // 光晕
-  drawAura(ctx, s.aura, b.x, b.y, R * 1.9, (0.3 + 0.12 * Math.sin(t * 2.6)) * (b.alpha ?? 1));
+
+  drawAura(ctx, s.aura, b.x, b.y, R * 1.9, (0.30 + 0.06 * Math.sin(t * 2.6)) * (b.alpha ?? 1));
   drawName(ctx, b.x, b.y - R * 1.55, '蕾米莉亚', '#ff8fa8', b.alpha ?? 1);
-  // 本体
+
+  // 本体：统一标度（不按每帧高度拉伸 —— 旧写法会让 135/151 的帧互相拉扯，看起来像在闪）
   const fr = img.frames[b.frame ?? 0];
   ctx.save();
   ctx.globalAlpha = b.alpha ?? 1;
   ctx.translate(b.x, b.y);
   if (ready(fr)) {
-    const h = R * 2.6, w = h * (fr.naturalWidth / fr.naturalHeight);
-    ctx.drawImage(fr, -w / 2, -h * 0.62, w, h);
+    const K = (R * 2.6) / NOMINAL_H;
+    const w = fr.naturalWidth * K, h = fr.naturalHeight * K;
+    ctx.drawImage(fr, -w / 2, -h * 0.60, w, h);
   } else {
-    // 素材没就绪：暗红剪影兜底（保证演出不出现"空场"）
     ctx.fillStyle = 'rgba(200,30,60,0.75)';
     ctx.beginPath(); ctx.arc(0, 0, R * 0.7, 0, TAU); ctx.fill();
   }
   ctx.restore();
 }
 
-/** 芙兰：敌人贴图 + 金粉光晕 */
+/** 芙兰 */
 export function drawFlandreSprite(ctx, fight, getSprite) {
   const { S: s } = art();
   if (!s) return;
   const b = fight?.b?.flandre;
   if (!b) return;
   const t = fight?.t ?? 0;
-  const R = 66;
+  const R = CHAR_R;
+
+  const sig = b.sigil ?? 0;
+  if (sig > 0) drawSigil(ctx, b.x, b.y, R * 1.9, sig, t);
+
   ctx.save();
   ctx.globalAlpha = b.alpha ?? 1;
   ctx.drawImage(s.backing, b.x - R * 1.5, b.y - R * 1.5, R * 3, R * 3);
   ctx.restore();
-  ctx.save();
-  ctx.globalAlpha = 0.5 * (b.alpha ?? 1);
-  ctx.drawImage(s.shadow, b.x - R * 0.9, b.y + R * 0.5, R * 1.8, R * 0.7);
-  ctx.globalAlpha = 1;
-  ctx.restore();
-  drawAura(ctx, s.auraF, b.x, b.y, R * 1.85, (0.28 + 0.12 * Math.sin(t * 2.9 + 1)) * (b.alpha ?? 1));
+
+  drawAura(ctx, s.auraF, b.x, b.y, R * 1.85, (0.28 + 0.08 * Math.sin(t * 2.9 + 1)) * (b.alpha ?? 1));
   drawName(ctx, b.x, b.y - R * 1.55, '芙兰朵露', '#ffd9a0', b.alpha ?? 1);
+
   const img = getSprite?.(b.spriteId);
   ctx.save();
   ctx.globalAlpha = b.alpha ?? 1;
@@ -292,13 +381,9 @@ export function drawFlandreSprite(ctx, fight, getSprite) {
 }
 
 // ---------------------------------------------------------------
-// cut-in
-// ---------------------------------------------------------------
-/** @param k 0→1 的进度（0.28s 淡入 / 0.34s 淡出 由调用方算好） */
 export function drawCutin(ctx, W, H, k, t) {
   const { IMG: img } = art();
   if (!ready(img.cutin)) return;
-  // 0.62s 总时长：u<0.45 淡入，之后淡出；同时从中央向两侧"拉开"
   const u = 1 - k;
   const a = u < 0.45 ? u / 0.45 : (1 - u) / 0.55;
   const z = 1 + u * 0.22;
@@ -310,9 +395,6 @@ export function drawCutin(ctx, W, H, k, t) {
   void t;
 }
 
-// ---------------------------------------------------------------
-// 屏幕层：红闪 + 暗角
-// ---------------------------------------------------------------
 export function drawScreen(ctx, fight, W, H) {
   const f = fight?.flash ?? 0;
   if (f > 0.01) {
@@ -322,25 +404,19 @@ export function drawScreen(ctx, fight, W, H) {
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
-  // 暗角
-  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.78);
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.46, W / 2, H / 2, Math.max(W, H) * 0.8);
   g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(1, 'rgba(12,0,8,0.72)');
+  g.addColorStop(1, 'rgba(12,0,8,0.68)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 }
 
-// ---------------------------------------------------------------
-// HUD：双方血条风格的名牌 + 符卡名 + 剩余时间
-// ---------------------------------------------------------------
 export function drawHud(ctx, fight, W, H) {
   const info = fight?.cardInfo ?? { name: '', idx: 0, n: 6 };
   const total = 60;
   const t = Math.max(0, fight?.t ?? 0);
   const prog = Math.min(1, t / total);
   ctx.save();
-  // 顶部：连战总进度条
-  // 放在画布血条上方：DOM 的波次牌/材料/计时都在顶部，压在一起会互相打架
   const bw = Math.min(560, W * 0.42), bx = W / 2 - bw / 2, by = H - 96;
   ctx.fillStyle = 'rgba(20,4,16,0.72)';
   ctx.beginPath();
@@ -353,13 +429,11 @@ export function drawHud(ctx, fight, W, H) {
   gr.addColorStop(0, '#ff3050'); gr.addColorStop(0.5, '#ff7bac'); gr.addColorStop(1, '#ffd166');
   ctx.fillStyle = gr;
   ctx.fillRect(bx, by, bw * prog, 10);
-  // 剩余秒数
   ctx.fillStyle = '#ffe6ee';
   ctx.font = 'bold 15px "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(`${Math.ceil(Math.max(0, total - t))}`, W / 2, by + 5);
-  // 符卡名（右上滑入）
   if (info.name) {
     ctx.font = 'bold 20px "Microsoft YaHei", sans-serif';
     ctx.textAlign = 'right';

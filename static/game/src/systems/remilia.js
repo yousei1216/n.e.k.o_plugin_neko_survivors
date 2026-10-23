@@ -22,8 +22,14 @@ import { TAU } from '../core/math.js';
 import { audio } from './audio.js';
 import { RNG } from '../core/rng.js';
 
-// ---- 场地：与万圣节双猫同一块宽屏，连战换场时不会有"场地突然变小"的割裂 ----
-export const REMILIA_ARENA = { cx: 0, cy: 40, hw: 640, hh: 330 };
+// ---- 场地 ----
+// 用户（204 轮）："地图可移动范围过大，这个应该是继续使用芙兰的机制不是双猫的，也就是芙兰场地大小"。
+// 与 flandre-consts.js 的 ARENA 完全一致（cy -80 / 520×470），连战换场时玩家不会有"场地忽然变大"的割裂感。
+export const REMILIA_ARENA = { cx: 0, cy: -80, hw: 520, hh: 470 };
+
+// 小小猫娘消弹（与芙兰战同一套口径：15 秒冷却 / 180 半径 / 手动那一下给 1 秒无敌）
+export const PURGE_CD = 15;
+export const PURGE_RADIUS = 180;
 
 export const REMILIA_INTRO = 2.5;      // 蕾米飞入 + 芙兰起身
 export const REMILIA_OUTRO = 3.5;      // 双人升空退场
@@ -53,8 +59,8 @@ const CARDS = [
       const st = this.st;
       st.base = (st.base ?? 0) + dt * 0.62;
       st.acc = (st.acc ?? 0) + dt;
-      if (st.acc >= 0.95) {
-        st.acc -= 0.95;
+      if (st.acc >= 1.12) {
+        st.acc -= 1.12;
         const b = this.posOf('remilia');
         for (let arm = 0; arm < 4; arm++) {
           const a0 = st.base + (arm * TAU) / 4;
@@ -67,7 +73,16 @@ const CARDS = [
         }
         audio.play('flandreShot');
       }
-      this.flanRing(dt, 1.7, 20, 125, '#ff7f9f', 6);
+      // 大玉：每 2.6 秒一圈 8 颗，速度很慢，逼玩家绕开
+      st.orb = (st.orb ?? 0) + dt;
+      if (st.orb >= 3.1) {
+        st.orb -= 3.1;
+        const bo = this.posOf('remilia');
+        const rb = this.rng.next() * TAU;
+        for (let i = 0; i < 6; i++) this.bigOrb(bo.x, bo.y, rb + (i * TAU) / 6, 92, { radius: 28, hitRadius: 9 });
+        audio.play('flandreShot');
+      }
+      this.flanRing(dt, 2.0, 20, 125, '#ff7f9f', 6);
     },
   },
   {
@@ -84,8 +99,8 @@ const CARDS = [
       ];
       for (const c of st.cols) c.a += c.w * dt;
       st.acc = (st.acc ?? 0) + dt;
-      if (st.acc >= 0.3) {
-        st.acc -= 0.3;
+      if (st.acc >= 0.36) {
+        st.acc -= 0.36;
         const b = this.posOf('remilia');
         for (const c of st.cols) {
           for (const off of [-0.05]) {
@@ -94,7 +109,17 @@ const CARDS = [
           }
         }
       }
-      this.flanFan(dt, 0.9, 7, 0.42, 210, '#ff7f9f', 5.5);
+      // 大玉：三连瞄准散布（原版幼きデーモンロード里那几颗慢悠悠的大球）
+      st.orb = (st.orb ?? 0) + dt;
+      if (st.orb >= 1.9) {
+        st.orb -= 1.9;
+        const bo = this.posOf('remilia');
+        const pl = this.main.player;
+        const aim = Math.atan2(pl.y - bo.y, pl.x - bo.x);
+        for (let i = -1; i <= 1; i++) this.bigOrb(bo.x, bo.y, aim + i * 0.26, 105, { radius: 27, hitRadius: 9 });
+        audio.play('flandreShot');
+      }
+      this.flanFan(dt, 1.1, 7, 0.42, 210, '#ff7f9f', 5.5);
       this.flanRing(dt, 3.0, 22, 100, '#ffd166', 5.5);
     },
   },
@@ -107,8 +132,8 @@ const CARDS = [
       const st = this.st;
       st.th = (st.th ?? 0) + dt * 1.5;
       st.acc = (st.acc ?? 0) + dt;
-      if (st.acc >= 0.12) {
-        st.acc -= 0.12;
+      if (st.acc >= 0.145) {
+        st.acc -= 0.145;
         const b = this.posOf('remilia');
         for (const side of [-1, 1]) for (const k of [0, 0.14]) {
           const a = Math.PI / 2 + side * (st.th + k) * 0.62;
@@ -118,7 +143,14 @@ const CARDS = [
           });
         }
       }
-      this.flanRing(dt, 1.4, 16, 150, '#ffd166', 5);
+      st.orb = (st.orb ?? 0) + dt;
+      if (st.orb >= 2.3) {
+        st.orb -= 2.3;
+        const bo = this.posOf('remilia');
+        for (const side of [-1, 1]) this.bigOrb(bo.x + side * 40, bo.y, Math.PI / 2 + side * 0.5, 118, { radius: 30, hitRadius: 9.5 });
+        audio.play('flandreShot');
+      }
+      this.flanRing(dt, 1.7, 16, 150, '#ffd166', 5);
     },
   },
   {
@@ -132,8 +164,8 @@ const CARDS = [
       if (st.sweep > 0.9) { st.sweep = 0.9; st.dir = -1; }
       if (st.sweep < -0.9) { st.sweep = -0.9; st.dir = 1; }
       st.acc = (st.acc ?? 0) + dt;
-      if (st.acc >= 0.26) {
-        st.acc -= 0.26;
+      if (st.acc >= 0.31) {
+        st.acc -= 0.31;
         const b = this.posOf('remilia');
         const base = Math.PI / 2 + st.sweep;
         for (let i = 0; i < 9; i++) {
@@ -142,7 +174,15 @@ const CARDS = [
         }
         audio.play('flandreShot');
       }
-      this.flanFan(dt, 1.2, 7, 0.3, 230, '#ffd9e6', 5);
+      st.orb = (st.orb ?? 0) + dt;
+      if (st.orb >= 2.7) {
+        st.orb -= 2.7;
+        const bo = this.posOf('remilia');
+        const pl = this.main.player;
+        this.bigOrb(bo.x, bo.y, Math.atan2(pl.y - bo.y, pl.x - bo.x), 130, { radius: 28, hitRadius: 9 });
+        audio.play('flandreShot');
+      }
+      this.flanFan(dt, 1.4, 7, 0.3, 230, '#ffd9e6', 5);
     },
   },
   {
@@ -152,7 +192,7 @@ const CARDS = [
     // 九发高速直视连发（原作 6.2px/帧 ≈ 372px/s），每 0.85 秒一次齐射，越到后面越密
     tick(dt, T) {
       const st = this.st;
-      const period = T > 5 ? 0.55 : 0.85;
+      const period = T > 5 ? 0.68 : 0.98;
       st.acc = (st.acc ?? 0) + dt;
       if (st.acc >= period) {
         st.acc -= period;
@@ -166,6 +206,7 @@ const CARDS = [
         // 齐射同时甩一圈慢环，逼人保持移动
         const rb = this.rng.next() * TAU;
         for (let i = 0; i < 12; i++) this.shot(b.x, b.y, rb + (i * TAU) / 12, 130, { color: '#ffb0c8', radius: 5.5, hitRadius: 3.6, range: 1700 });
+        for (let i = -1; i <= 1; i += 2) this.bigOrb(b.x, b.y, aim + i * 0.34, 240, { radius: 26, hitRadius: 8.5 });
         audio.play('flandreShot');
       }
       this.flanFan(dt, 0.95, 5, 0.26, 260, '#ff7f9f', 5.5);
@@ -180,8 +221,8 @@ const CARDS = [
       const st = this.st;
       st.base = (st.base ?? 0) + dt * 0.85;
       st.acc = (st.acc ?? 0) + dt;
-      if (st.acc >= 0.7) {
-        st.acc -= 0.7;
+      if (st.acc >= 0.95) {
+        st.acc -= 0.95;
         const b = this.posOf('remilia');
         for (let arm = 0; arm < 5; arm++) {
           const a0 = st.base + (arm * TAU) / 6;
@@ -192,8 +233,8 @@ const CARDS = [
         }
       }
       st.in = (st.in ?? 0) + dt;
-      if (st.in >= 2.1) {
-        st.in -= 2.1;
+      if (st.in >= 2.5) {
+        st.in -= 2.5;
         const b = this.posOf('remilia');
         const n = 24, base = this.rng.next() * TAU;
         for (let i = 0; i < n; i++) {
@@ -205,8 +246,16 @@ const CARDS = [
           });
         }
       }
-      this.flanStar(dt, 1.3, '#ffd166');
-      this.flanRing(dt, 1.8, 18, 170, '#ff7f9f', 5.5);
+      st.orb = (st.orb ?? 0) + dt;
+      if (st.orb >= 2.4) {
+        st.orb -= 2.4;
+        const bo = this.posOf('remilia');
+        const rb = this.rng.next() * TAU;
+        for (let i = 0; i < 8; i++) this.bigOrb(bo.x, bo.y, rb + (i * TAU) / 8, 100, { radius: 29, hitRadius: 9.5 });
+        audio.play('flandreShot');
+      }
+      this.flanStar(dt, 1.7, '#ffd166');
+      this.flanRing(dt, 2.1, 18, 170, '#ff7f9f', 5.5);
     },
   },
 ];
@@ -242,6 +291,7 @@ export class RemiliaFight {
     this.splits = [];        // 蝙蝠群演出粒子（纯视觉，渲染层画）
     this.timeLeft = REMILIA_TOTAL;
     this.bgmOn = false;
+    // 小小猫娘消弹（用户 204 轮：
     this._buildBats();
     if (opts.test) this.t = Math.max(this.t, 0.01);
   }
@@ -325,19 +375,91 @@ export class RemiliaFight {
     F.x += (fx - F.x) * (ph === 'intro' ? Math.min(1, dt * 2.2) : k);
     F.y += (fy - F.y) * (ph === 'intro' ? Math.min(1, dt * 2.2) : k);
 
+    // 背后魔法阵：入场 5 秒缓入（MAGIC-CIRCLE.md 的原版节奏 300 帧）
+    this._sigilK = ph === 'blackout' ? 0 : Math.min(1, (this._sigilK ?? 0) + dt / 5);
+    R.sigil = this._sigilK;
+    F.sigil = this._sigilK;
+
     // 帧动画：施法段用施法帧，其余待机；cut-in 期间用咏唱
     R.ft += dt;
     const casting = ph === 'cards';
     const pool = this.cutin > 0 ? REMI_CHANT : casting ? REMI_CAST : REMI_IDLE;
     R.frame = pool[Math.floor(R.ft / 0.11) % pool.length];
-    // 蓄力时背后的纯蝙蝠翼（20/21）+ 呼吸
-    R.wing = ph === 'cards' ? 0.55 + 0.45 * Math.sin(this.t * 2.4) : 0.25;
+    // 蓄力时背后的纯蝙蝠翼（20/21 帧）
+    // 204 轮：这里原来用 0.55+0.45*sin(t*2.4)，2.6 秒一个周期掉到 0.10 —— 渲染层当年按 0.2 开闸，
+    // 于是背后的蝙蝠翼每 2.6 秒闪一下。现在常量化，渲染层也不再按它开闸。
+    R.wing = ph === 'cards' ? 1 : 0.25;
     // 芙兰：intro 前半还是抱腿，后半起身换飞行帧
     F.ft += dt;
     const fly = ph !== 'intro' || F.rising > 0.55;
     const fpool = fly ? FLAN_FLY : FLAN_SIT;
     F.spriteId = fpool[Math.floor(F.ft / (fly ? 0.24 : 0.3)) % fpool.length];
-    F.wing = fly ? 0.6 + 0.4 * Math.sin(this.t * 2.8 + 1) : 0.2;
+    F.wing = fly ? 1 : 0.2;
+  }
+
+  // ---------------------------------------------------------------
+  // 小小猫娘消弹（用户 204 轮："小小猫娘消弹技能可使用"）
+  // 与芙兰战同一套口径：15 秒冷却 / 180 半径 / 光圈 1000px/s 扩散 / 手动那一下额外 1 秒无敌。
+  // ---------------------------------------------------------------
+  tryManualPurge() {
+    if (this.over) return;
+    if (this.purgeCd > 0) return;
+    this.startNova(false);
+    audio.play('petPurge');
+    this.purgeCd = PURGE_CD;
+    this._purgeWasReady = false;
+    const p = this.main?.player;
+    if (p) p.invuln = Math.max(p.invuln ?? 0, 1);
+  }
+
+  /** 玩家中弹时的自动消弹（不计冷却） */
+  autoPurge() {
+    if (this.over) return;
+    this.startNova(true);
+  }
+
+  startNova(auto) {
+    const src = this.main?.world?.pet || this.main?.player;
+    if (!src) return;
+    this.nova = { x: src.x, y: src.y, r: 8, hold: auto ? 1 : 2, auto };
+    try { this.main.world.fx?.nova?.(src.x, src.y, PURGE_RADIUS * 2, auto ? '#aef3ff' : '#ffe9a8', null); } catch { /* 视觉失败不影响机制 */ }
+    if (!auto) { try { this.main.camera?.shake?.(3, 0.15); } catch { /* 同上 */ } }
+  }
+
+  _purgeUpdate(dt) {
+    if (this.purgeCd > 0) this.purgeCd = Math.max(0, this.purgeCd - dt);
+    const n = this.nova;
+    if (!n) return;
+    if (n.r < PURGE_RADIUS) {
+      n.r = Math.min(PURGE_RADIUS, n.r + 1000 * dt);
+    } else {
+      n.hold -= dt;
+      if (n.hold <= 0) { this.nova = null; return; }
+    }
+    const items = this.main?.world?.enemyBullets?.items ?? [];
+    for (const b of items) {
+      if (b.dead || !b.remilia) continue;
+      const dx = b.x - n.x, dy = b.y - n.y;
+      if (dx * dx + dy * dy <= n.r * n.r) {
+        b.dead = true;
+        try { this.main.world.fx?.sparkle?.(b.x, b.y, n.auto ? '#aef3ff' : '#ffe9a8'); } catch { /* 忽略 */ }
+      }
+    }
+  }
+
+  /**
+   * 大玉（用户 204 轮："蕾米的攻击缺少大玉弹幕"——"外圈白中间红里面黑的那种"）。
+   * 走 bullet 的 jade 弹型：外圈柔光 / 中圈主色 / 核心深色到偏黑 + 淡红判定圈，正是原版那个样子。
+   */
+  bigOrb(x, y, angle, speed, opts = {}) {
+    return this.shot(x, y, angle, speed, {
+      color: opts.color ?? '#ff2040',
+      shape: 'jade',
+      jadeColor: opts.jadeColor ?? '#ff2040',
+      radius: opts.radius ?? 30,
+      hitRadius: opts.hitRadius ?? 9.5,
+      range: opts.range ?? 1900,
+    });
   }
 
   // ---------------------------------------------------------------
@@ -356,6 +478,7 @@ export class RemiliaFight {
       color: opts.color ?? '#ff3050',
       range: opts.range ?? 1600,
       shape: opts.shape ?? 'orb',
+      jadeColor: opts.jadeColor,
       decel: opts.decel ?? 0,
       floorSpeed: opts.floorSpeed ?? 0,
       remilia: true,
@@ -428,6 +551,7 @@ export class RemiliaFight {
     this.flash = Math.max(0, this.flash - dt * 2.2);
     this.shake = Math.max(0, this.shake - dt * 2.4);
 
+    this._purgeUpdate(dt);
     this._moveBosses(dt);
 
     // 段落推进

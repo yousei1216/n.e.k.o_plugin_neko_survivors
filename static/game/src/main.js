@@ -2111,7 +2111,11 @@ export class Game {
   _startRemilia(opts = {}) {
     const p = this.player;
     p.noHeal = true;
-    p.onFlandrePlayerHit = () => this.flandre?.autoPurge?.() ?? this.remilia?.autoPurge?.();
+    // 204 轮：中弹时小小猫娘自动消弹（与芙兰战同口径）
+    p.onFlandrePlayerHit = () => { this.remilia?.autoPurge?.(); };
+    // 204 轮（用户："这个应该是继续使用芙兰的机制"）：沿用芙兰战的 120% 基础移速锁 ——
+    // Player.update 里 Shift 半速只在 flandreSpeed 生效时才起作用。
+    p.flandreSpeed = 1.2;
     this.world.noSpawn = true;
     this.world.enemies.items.forEach((e) => { e.dead = true; });
     this.world.enemyBullets.items.forEach((b) => { b.dead = true; });
@@ -2129,9 +2133,14 @@ export class Game {
     try {
       if (this.input.pressed('Escape')) { this._pause(); return; }
       const rf = this.remilia;
+      // 204 轮（用户："小小猫娘消弹技能可使用"）：与芙兰战同键位（Space / P2 小键盘 .）。
+      if (this.input.pressed('Space')) rf?.tryManualPurge?.();
+      if (this.input.p2SkillClear()) rf?.tryManualPurge?.();
       const arena = REMILIA_ARENA;
       const p = this.player;
-      p.update(dt, { moveAxis: () => this.input.moveAxis() }, this.camera, this.world);
+      // 204 轮：直接把手柄/键盘 input 交给 Player.update —— 用户要求"shirt 半速可使用"。
+      // 原来只传 { moveAxis } 桩，Player.update 里的 input.isDown('ShiftLeft') 永远读不到。
+      p.update(dt, this.input, this.camera, this.world);
       const p2r = this.world.player2;
       if (p2r) {
         const ax2r = this.input.moveAxisP2();
@@ -2197,6 +2206,7 @@ export class Game {
     }
     if (p) {
       p.noHeal = this.world?.flandreFight ? p.noHeal : false;
+      p.flandreSpeed = null;                 // 204 轮：解开 120% 移速锁
       p.onFlandrePlayerHit = null;
     }
   }
