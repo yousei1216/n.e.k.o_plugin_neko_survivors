@@ -315,6 +315,7 @@ export class UI {
   // 覆盖层
   // =========================================================
   clearOverlay() {
+    this._shopLive = null;   // 201 轮：关掉任何界面都不再让 tickShop 去重绘商店
     this.el.overlay.innerHTML = '';
   }
 
@@ -821,6 +822,13 @@ export class UI {
         </aside>`;
     };
 
+    // 201 轮：货架被「界面之外」的动作改动时（宠物偷道具、队友 AI、读档恢复……）界面必须跟着重绘，
+    // 否则玩家点的是旧画面，而点击落在已经换成别的商品的下标上（多人模式下「锁定失效」的第二层原因）。
+    // 签名只覆盖 P1 看得见、并且点击会作用到的东西。
+    const sig = () => shop.offers.slice(0, 4).map((o) => (o ? `${o.data?.id ?? ''}${o.sold ? 's' : ''}` : '-')).join(',')
+      + `|${[...shop.locked].sort().join('.')}|${Math.floor(player.materials)}|${shop.rerollCount}|${pendingRewards?.length ?? 0}`;
+    const live = { calc: sig, last: '', redraw: null };
+
     const render = () => {
       // ---- 第一百七十一轮（2P）：只显示前 SHOP_SLOTS 格 —— 后半是
       // P2 队友的专属货架，玩家的界面看不见也买不到
@@ -1160,9 +1168,19 @@ export class UI {
           render();
         };
       });
+      live.last = sig();        // 201 轮：每次重绘后记下签名，tickShop 只在签名变了才重绘
+      live.redraw = render;
+      this._shopLive = live;    // （_mount/clearOverlay 会清掉它，所以每次渲染后重新挂上）
     };
 
     render();
+  }
+
+  /** 201 轮：主循环在 SHOP 状态下每帧调用；货架/锁/材料在界面之外变了就重绘 */
+  tickShop() {
+    const l = this._shopLive;
+    if (!l || !l.redraw) return;
+    if (l.calc() !== l.last) l.redraw();
   }
 
   // ---------------- 无限模式询问 ----------------

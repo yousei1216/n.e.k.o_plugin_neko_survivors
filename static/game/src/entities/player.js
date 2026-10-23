@@ -866,6 +866,9 @@ export class Player extends Entity {
       // 第一百七十一轮：P2 的减速键 = 小键盘 0（input 桩带 p2SkillSlow）
       if (input.isDown('ShiftLeft') || input.isDown('ShiftRight') || input.p2SkillSlow?.()) speed *= 0.5;
     }
+    // 202 轮：把本帧的实际移速记下来，四重存在的分身直接取它（"移速和玩家一致"）。
+    // 只是个只读快照，不参与任何玩家自己的计算。
+    this.curSpeed = speed;
     // ---- 第一百七十三轮：悠怡「猫的步伐」后空翻位移接管 ----
     // 触发锁血瞬间挂上的 _backflip：0.5s 内无视玩家输入、强制朝受击
     // 反方向位移 200px。武器照常开火（只是脚不由己），位移钳制沿用

@@ -1224,8 +1224,12 @@ export class NekoPilot {
         // ---- 第一百八十四轮（1~4P）：货架按槽位排 P1|P2|P3|P4 各 4 格
         // —— slotBase = 槽位 × 4，各买各的段，绝不错拿别人的货。
         const world2 = g.world;
+        // 201 轮：段号 = 队友在 world.partners() 里的顺序 + 1 —— 与 main._openShop 拼货架的顺序一致。
+        // 旧写法只认 player2/player3，其余一律当 3：4P 时多个队友挤在同一段（P4 的 12~15 格）互相抢货，P2/P3 的货架没人买。
+        const mateList = world2?.partners?.() ?? [];
+        const mateIdx = this.entity ? mateList.indexOf(this.entity) : -1;
         const slotIdx = this.entity
-          ? (this.entity === world2?.player2 ? 1 : this.entity === world2?.player3 ? 2 : 3)
+          ? (mateIdx >= 0 ? mateIdx + 1 : (this.entity === world2?.player2 ? 1 : this.entity === world2?.player3 ? 2 : 3))
           : 0;
         const slotBase = slotIdx * 4;
         const slotEnd = slotIdx === 0 ? 4 : Math.min(shop.offers.length, slotBase + 4);
@@ -1237,7 +1241,7 @@ export class NekoPilot {
           if (round > 0) {
             // 囤钱刷新：钱趴着 = 发育不良（用户实测 1k+ 金币暴毙局）
             if (p.materials < matCap + 40) break;
-            const rr = shop.reroll?.(p);
+            const rr = shop.reroll?.(p, slotBase);   // 201 轮：只刷新自己那一段（旧写法刷新的是 P1 的前 4 格）
             if (!rr?.ok) break;
             this._log(`囤钱刷新货架（剩 ${Math.floor(p.materials)}）`);
           }

@@ -876,62 +876,32 @@ export class Renderer {
   // =========================================================
   /** 第一百六十轮：四重存在分身 —— 粉紫半透明光影小猫（性能友好，零贴图采样） */
   _drawPhantom(ctx, ph) {
+    // 202 轮（用户："莱万汀召唤的3个玩家分身是紫色矩形小猫，让她们变成玩家的样子"）：
+    // 分身 = 玩家本体的外观。直接复用 _drawPlayer（立绘 / 走路摆动 / 朝向翻转 / 眨眼 / 轨道武器都一样），
+    // PhantomClone 已经补齐了它读的 15 个字段。为了不和本体混淆，只加两样最轻的标记：
+    // 脚下一圈粉色细环 + 头顶小血条（原来的"紫色矩形小猫"身体画法整体退役）。
     const r = ph.radius;
-    const bob = Math.sin((ph.age ?? 0) * 3) * 1.5;
-    // 出场 0.45s 渐显
     const a = ph.spawnT > 0 ? clamp(1 - ph.spawnT / 0.45, 0, 1) : 1;
-    const flash = ph.hitFlash > 0;
+    ctx.save();
+    ctx.globalAlpha = 0.55 * a;
+    ctx.strokeStyle = '#ff7bac';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.ellipse(ph.x, ph.y + r * 0.85, r * 1.15, r * 0.46, 0, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+
+    this._drawPlayer(ctx, ph);
 
     ctx.save();
-    ctx.translate(ph.x, ph.y + bob);
-
-    // 影子
-    ctx.globalAlpha = 0.2 * a;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(0, r * 0.85 - bob, r * 0.8, r * 0.3, 0, 0, TAU);
-    ctx.fill();
-
-    // 身体：粉紫半透明圆 + 标识色描边
-    ctx.globalAlpha = (flash ? 0.85 : 0.5) * a;
-    ctx.fillStyle = flash ? '#ffffff' : '#c86ae0';
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 0.9 * a;
-    ctx.strokeStyle = '#ff7bac';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, TAU);
-    ctx.stroke();
-
-    // 猫耳
-    ctx.fillStyle = flash ? '#fff' : '#c86ae0';
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(s * r * 0.25, -r * 0.75);
-      ctx.lineTo(s * r * 0.7, -r * 1.5);
-      ctx.lineTo(s * r * 0.85, -r * 0.45);
-      ctx.closePath();
-      ctx.fill();
-    }
-    // 眼睛
-    ctx.globalAlpha = 0.95 * a;
-    ctx.fillStyle = '#2a1030';
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.arc(s * r * 0.32, -r * 0.1, r * 0.12, 0, TAU);
-      ctx.fill();
-    }
-    // 顶部小血条
     const w = r * 2.2;
     const ratio = clamp(ph.hp / ph.maxHp, 0, 1);
+    const top = ph.y - r * 2.6;
     ctx.globalAlpha = 0.9 * a;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(-w / 2, -r * 2.1, w, 4);
+    ctx.fillRect(ph.x - w / 2, top, w, 4);
     ctx.fillStyle = '#ff7bac';
-    ctx.fillRect(-w / 2, -r * 2.1, w * ratio, 4);
-
+    ctx.fillRect(ph.x - w / 2, top, w * ratio, 4);
     ctx.restore();
   }
 

@@ -39,6 +39,18 @@ export class PhantomClone {
     this.x = x; this.y = y;
     this.facing = player.facing ?? 0;
     this.radius = Math.max(10, (player.radius ?? 14) * 0.8);
+    // 202 轮（用户："莱万汀召唤的3个玩家分身是紫色矩形小猫，让她们变成玩家的样子"）：
+    // 分身直接复用玩家的绘制函数（renderer._drawPlayer），所以把它读的那 15 个字段补齐：
+    // 立绘 id / 配色 / 朝向 / 走路相位 / 眨眼 / 受击闪 / 无敌闪 / 护盾（分身没有护盾，恒 0）。
+    this.characterId = player.characterId;
+    this.color = player.color;
+    this.accent = player.accent;
+    this.blinkPhase = 0;
+    this.hurtFlash = 0;
+    this.invuln = 0;
+    this.shield = 0; this.maxShield = 0;
+    this.isMoving = false;
+    this.walkPhase = 0;
     this.spawnT = 0;                     // 出场特效计时
     this.hitFlash = 0;
 
@@ -97,6 +109,11 @@ export class PhantomClone {
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     this.hp = Math.min(this.maxHp, this.hp + (this.stats.values.hpRegen ?? 0) * dt);
 
+    // 202 轮（用户："移速和玩家一致，25%移速实在太慢了"）：移动速度 = 玩家本体当前的实际移速（含角色被动 / 道具 /
+    // 天气 / 晴岚 等全部乘区，见 Player.curSpeed）。其它属性（血 / 甲 / 伤害 / 攻速）仍按 25% 继承，只有"腿"和玩家一样快。
+    // （旧值 = 0.25×移速加成 + 40 ≈ 40~60 px/s，而玩家本体 ≥215 px/s，分身一直被甩在身后。）
+    const SP = player.curSpeed ?? player.baseSpeed ?? 215;
+    const x0 = this.x, y0 = this.y;
     // ---- AI：有怪打怪（自由索敌），没怪松弛跟随玩家 ----
     let target = null;
     try {
@@ -111,20 +128,26 @@ export class PhantomClone {
       const want = mainKind === 'melee' ? Math.max(30, (target.radius ?? 12) + 24)
         : Math.max(120, (this.weapons[0]?.def?.range ?? 260) * 0.7);
       if (d > want) {
-        const sp = this.stats.values.moveSpeed ?? 100;
-        this.x += ((target.x - this.x) / d) * sp * dt;
-        this.y += ((target.y - this.y) / d) * sp * dt;
+        const step = Math.min(SP * dt, d - want);   // 不越过站位点，避免在站位附近抖动
+        this.x += ((target.x - this.x) / d) * step;
+        this.y += ((target.y - this.y) / d) * step;
       }
       tx = target.x; ty = target.y;
     } else {
       const d = Math.hypot(player.x - this.x, player.y - this.y);
       if (d > 150) {
-        const sp = this.stats.values.moveSpeed ?? 100;
-        this.x += ((player.x - this.x) / d) * sp * dt;
-        this.y += ((player.y - this.y) / d) * sp * dt;
+        const step = Math.min(SP * dt, d - 150);
+        this.x += ((player.x - this.x) / d) * step;
+        this.y += ((player.y - this.y) / d) * step;
       }
     }
 
+    // 走路动画（_drawPlayer 读 isMoving / walkPhase）+ 受击闪 + 出场闪烁
+    const moved = Math.hypot(this.x - x0, this.y - y0) > 0.01;
+    this.isMoving = moved;
+    this.walkPhase = moved ? this.walkPhase + dt * 11 : 0;
+    this.hurtFlash = this.hitFlash;
+    this.invuln = this.spawnT;       // 出场 0.45s 半透明闪烁（_drawPlayer 的无敌闪烁通道）
     // 面向目标（武器瞄准用）
     if (tx != null) this.facing = Math.atan2(ty - this.y, tx - this.x);
     else if (d2(player, this) > 40) this.facing = Math.atan2(player.y - this.y, player.x - this.x);

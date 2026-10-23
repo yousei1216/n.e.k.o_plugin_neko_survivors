@@ -29,6 +29,9 @@ export const CLAW_LIFE_S = 12;       // 爪寿命（原 6）
 export const CLAW_TURN = 2.8;        // 转向速率上限 rad/s（原 2.2）
 export const CLAW_INTERVAL = 2.2;    // 发射间隔（原 1.2）
 export const CLAW_PER_VOLLEY = 2;    // 每次几只（原 3）。寿命 12s ÷ 间隔 2.2s ≈ 5.5 次 × 2 ≈ 11 只同时在场
+export const EMBER_SPEED = 0.8;       // 202 轮：追踪爪散出的紫色小弹，px/帧（原 0.4）
+export const EMBER_RANGE = 280;       // 202 轮：射程 px（原 70）→ 飞行时间 = 280/(0.8×60) ≈ 5.8s（原 2.9s）
+export const BEAD_SPLASH_Y = 6;      // 202 轮：灯珠触到场地底边以上多少 px 就散开
 export const CLAW_MAX = 14;          // 同屏上限 —— 必须 > 稳态数量，否则「丢最老」会把寿命实际压回 ~6s（测试抓到过）
 export const CORNER_PERIOD = { 2: 4.6, 3: 3.0 };   // 角落封堵的间隔（按阶段）
 export const NO_CORNER_SECTIONS = new Set(['intro', 'split', 'candy']);   // 这些节不加角落弹
@@ -399,6 +402,31 @@ export class HalloweenFight {
     }
   }
 
+  /**
+   * 灯珠字母弹触底散开（202 轮）。
+   * 用户人工游玩："让那些拼成文字的弹幕在触碰底部的时候随机散开发射而不是只是沉下去就没了。"
+   * 之前灯珠落过场地底边后继续往下沉，直到射程用尽才消失。现在：灯珠碰到场地底边 → 当场消失，
+   * 在碰撞点向上半圆随机方向溅出 1 颗小弹（金色，速度/射程随机），整个单词落地时就是一场「碎成金粉」的飞溅。
+   * 溅射弹是普通弹（走 650 上限，不占灯珠专用的 900 额度），所以单词再大也不会撑爆弹量。
+   */
+  _tickBeadSplash() {
+    const floor = ARENA.cy + ARENA.hh - BEAD_SPLASH_Y;
+    const list = this.main.world.enemyBullets.items;
+    let hit = null;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (b.dead || b.hwKind !== 'bead' || b.y < floor) continue;
+      b.dead = true;
+      (hit ??= []).push(b);
+    }
+    if (!hit) return;
+    for (const b of hit) {
+      // 上半圆随机方向（避开贴地的水平方向，±0.3rad），速度 1.0~3.0 px/帧，射程 140~360
+      const ang = -Math.PI + 0.3 + Math.random() * (Math.PI - 0.6);
+      this._shot(b.x, floor, ang, 1.0 + Math.random() * 2.0, { color: 'gold', radius: 4.5, hitRadius: 3.5, range: 140 + Math.random() * 220 });
+    }
+  }
+
   /** 离 (x,y) 最近的存活且未倒地的玩家（没有则 null） */
   _nearestAlive(x, y) {
     let best = null, bd = Infinity;
@@ -451,7 +479,9 @@ export class HalloweenFight {
       c.t -= dt;
       // 余烬弹：按**时间**发（原来是每帧 55% 概率 → 9 只爪 ≈ 300 发/秒，帧率越高越多），
       // 且短命（射程 70px ≈ 2.9s；原来 900px 能在场上躺 37 秒，把 650 的弹幕上限吃满）
-      if (Math.random() < dt * 7) this._shot(c.x, c.y, Math.random() * TAU, 0.4, { color: 'violet', radius: 5, hitRadius: 4, range: 70 });
+      // 202 轮（用户人工游玩："最后的紫色追踪弹散出去的小子弹飞行时间飞行速度都翻倍看看，现在散出去一点点就消失了，几乎不可能打中人"）：
+      // 速度 0.4→0.8 px/帧（24→48 px/s），飞行时间 2.9s→5.8s（射程 70→280 = 48 px/s × 5.8s）。
+      if (Math.random() < dt * 7) this._shot(c.x, c.y, Math.random() * TAU, EMBER_SPEED, { color: 'violet', radius: 5, hitRadius: 4, range: EMBER_RANGE });
     }
     this._claws = (this._claws ?? []).filter((c) => c.t > 0
       && Math.abs(c.x - ARENA.cx) < ARENA.hw + 80 && Math.abs(c.y - ARENA.cy) < ARENA.hh + 80);
@@ -519,6 +549,8 @@ export class HalloweenFight {
       for (const e of this._q) { if (e.at <= this.t) e.fn(); else keep.push(e); }
       this._q = keep;
     }
+
+    this._tickBeadSplash();
 
     // 拖尾位置采样（纯视觉）：每发弹每移动 ≥6px 记一个点，最多 6 个 → 渲染成余烬点链
     for (const b of this.main.world.enemyBullets.items) {

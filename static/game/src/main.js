@@ -930,8 +930,11 @@ export class Game {
         // 这些状态下游戏世界冻结，只响应 UI
         break;
       case STATE.LEVEL_UP:
-      case STATE.SHOP:
         // 等待 UI 选择
+        break;
+      case STATE.SHOP:
+        // 等待 UI 选择；201 轮：货架被界面之外的动作改动时让商店界面跟着重绘
+        this.ui.tickShop?.();
         break;
     }
   }
@@ -1789,6 +1792,10 @@ export class Game {
     this._vergilFought = true;                // 本局触发标志（第 10 波不重复进）
     const p = this.player;
     p.noAttack = true;                        // 入场演出期间不攻击（fight 解除）
+    // 202 轮（用户："维吉尔boss战也禁用玩家回血吧，只能触发小小猫娘回血"）：整场维吉尔战，生命回复 / 吸血 / 血包 / 奶糖 /
+    // 回血道具 全部失效（Player.heal 统一拦 noHeal）；唯一豁免是小小猫娘的治疗（走 heal(..., { force: true })，与芙兰战同口径）。
+    // P1 与队友一起禁（队友也有回复属性）；收场在 _teardownVergil 里还原。
+    this._setNoHealAll(true);
     this.world.noSpawn = true;
     audio.stopMusic();                        // 掐掉当前曲，等演出第 3 秒的 Bury the Light
     this.vergil = new VergilFight(this, {
@@ -1915,8 +1922,25 @@ export class Game {
     }
   }
 
+  /**
+   * 202 轮：给所有玩家（P1 + 队友）统一开/关「禁疗」（小小猫娘的 force 治疗不受影响）。
+   *
+   * 注意：不能只遍历 world.players() —— _startVergil 在开局的很早期就会调用它，
+   * 那时 world.players() 还可能是空数组（真机实测：noAttack 设上了、noHeal 却没设上，
+   * 维吉尔战里玩家照样能回血）。所以 P1 用 this.player 显式兜住，队友两个来源都查一遍。
+   */
+  _setNoHealAll(on) {
+    const list = new Set();
+    if (this.player) list.add(this.player);
+    for (const pl of (this.world?.players?.() ?? [])) if (pl) list.add(pl);
+    for (const pl of (this.world?.partners?.() ?? [])) if (pl) list.add(pl);
+    for (const pl of list) pl.noHeal = !!on;
+    return list.size;
+  }
+
   _teardownVergil() {
     this._reviveDownedAfterBoss();
+    this._setNoHealAll(false);   // 202 轮：维吉尔战结束，回血恢复
     if (this.world) {
       this.world.noSpawn = false;
       this.world.vergilFight = null;
@@ -2099,7 +2123,11 @@ export class Game {
   _startFlandreTest(opts = {}) {
     try {
       this.setDifficulty('nightmare');
-      this.startRun('yui', { party: 4 });   // 4P 阵容（AI 猫娘一起躲弹幕、倒地、救人）
+      // 202 轮（用户人工游玩后："把芙兰挑战按钮进入的玩家数改成只有1p，不要2-4p了"）：
+      // 芙兰挑战按钮 = 单人。185 轮曾改成 4P（AI 队友一起躲弹幕/倒地/救人），推翻。
+      // 想看多人芙兰战：正式路径（噩梦通关 20 波），或调试入口 ?flandre=1&party=N。
+      const party = opts.party >= 2 && opts.party <= 4 ? opts.party : 1;   // 按钮不传 = 1P；只有调试入口 ?flandre=1&party=N 才开多人
+      this.startRun('yui', party >= 2 ? { party } : {});
       this.player.addWeapon('meow_cannon');
       this.player.addWeapon('meow_cannon');
       this.player.addWeapon('meow_cannon');
@@ -2107,7 +2135,7 @@ export class Game {
       for (const id of ['cat_taffy', 'warm_milk', 'warm_milk']) this.player.addItem(id);
       this.meta.retries = 0;
       this.meta.manualRetries = 0;
-      this._bindPartyPilots(4);
+      if (party >= 2) this._bindPartyPilots(party);
       // 185 轮：不再 adopt P1 —— 旧版把 P1 交给 AI 木偶接管，玩家键盘被 agentBlocked 拦掉 = "无法操作"
       //（与万圣节测试局 v0.3.88 同一个坑）。P2~P4 照常 AI 参战；用户要**自己**进去玩。
       this._startFlandre();
@@ -3432,7 +3460,7 @@ try {
   // ?flandre=1：直通芙兰战测试局（同 ?vergil=1 的口子，4P 弹幕躲避
   // 调试用 —— 正常路径要打穿 20 波才能见到她）
   if (q.has('flandre')) {
-    game._startFlandreTest();
+    game._startFlandreTest({ party });   // 202 轮：?flandre=1 = 单人；?flandre=1&party=4 才开 4P
   }
   // ?halloween=1：直通万圣节双猫测试局（人工跑一轮演出 —— 用户要求
   // "你试试跑一轮加个测试按钮，我人工跑跑看"）。

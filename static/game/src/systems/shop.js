@@ -108,7 +108,8 @@ export class Shop {
     this.rng = rng;
     this.offers = [];
     this.locked = new Set();   // 被锁定的槽位索引
-    this.rerollCount = 0;
+    this.rerollCount = 0;           // P1（段 0）本店的刷新次数 —— 刷新费只跟它走
+    this.mateRerolls = new Map();   // 201 轮：队友（段 1..3）各自的刷新次数，不再和 P1 共用一个计数
     this.rerollBaseCost = 3;
     // 买空货架后赠送的免费刷新是否已用掉（见 _maybeAutoReroll）
     this.freeRerollUsed = false;
@@ -128,12 +129,24 @@ export class Shop {
    *   → 第 11 波起**永久**再加 5。因为波数只增不减，"永久"就等于
    *     "波数 ≥ 11 就一直带着这 5"。第 20 波 = 3 + 19 + 5 = 27。
    */
-  get rerollCost() {
+  get rerollCost() { return this.rerollCostFor(0); }
+
+  /**
+   * 201 轮：某位买家的刷新费。货架按段切分（P1 | P2 | P3 | P4，每段 4 格），刷新次数也按段分开记 ——
+   * 之前 AI 队友的「囤钱刷新」调用共享的 reroll()，把 P1 的刷新费从 5 抬到 97（实测 47 次），
+   * 还把 P1 的前 4 格整排换掉（见 reroll 的注释）。
+   */
+  rerollCostFor(slotIndex = 0) {
+    const k = this._segOf(slotIndex);
+    const n = k === 0 ? this.rerollCount : (this.mateRerolls.get(k) ?? 0);
     // 第四十七轮：rerollCostMul（悠怡萌妹 0.5 = 刷新费减半），向上取整
     // 保证材料是整数；其他角色 undefined → ×1 原价。
-    const base = this.rerollBaseCost + this._waveRerollBonus + this.rerollCount * 2;
+    const base = this.rerollBaseCost + this._waveRerollBonus + n * 2;
     return Math.ceil(base * (this.rerollCostMul ?? 1));
   }
+
+  /** 槽位下标所属的段（0 = P1，1..3 = 队友） */
+  _segOf(slotIndex) { return Math.max(0, Math.floor((slotIndex || 0) / SHOP_SLOTS)); }
 
   /**
    * 本回合的刷新涨价量。
@@ -217,6 +230,7 @@ export class Shop {
     // 锁已经兑现，清掉；刷新次数也归零（这是新的一家商店）
     this.locked.clear();
     this.rerollCount = 0;
+    this.mateRerolls.clear();
     // 买空赠送的免费刷新：每开一家新商店重新给一次机会
     this.freeRerollUsed = false;
     return this.offers;
@@ -226,6 +240,7 @@ export class Shop {
   clearLocks() {
     this.locked.clear();
     this.rerollCount = 0;
+    this.mateRerolls.clear();
     this.freeRerollUsed = false;
   }
 
@@ -541,8 +556,11 @@ export class Shop {
    */
   _buyerRange(slotIndex) {
     if (this.offers.length <= SHOP_SLOTS) return [0, Math.max(1, this.offers.length)];
-    const half = slotIndex >= SHOP_SLOTS ? 1 : 0;
-    return [half * SHOP_SLOTS, half * SHOP_SLOTS + SHOP_SLOTS];
+    // 201 轮：原来只分"前半/后半"（half = slotIndex>=4 ? 1 : 0），3P/4P 时 P3、P4 的买家被算成 P2 的段 [4,8) ——
+    // 他们买空自己那段时检查的是 P2 的货架，并且错把 P2 的货架整段重建。现在按段号（每段 4 格）。
+    const maxSeg = Math.floor((this.offers.length - 1) / SHOP_SLOTS);
+    const k = Math.min(this._segOf(slotIndex), maxSeg);
+    return [k * SHOP_SLOTS, k * SHOP_SLOTS + SHOP_SLOTS];
   }
 
   /**
@@ -723,19 +741,30 @@ export class Shop {
     return owned[0];
   }
 
-  reroll(player) {
-    const cost = this.rerollCost;
+  /**
+   * 刷新货架。
+   * 201 轮（用户："多人模式下，商店的锁定按钮疑似失效"）：根因 —— 货架是 P1|P2|P3|P4 四段共 16 格，但本函数永远重建
+   * offers[0..4)（P1 的那一段），而 AI 队友的「囤钱刷新」调用的正是这个共享入口：队友一刷新，P1 的整排货架就被换掉，
+   * 刷新次数也记到 P1 头上；P1 的界面又不会重绘，于是玩家点「锁定/购买」时，界面上那张卡对应的下标早已是另一件商品。
+   * 真机复现：界面显示「热牛奶|幸运硬币…」而实际货架是「星星魔杖|瞄准镜片…」，刷新计数 47、P1 刷新费 97。
+   * 修：刷新只重建**买家自己的那一段**（slotIndex 指明，默认 0 = P1），刷新次数按段分开记；锁定只对 P1 段有意义，原样保留。
+   */
+  reroll(player, slotIndex = 0) {
+    const k = this._segOf(slotIndex);
+    const cost = this.rerollCostFor(slotIndex);
     if (player.materials < cost) return { ok: false, reason: '材料不足' };
     player.materials -= cost;
-    this.rerollCount++;
-    // 保留锁定
+    if (k === 0) this.rerollCount++;
+    else this.mateRerolls.set(k, (this.mateRerolls.get(k) ?? 0) + 1);
+    const from = k * SHOP_SLOTS, to = from + SHOP_SLOTS;
+    // 保留锁定（锁只存在于 P1 段，但按下标通用处理）
     const kept = [];
-    for (let i = 0; i < this.offers.length; i++) {
-      if (this.locked.has(i) && !this.offers[i].sold) kept[i] = this.offers[i];
+    for (let i = from; i < to; i++) {
+      if (this.locked.has(i) && this.offers[i] && !this.offers[i].sold) kept[i] = this.offers[i];
     }
-    for (let i = 0; i < SHOP_SLOTS; i++) {
+    for (let i = from; i < to; i++) {
       if (kept[i]) { this.offers[i] = kept[i]; continue; }
-      this.offers[i] = this._makeOffer(player, this.currentWave ?? 0, i);
+      this.offers[i] = this._makeOffer(player, this.currentWave ?? 0, i - from);
     }
     return { ok: true, cost };
   }
