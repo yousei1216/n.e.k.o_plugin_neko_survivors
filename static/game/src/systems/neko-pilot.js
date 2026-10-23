@@ -973,7 +973,16 @@ export class NekoPilot {
         th.push(b.x, b.y, b.vx || Math.cos(b.angle ?? 0) * sp, b.vy || Math.sin(b.angle ?? 0) * sp, b.hitRadius ?? b.radius ?? 7);
       }
     }
-    const lasers = hf?.waves ?? [];
+    // 199 轮：芙兰战的激光（莱瓦汀炎剑）也算危险区。此前 _safeStep 只认万圣节的 waves，对芙兰的激光是瞎的。
+    // 字段映射：angVel→rot；warn（预警秒数）→delay：预警期内光束尚未生效，hazard 里按 delay 推迟。
+    let lasers = hf?.waves;
+    if (!lasers) {
+      const fl = world?.flandreFight?.spell?.st?.lasers;
+      // span = 这把剑【还要扫过的角度】：预警期 = 整个扫程；生效后 = 剩余可扫时间（去掉最后 0.5s 渐隐）× 角速度。
+      // 扫掠扇面模式（有 span）把整片将被扫过的扇面一次性当危险区，不按时间点预测 —— 激光 800px/s 的角速度下，
+      // 0.52s 的预测视野看见它时已来不及横挪出整个扇面（实测每个回合都被扫一次）。
+      lasers = fl && fl.length ? fl.map((L) => ({ x: L.x, y: L.y, angle: L.angle, rot: L.angVel, delay: L.warn > 0 ? L.warn : 0, len: L.len, span: L.warn > 0 ? (L.sweep ?? L.angVel * 1.9) : L.angVel * Math.max(0, L.life - 0.5) })) : [];
+    }
     const pumpkins = hf?.pumpkins ?? [];
     if (!th.length && !lasers.length && !pumpkins.length) return { x: tx, y: ty, danger: 0 };
 
@@ -987,7 +996,19 @@ export class NekoPilot {
     const hazard = (x, y, tau) => {
       let cost = 0;
       for (const w of lasers) {
-        const ang = w.angle + w.rot * tau;
+        if (w.span != null) {
+          const dx = x - w.x, dy = y - w.y, d = Math.hypot(dx, dy);
+          if (d < 1 || d > w.len + 40) continue;
+          let da = Math.atan2(dy, dx) - w.angle;
+          while (da > Math.PI) da -= 2 * Math.PI;
+          while (da < -Math.PI) da += 2 * Math.PI;
+          const sgn = w.span >= 0 ? 1 : -1, off = da * sgn, half = Math.atan(46 / d);
+          if (off >= -half && off <= Math.abs(w.span) + half) cost += 70;
+          continue;
+        }
+        const dl = w.delay ?? 0;
+        if (tau < dl) continue;
+        const ang = w.angle + w.rot * (tau - dl);
         const dx = x - w.x, dy = y - w.y;
         const proj = dx * Math.cos(ang) + dy * Math.sin(ang);
         if (proj <= 0) continue;

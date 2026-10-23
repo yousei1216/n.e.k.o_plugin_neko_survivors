@@ -2650,6 +2650,28 @@ export class Renderer {
   _drawFlandreLasers(ctx, fight) {
     const ls = fight.spell?.st?.lasers ?? [];
     for (const L of ls) {
+      if (L.warn > 0) {
+        // 199 轮：出剑预警 —— 细亮线（指示起手方向）+ 淡淡的扫程扇面（指示这把剑将要扫过哪里）。
+        // 越接近出剑越亮、扇面越实；纯画面，不参与判定。
+        const t = fight.t ?? 0, near = 1 - Math.min(1, L.warn / 0.85);
+        ctx.save();
+        ctx.translate(L.x, L.y);
+        if (L.sweep) {
+          ctx.globalAlpha = 0.07 + 0.10 * near;
+          ctx.fillStyle = '#ff3c28';
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, L.len, L.angle, L.angle + L.sweep, L.sweep < 0);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.rotate(L.angle);
+        ctx.globalAlpha = (0.35 + 0.5 * near) * (0.75 + 0.25 * Math.sin(t * 28));
+        ctx.fillStyle = '#ffd9b0';
+        ctx.fillRect(0, -1.5, L.len, 3);
+        ctx.restore();
+        continue;
+      }
       if (L.life <= 0 || L.fade <= 0) continue;
       const len = L.len * Math.min(1, L.age / 0.35);   // 388→420 的长度渐变起步
       const w = L.width;

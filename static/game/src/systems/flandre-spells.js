@@ -10,6 +10,8 @@
 //   4. 全部走 dt 累加，不用帧数取模；视觉随机只用 f.rnd()（游戏 RNG 流保持确定性）。
 //   5. 发射器可视体写进 sp.st.vis（kind: 'glow'），渲染层画成发光球。
 import { ARENA } from './flandre-consts.js';
+import { audio } from './audio.js';
+import { FLANDRE_HIT_INVULN } from '../entities/player.js';
 
 // 199 轮：「够飞出场地」的射程。弹的真实寿命由 FlandreFight._cullOutside（飞出场地 140px 回收）决定，不再靠压短射程去省预算。
 const LONG = 3200;
@@ -407,3 +409,174 @@ export const NEW_SPELLS = {
     },
   },
 };
+
+// =================================================================
+// 第二批重做（第一百九十九轮）：莱瓦汀 · 炎剑 / 四重存在
+// 用户："没改的芙兰卡你也可以都改改，除了开头必放的教学卡和 495 年的波纹……其他卡都可以改改。"
+// 保持不变的东西（都是用户指定过的规格）：
+//   · 莱瓦汀：旋转激光（16% 最大生命真伤 + 1s 无敌帧）、只在上半屏移动、激光扫后留下"椭圆蛋"弹幕、渲染读 st.lasers；
+//   · 四重存在：分身是纯视觉发射器、本体隐身 + 大 hitbox + 接触伤害归零（_removeClones 靠 _bossRadiusSave 复原）、全弹 = 椭圆蛋。
+// 新的东西：
+//   · 炎剑：出剑前 0.7s 预警线 + 扫掠范围（可读）；后半程变"剪刀"（两把剑反向对扫）；出剑瞬间一圈火星爆开；
+//   · 四重存在：4 个分身各有不同的"花色"打法（瞄准扇 / 环 / 螺旋 / 骤雨），每 7 秒花色轮换，轮换时有 0.9s 喘息 + 一圈信号环。
+// =================================================================
+const IDLE_FRAMES_4K = ['flandre', 'flandre_idle2', 'flandre_idle3', 'flandre_idle4'];
+const FLAME = ['#ff4060', '#ff7a3c', '#ffd166'];
+
+const LAEV = {
+  tick(sp, dt, f) {
+    const st = sp.st, k = clamp01(sp.t / sp.dur);
+    st.lasers ??= [];
+    if (!st.seg) {
+      st.n = (st.n ?? 0) + 1;
+      st.seg = {
+        phase: 'move', t: 0, dur: 1.1,
+        fx: f.bx, fy: f.by,
+        tx: f.ax + (f.rnd() * 2 - 1) * (ARENA.hw - 160),
+        ty: f.ay - ARENA.hh + 140 + f.rnd() * (ARENA.hh - 300),
+      };
+    }
+    const sg = st.seg;
+    sg.t += dt;
+    if (sg.phase === 'move') {
+      const e = 1 - (1 - clamp01(sg.t / sg.dur)) ** 2;
+      if (f.boss) { f.boss.x = sg.fx + (sg.tx - sg.fx) * e; f.boss.y = sg.fy + (sg.ty - sg.fy) * e; }
+      if (sg.t >= sg.dur) {
+        sg.phase = 'warn'; sg.t = 0;
+        const dir = f.rnd() < 0.5 ? 1 : -1;
+        // 几何（模拟器逐项量过）：扫掠扇面约 100°，离 boss 500px 的玩家要横向逃出扇面需 >600px，1.7s 内跑不到 ——
+        // 若扇面包住玩家所在方向，这张卡就是"必中"。所以：剑从玩家身侧起手、朝远离玩家的方向扫开，站着不动是安全的，
+        // 只有走进扫掠区才会被烧；二阶段的"剪刀"是第二把剑从另一侧扫向玩家、在离玩家 0.45rad 处停住，
+        // 夹出一条约 52° 的可站走廊（两把剑都有预警线 + 扫程扇面）。
+        const aim = f.aim(f.bx, f.by) + (f.rnd() * 2 - 1) * 0.3;
+        const w = lerp(0.8, 1.0, k), span = w * 1.9, gapA = 0.2 + f.rnd() * 0.35, gapB = 0.45;
+        const scissors = k >= 0.5;
+        const mk = (ang, vel) => ({ x: f.bx, y: f.by, angle: ang, angVel: vel, len: 1010, width: 22, age: 0, life: 99, fade: 1, warn: 0.85, sweep: vel * 1.9 });
+        st.lasers.push(mk(aim + dir * gapA, dir * w));
+        if (scissors) st.lasers.push(mk(aim - dir * (gapB + span), dir * w));
+      }
+    } else if (sg.phase === 'warn') {
+      if (sg.t >= 0.85) {
+        sg.phase = 'sweep'; sg.t = 0;
+        for (const L of st.lasers) { L.warn = 0; L.life = 1.9 + 0.5; }
+        audio.play('flandreLaser');
+        const n = 18, base = f.rnd() * TAU;
+        for (let i = 0; i < n; i++) shot(f, f.bx, f.by, base + (i * TAU) / n, 150, FLAME[i % 3], 'star', 5.4, { decel: 70, floorSpeed: 78, range: LONG });
+      }
+    } else if (sg.phase === 'sweep') {
+      if (sg.t >= 2.4) { sg.phase = 'rest'; sg.t = 0; }
+    } else if (sg.phase === 'rest') {
+      if (sg.t >= 1.0) st.seg = null;
+    }
+    const p = f.main.player;
+    for (const L of st.lasers) {
+      if (L.warn > 0) { L.warn -= dt; continue; }
+      L.age += dt; L.life -= dt; L.angle += L.angVel * dt;
+      if (L.life < 0.5) L.fade = Math.max(0, L.life / 0.5);
+      if (!p.dead && p.invuln <= 0 && L.fade > 0.2) {
+        const dx = p.x - L.x, dy = p.y - L.y;
+        const proj = dx * Math.cos(L.angle) + dy * Math.sin(L.angle);
+        if (proj > 0 && proj < L.len * Math.min(1, L.age / 0.35)) {
+          const dist = Math.abs(-dx * Math.sin(L.angle) + dy * Math.cos(L.angle));
+          if (dist < L.width + (p.radius ?? 10)) {
+            const dmg = Math.max(1, Math.round(p.stats.get('maxHp') * 0.16));
+            p.takeDamage(dmg, p.x, p.y, { invuln: FLANDRE_HIT_INVULN, noTaken: true });
+          }
+        }
+      }
+    }
+    st.lasers = st.lasers.filter((L) => L.life > 0 || L.warn > 0);
+    st.spray = (st.spray ?? 0) + dt;
+    if (st.spray >= 0.16) {
+      st.spray -= 0.16;
+      for (const L of st.lasers) {
+        if (L.warn > 0 || L.age < 0.1) continue;
+        for (let j = 1; j <= 6; j++) {
+          const d = j * 150;
+          if (d > L.len * 0.95) break;
+          const side = f.rnd() < 0.5 ? 1 : -1;
+          f.emit({
+            x: L.x + Math.cos(L.angle) * d, y: L.y + Math.sin(L.angle) * d,
+            angle: L.angle + side * (Math.PI / 2) + (f.rnd() * 2 - 1) * 0.3,
+            speed: 70, color: FLAME[(j + (st.n ?? 0)) % 3], radius: 4.8, hitRadius: 3, range: LONG, shape: 'longball',
+          });
+        }
+      }
+    }
+    st.fan = (st.fan ?? 0) + dt;
+    if (st.fan >= lerp(1.6, 1.25, k)) {
+      st.fan = 0;
+      f.fan(f.bx, f.by, f.aim(f.bx, f.by), 7, 26, 175, C.red, 5.5);
+    }
+    st.ring2 = (st.ring2 ?? 0) + dt;
+    if (st.ring2 >= 2.6) {
+      st.ring2 = 0;
+      f.ring(f.bx, f.by, 16, f.rnd() * TAU, 125, C.gold, 5);
+    }
+    st.vis = [glow(f.bx, f.by, 15, '#ff7a3c', f.t)];
+  },
+};
+
+// 四重存在的颜色是用户第九十一轮指定的「原红/白/深红」（flandre.js 的 COLORS.red/white/dark），不能用本文件的 C 色板（C.red 是另一个红）
+const K4 = { red: '#ff4060', white: '#fff2f4', dark: '#c81e3c' };
+const FOUR_KIND = {
+  tick(sp, dt, f) {
+    const st = sp.st, k = clamp01(sp.t / sp.dur);
+    if (!st.clones) {
+      st.clones = [];
+      st.rot = 0; st.shift = 0; st.shiftT = 0; st.hush = 0; st.acc = [0, 0, 0, 0]; st.sp = 0;
+      if (f.boss) {
+        f.boss.flandreHidden = true;
+        f._bossRadiusSave = f.boss.radius;
+        f.boss.radius = 130 + f.boss.radius;
+        f._bossDamageSave = f.boss.damage;
+        f.boss.damage = 0;
+      }
+      for (let i = 0; i < 4; i++) st.clones.push({ x: f.bx, y: f.by, spriteId: IDLE_FRAMES_4K[0], radius: f._bossRadiusSave ?? 24 });
+    }
+    st.rot += dt * lerp(0.5, 0.8, k);
+    const frame = IDLE_FRAMES_4K[Math.floor(f.t / 0.35) % IDLE_FRAMES_4K.length];
+    const pos = [];
+    for (let i = 0; i < 4; i++) {
+      const a = st.rot + (i * TAU) / 4;
+      const rr = 130 + Math.sin(f.t * 1.3 + i * 1.7) * 14;
+      const c = st.clones[i];
+      c.x = f.bx + Math.cos(a) * rr; c.y = f.by + Math.sin(a) * rr; c.spriteId = frame;
+      pos.push({ x: c.x, y: c.y, a });
+    }
+    st.shiftT += dt;
+    if (st.shiftT >= 7) {
+      st.shiftT = 0; st.shift++; st.hush = 0.9;
+      for (let i = 0; i < 4; i++) f.ring(pos[i].x, pos[i].y, 10, pos[i].a, 140, i % 2 ? K4.red : K4.white, 5.2, 0, 'longball');
+    }
+    st.hush = Math.max(0, st.hush - dt);
+    if (st.hush > 0) return;
+    for (let r = 0; r < 4; r++) st.acc[r] += dt;
+    const who = (r) => pos[(r + 4 - (st.shift % 4)) % 4];
+    if (st.acc[0] >= lerp(0.65, 0.5, k)) {
+      st.acc[0] = 0;
+      const o = who(0);
+      f.fan(o.x, o.y, f.aim(o.x, o.y), 6, 30, 215, K4.red, 5.5, 'longball');
+    }
+    if (st.acc[1] >= 2.2) {
+      st.acc[1] = 0;
+      const o = who(1);
+      f.ring(o.x, o.y, 18, o.a, 150, K4.white, 5, 0, 'longball');
+    }
+    if (st.acc[2] >= 0.085) {
+      st.acc[2] = 0;
+      const o = who(2);
+      st.sp += 0.43;
+      f.emit({ x: o.x, y: o.y, angle: st.sp, speed: 130, color: K4.dark, radius: 5, hitRadius: 3, shape: 'longball', range: LONG });
+      f.emit({ x: o.x, y: o.y, angle: st.sp + Math.PI, speed: 130, color: K4.dark, radius: 5, hitRadius: 3, shape: 'longball', range: LONG });
+    }
+    if (st.acc[3] >= 0.11) {
+      st.acc[3] = 0;
+      const o = who(3);
+      f.emit({ x: o.x, y: o.y, angle: f.aim(o.x, o.y) + (f.rnd() * 2 - 1) * 0.55, speed: 165 + f.rnd() * 40, color: K4.white, radius: 4.6, hitRadius: 2.8, shape: 'longball', range: LONG });
+    }
+    st.vis = [];
+  },
+};
+
+Object.assign(NEW_SPELLS, { laevateinn: LAEV, fourkind: FOUR_KIND });
