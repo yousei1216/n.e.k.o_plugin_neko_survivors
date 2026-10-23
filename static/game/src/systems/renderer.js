@@ -4656,9 +4656,10 @@ export class Renderer {
       const plateKey = `plate${hpW}`;
       if (S[plateKey] == null) {
         const g = ctx.createLinearGradient(0, hpY - pad, 0, hpY + HP_H + pad);
-        g.addColorStop(0, '#3a3a44');
-        g.addColorStop(0.5, '#23232b');
-        g.addColorStop(1, '#141419');
+        // 205 轮：血条底座从深灰金属换成白色玻璃（配合浅色 HUD）
+        g.addColorStop(0, '#ffffff');
+        g.addColorStop(0.5, '#f3f9ff');
+        g.addColorStop(1, '#dcebfa');
         S[plateKey] = g;
       }
       ctx.fillStyle = S[plateKey];
@@ -4668,7 +4669,7 @@ export class Renderer {
         const tcv = document.createElement('canvas');
         tcv.width = tcv.height = 8;
         const t2 = tcv.getContext('2d');
-        t2.strokeStyle = 'rgba(255,255,255,0.045)';
+        t2.strokeStyle = 'rgba(120,170,230,0.13)';
         t2.lineWidth = 1;
         t2.beginPath(); t2.moveTo(-2, 10); t2.lineTo(10, -2);
         t2.moveTo(-2, 4); t2.lineTo(4, -2); t2.stroke();
@@ -4677,11 +4678,11 @@ export class Renderer {
       ctx.fillStyle = S.hudHatch;
       ctx.fill();
       // 细黑描边
-      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeStyle = 'rgba(196,220,244,0.95)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
       // 底座顶部金属高光
-      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(hpX - pad + skew + 3, hpY - pad + 1.5);
@@ -4786,11 +4787,11 @@ export class Renderer {
       ctx.shadowColor = 'rgba(255,214,140,0.55)';
       ctx.shadowBlur = MOBILE ? 0 :5;
       ctx.lineWidth = 4;
-      ctx.strokeStyle = 'rgba(5,3,8,0.95)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
       ctx.lineJoin = 'round';
       ctx.strokeText(hpText, txX, txY);
       ctx.shadowBlur = MOBILE ? 0 :0;
-      ctx.fillStyle = '#fff4e2';
+      ctx.fillStyle = '#1d3c63';
       ctx.fillText(hpText, txX, txY);
       ctx.restore();
       }
@@ -4824,16 +4825,17 @@ export class Renderer {
       const bgKey = `xpBg${W}`;
       if (S[bgKey] == null) {
         const g = ctx.createLinearGradient(0, y0, 0, H);
-        g.addColorStop(0, 'rgba(52,38,84,0.88)');
-        g.addColorStop(1, 'rgba(24,16,40,0.92)');
+        // 205 轮：经验条底座同样换成浅色
+        g.addColorStop(0, 'rgba(255,255,255,0.96)');
+        g.addColorStop(1, 'rgba(228,241,255,0.98)');
         S[bgKey] = g;
       }
       ctx.fillStyle = S[bgKey];
       ctx.fillRect(0, y0, W, BAR_H);
       // 内发光：顶部冷光线 + 内侧紫描边
-      ctx.fillStyle = 'rgba(196,160,255,0.16)';
+      ctx.fillStyle = 'rgba(120,180,240,0.35)';
       ctx.fillRect(0, y0, W, 1);
-      ctx.strokeStyle = 'rgba(150,110,220,0.28)';
+      ctx.strokeStyle = 'rgba(170,205,240,0.9)';
       ctx.lineWidth = 1;
       ctx.strokeRect(0.5, y0 + 0.5, W - 1, BAR_H - 1);
 
@@ -4841,9 +4843,10 @@ export class Renderer {
       const gKey = `xpFill${W}`;
       if (S[gKey] == null) {
         const g = ctx.createLinearGradient(0, y0, W, y0);
-        g.addColorStop(0, '#ff5fa8');
-        g.addColorStop(0.55, '#d873ef');
-        g.addColorStop(1, '#38e8ff');
+        // 205 轮：经验填充改成社区蓝 → 青（原来是粉紫霓虹）
+        g.addColorStop(0, '#4aa8ff');
+        g.addColorStop(0.55, '#5fc8f5');
+        g.addColorStop(1, '#67d3f0');
         S[gKey] = g;
       }
       const nearFull = ratio > 0.9;

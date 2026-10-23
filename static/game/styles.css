@@ -1486,3 +1486,378 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .hint { font-size: 12px; }
 .sp-title { font-size: 12px; }
 .sp-info { font-size: 10.5px; }
+/* UI v4 社区风主题层 —— 205 轮（浅蓝白 / 圆角 / 卡片化，最后叠加） */
+/* ============================================================
+   第二百零五轮：界面换肤 —— 向「猫娘计划社区」的风格靠拢
+   ------------------------------------------------------------
+   用户："你看这是猫娘计划的社区ui，配色啊之类的你都可以参考参考……
+        风格上可以更多靠近社区效果一些。反正可爱好看一些就行，
+        目前的很多ui就是单纯的功能性，和好看不是很挂钩呢。"
+
+   做法：只在这里覆盖 token 与组件外观，不动 ui.js 的 DOM 结构与游戏画布。
+     · 浅蓝白卡片 + 24px 圆角 + 柔和投影（社区那套）
+     · 强调色用社区蓝 #3f9df8 / 青 #5fd3e8，点缀粉 #ff86b8
+     · 主按钮 = 蓝青渐变胶囊；次要按钮 = 白底蓝边
+     · 顶部 HUD 也换成白色玻璃胶囊（原来是深紫方块）
+   ============================================================ */
+
+:root {
+  --bg: #eef6ff;
+  --bg-2: #f7fbff;
+  --panel: #ffffff;
+  --panel-2: #f2f8ff;
+  --line: #d8e8fa;
+  --text: #1b2a41;
+  --text-dim: #6d8099;
+  --pink: #ff86b8;
+  --pink-dim: #ff5d9e;
+  --cyan: #5fd3e8;
+  --gold: #ffc23d;
+  --green: #2fc98a;
+  --red: #ff5f6d;
+  --purple: #a98bff;
+  --blue: #3f9df8;
+  --blue-2: #67d3f0;
+  --radius: 14px;
+  --nk-shadow: 0 18px 44px rgba(26, 62, 120, .18), 0 2px 8px rgba(26, 62, 120, .08);
+  --nk-shadow-sm: 0 6px 18px rgba(26, 62, 120, .12);
+}
+
+/* ---------- 遮罩：给浅色面板垫一层淡蓝雾，画面不打架 ---------- */
+#overlay {
+  background: radial-gradient(120% 120% at 50% 0%, rgba(150, 200, 255, .30), rgba(10, 26, 54, .46));
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+/* ---------- 屏幕面板 ---------- */
+.screen {
+  background:
+    radial-gradient(120% 80% at 50% 0%, #ffffff, rgba(255, 255, 255, 0) 70%),
+    linear-gradient(180deg, #ffffff, #f4faff);
+  border: 1px solid #e2eefb;
+  border-radius: 24px;
+  box-shadow: var(--nk-shadow), inset 0 1px 0 #ffffff;
+  color: var(--text);
+}
+
+.screen h1 {
+  background: linear-gradient(92deg, var(--blue), var(--blue-2) 45%, var(--pink));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: .01em;
+}
+.screen h2 { color: #14243c; letter-spacing: .01em; }
+.screen .sub { color: var(--text-dim); }
+.screen h2.pause-title {
+  color: #ff6ba6;
+  text-shadow: 0 2px 10px rgba(255, 134, 184, .35);
+}
+.screen h2.pause-title::before { filter: hue-rotate(-8deg) saturate(1.15); }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  background: #ffffff;
+  border: 1.5px solid #cfe4fb;
+  color: #3d5570;
+  border-radius: 999px;
+  font-weight: 800;
+  padding: 10px 22px;
+  box-shadow: 0 2px 6px rgba(30, 80, 150, .06);
+}
+.btn:hover:not(:disabled) {
+  background: #eef7ff;
+  border-color: var(--blue);
+  color: #1d3c63;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(63, 157, 248, .22);
+}
+.btn.primary {
+  background: linear-gradient(135deg, #4aa8ff, #67d3f0);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(63, 157, 248, .35), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+.btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #379bff, #4fc8ec);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(63, 157, 248, .45);
+}
+.btn.danger {
+  background: #fff2f4;
+  border-color: #ffc9d2;
+  color: #d93a55;
+}
+.btn.danger:hover:not(:disabled) { background: #ffe6ea; border-color: #ff8fa3; color: #c0243f; }
+.btn:disabled { opacity: .45; }
+
+/* ---------- 卡片（选人 / 商店 / 升级）---------- */
+.card {
+  background: #ffffff;
+  border: 1.5px solid #e3eefb;
+  border-radius: 18px;
+  box-shadow: var(--nk-shadow-sm);
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.card:hover {
+  border-color: rgba(63, 157, 248, .55);
+  background: #ffffff;
+  box-shadow: 0 16px 34px rgba(45, 110, 190, .20);
+  transform: translateY(-3px);
+}
+.card.selected {
+  border-color: var(--blue);
+  background: linear-gradient(180deg, #ffffff, #eef7ff);
+  box-shadow: 0 0 0 3px rgba(63, 157, 248, .18), 0 18px 36px rgba(45, 110, 190, .20);
+}
+.card.cant-afford { opacity: .5; }
+.card.cant-afford:hover { transform: none; border-color: #e3eefb; box-shadow: var(--nk-shadow-sm); }
+
+.card .card-name { color: #14243c; letter-spacing: .01em; }
+.card .card-role,
+.card .kind-tag {
+  background: #e8f3ff;
+  color: #2f7fd0;
+  border: 1px solid #cfe6ff;
+  border-radius: 999px;
+  font-weight: 800;
+  padding: 2px 10px;
+}
+.card .card-desc { color: var(--text-dim); }
+.card .stat-line { color: #55677f; }
+.card .stat-line .v { color: #1d3c63; }
+.card .stat-line .v.up { color: #17a86e; }
+.card .stat-line .v.down { color: #e05070; }
+
+/* ---------- 小节标题 / 提示 ---------- */
+.sec-label {
+  color: #3d87d4;
+  letter-spacing: .14em;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.hint { color: var(--text-dim); }
+.key {
+  background: #eef6ff;
+  border: 1px solid #d3e7fb;
+  color: #3d6f9e;
+  border-radius: 7px;
+}
+.screen .corner-paw, .title-panel .corner-paw { opacity: .18; filter: saturate(.6); }
+
+/* ---------- 属性小表 ---------- */
+.sp-sec { color: #2f7fd0; font-weight: 800; }
+.sp-row { border-bottom: 1px dashed #e4eefa; }
+.sp-k { color: var(--text-dim); }
+.sp-v { color: #1d3c63; font-weight: 800; }
+.sp-v.up { color: #17a86e; }
+.sp-v.down { color: #e05070; }
+
+/* ---------- 商店 ---------- */
+.shop-head { border-bottom: 1px solid #e6f0fb; }
+.shop-money { color: #e39a12; font-weight: 900; }
+.shop-foot { border-top: 1px solid #e6f0fb; color: var(--text-dim); }
+
+/* ---------- 结算 ---------- */
+.result-stat {
+  background: #f4faff;
+  border: 1px solid #e0eefb;
+  border-radius: 16px;
+}
+.result-stat .rs-txt { color: #3d5570; }
+.result-stat .rs-num { color: #14243c; }
+
+/* ---------- 武器栏 ---------- */
+.weapon-slot {
+  background: #f5faff;
+  border: 1.5px dashed #d6e8fa;
+  border-radius: 14px;
+}
+.weapon-slot.filled {
+  background: #ffffff;
+  border-style: solid;
+  border-color: #dbeafa;
+  box-shadow: 0 4px 12px rgba(30, 80, 150, .07);
+}
+.weapon-slot.filled:hover { border-color: var(--blue); box-shadow: 0 8px 20px rgba(63, 157, 248, .22); }
+.weapon-slot .slot-name { color: #1d3c63; }
+.weapon-slot.combinable { border-color: #ffb8d3; box-shadow: 0 0 0 2px rgba(255, 134, 184, .18); }
+.weapon-slot.selected { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(63, 157, 248, .2); }
+
+/* ---------- 顶部 HUD：白色玻璃胶囊 ---------- */
+.hud-wave,
+.hud-timer,
+.hud-materials {
+  background: rgba(255, 255, 255, .92);
+  border: 1px solid rgba(214, 232, 250, .95);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(14, 40, 80, .18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.hud-wave .hud-label { color: #7d93ad; }
+.hud-wave #hud-wave-num { color: #2f7fd0; }
+.hud-sub { color: #93a7bf; }
+.hud-difficulty { background: #ffe9f2; color: #e0507f; border-radius: 999px; }
+.hud-materials { color: #1d3c63; }
+.hud-materials #hud-materials { color: #e39a12; }
+#hud-timer-text { color: #1d3c63; }
+.hud-timer-bar { background: rgba(120, 160, 210, .22); border-radius: 999px; }
+#hud-timer-fill { background: linear-gradient(90deg, #4aa8ff, #67d3f0); border-radius: 999px; }
+.hud-timer.urgent #hud-timer-text { color: #e05070; }
+.hud-timer.urgent #hud-timer-fill { background: linear-gradient(90deg, #ff8fa3, #ff5f6d); }
+
+/* ---------- 标题页：从暗紫哥特搬到「明亮天空」 ---------- */
+.title-scene {
+  background:
+    radial-gradient(70% 55% at 50% 6%, #ffffff 0%, rgba(255, 255, 255, 0) 60%),
+    linear-gradient(180deg, #d9ecff 0%, #c6e2ff 38%, #eaf6ff 100%);
+}
+.title-vignette {
+  background: radial-gradient(120% 105% at 50% 46%,
+    rgba(255, 255, 255, 0) 52%, rgba(150, 195, 240, .12) 78%, rgba(120, 170, 225, .22) 100%);
+}
+.title-stars .t-pink   { color: #ffb3d4; background: #ffe0ef; }
+.title-stars .t-cyan   { color: #a8e8f8; background: #dcf6fd; }
+.title-stars .t-violet { color: #c9b3ff; background: #ece2ff; }
+
+.title-panel {
+  background: linear-gradient(180deg, #ffffff, #f3faff);
+  border: 1px solid #dcebfb;
+  box-shadow: var(--nk-shadow), inset 0 1px 0 #ffffff;
+}
+.title-panel::after { border-color: #e6f1fd; border-radius: 18px; }
+.title-panel .corner-paw { color: #9ecdff; opacity: .9; filter: drop-shadow(0 2px 4px rgba(63, 157, 248, .25)); }
+
+/* 标题字：去掉 6px 黑描边（那套是为深色霓虹底做的，浅底上会糊成一团） */
+.title-head h1 {
+  -webkit-text-stroke: 0;
+  text-stroke: 0;
+  background: linear-gradient(180deg, #8fd0ff 0%, #56b0f8 42%, #2f7ed8 78%, #4a63d8 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter:
+    drop-shadow(0 2px 0 rgba(255, 255, 255, .95))
+    drop-shadow(0 10px 20px rgba(63, 157, 248, .38));
+}
+.title-head h1::before { display: none; }
+.title-head .ear {
+  background: linear-gradient(180deg, #bfe3ff, #4aa8ff);
+  filter: drop-shadow(0 4px 10px rgba(63, 157, 248, .45));
+}
+.title-head .ear::after { background: linear-gradient(180deg, #ffffff, #ffd6e8); }
+
+/* 标题页次要按钮：白底蓝边（原来 .title-panel .btn:not(.primary) 是深色半透明） */
+.title-panel .btn:not(.primary) {
+  background: #ffffff;
+  border-color: #cfe4fb;
+  color: #3d5570;
+}
+.title-panel .btn:not(.primary):hover:not(:disabled) {
+  background: #eef7ff;
+  border-color: var(--blue);
+  color: #1d3c63;
+  box-shadow: 0 8px 20px rgba(63, 157, 248, .22);
+}
+.btn-start:hover:not(:disabled) {
+  box-shadow: 0 16px 34px rgba(63, 157, 248, .45);
+  filter: brightness(1.04);
+}
+
+/* ---------- 浅底上的文字对比度收尾 ---------- */
+.skill-name { color: #1d3c63; }
+.skill-text, .card .skill-text { color: #5b6f88; }
+.skill-tag.ability {
+  background: #e2f6fb;
+  color: #17758f;
+  border: 1px solid #bfeaf4;
+  border-radius: 6px;
+}
+.skill-tag.skill {
+  background: #fff4d9;
+  color: #97660a;
+  border: 1px solid #ffe1a3;
+  border-radius: 6px;
+}
+.result-stat.tone-gold .v { color: #c98600; text-shadow: none; }
+.result-stat.tone-violet .rs-icon { color: #7f5fd0; filter: none; }
+.result-stat.tone-gold .rs-icon { color: #d99b00; }
+
+/* 角色定位标签：去掉旧主题的深色投影/提亮（浅底上会发灰），底色保持各角色本色 */
+.card .card-role { text-shadow: none; filter: none; font-weight: 800; }
+
+/* ---------- 「板子」这一族（属性面板 / 浮窗提示）—— 靠 token 一次性换掉 ---------- */
+:root {
+  --plate-bg: linear-gradient(180deg, #ffffff, #f4faff);
+  --plate-edge: #dbeafb;
+  --plate-shadow: 0 10px 26px rgba(26, 62, 120, .16), inset 0 1px 0 #ffffff;
+}
+.stat-panel { color: #3d5570; }
+.sp-head .sp-name { color: #14243c; }
+.sp-hp-text { color: #5b6f88; }
+.sp-sec {
+  color: #2f7fd0;
+  border-bottom: 1px solid #e6f1fd;
+  padding-bottom: 3px;
+}
+.sp-row { border-bottom: 1px dashed #edf4fc; }
+.sp-k { color: #6d8099; }
+.sp-v { color: #1d3c63; }
+.sp-v.up { color: #17a86e; }
+.sp-v.down { color: #e05070; }
+.sp-q { color: #a8bcd4; }
+.sp-hp-bar { background: #eef4fb; border-radius: 999px; }
+.sp-hp-fill { background: linear-gradient(90deg, #4aa8ff, #67d3f0); border-radius: 999px; }
+.tip-float { color: #3d5570; }
+
+/* ---------- 倒计时数字：原来白→粉的 clip 渐变 + 黑投影，白底上直接消失 ---------- */
+#hud-timer-text {
+  background: linear-gradient(180deg, #8fd0ff 0%, #3f9df8 52%, #2b6fd6 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .95));
+}
+.hud-timer.flandre #hud-timer-text {
+  background-image: linear-gradient(180deg, #ffb3d4 0%, #ff5d9e 70%, #d93a7a 100%);
+}
+.hud-timer.urgent #hud-timer-text {
+  background-image: linear-gradient(180deg, #ff9aa8 0%, #e0344e 70%, #b81f38 100%);
+}
+#hud-timer-label { color: #7d93ad; text-shadow: none; }
+.hud-timer::before, .hud-timer::after {
+  background: linear-gradient(180deg, #bfe3ff, #4aa8ff);
+}
+
+/* ---------- 玩家特效滑条：黑轨道 → 浅蓝轨道 + 蓝点 ---------- */
+input[type="range"].fx-slider { accent-color: #3f9df8; }
+input[type="range"].fx-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #dbeafa, #eef6ff);
+  border: 1px solid #cfe4fb;
+}
+input[type="range"].fx-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #9fd8ff, #3f9df8);
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(63, 157, 248, .55);
+}
+input[type="range"].fx-slider::-moz-range-track {
+  height: 8px; border-radius: 999px;
+  background: linear-gradient(90deg, #dbeafa, #eef6ff);
+  border: 1px solid #cfe4fb;
+}
+input[type="range"].fx-slider::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #3f9df8; border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(63, 157, 248, .55);
+}
+
+/* ---------- 对比度收尾（页面内实测 < 4.5 的几处） ---------- */
+.screen h2.pause-title { color: #d93d78; text-shadow: 0 2px 8px rgba(217, 61, 120, .22); }
+.hud-sub { color: #6d8099; }
+.hud-wave .hud-label { color: #5b7190; }
+.result-stat.tone-gold .v { color: #a86f00; }

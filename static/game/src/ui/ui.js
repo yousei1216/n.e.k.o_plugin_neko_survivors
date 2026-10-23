@@ -583,7 +583,7 @@ export class UI {
               <div class="card-name">${c.name}</div>
               <!-- 第一百六十轮：定位 = 带底色圆角小标签（用户："做成一个带
                    底色的圆角小标签，不要只是一行小字"） -->
-              <div class="card-role" style="background:${c.color}22;border-color:${c.color}66;color:color-mix(in srgb,${c.color} 52%,#fff)">${c.role}</div>
+              <div class="card-role" style="background:${c.color}1f;border-color:${c.color}66;color:color-mix(in srgb,${c.color} 74%,#0f1f38)">${c.role}</div>
             </div>
           </div>
           <div class="card-desc">${c.desc}</div>
