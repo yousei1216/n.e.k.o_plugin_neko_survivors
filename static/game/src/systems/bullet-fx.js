@@ -15,6 +15,7 @@
 //
 // 使用：renderer 每帧开头 beginFrame(n)，之后逐弹 drawEnemyBullet(ctx, b)。
 import { MOBILE } from '../core/mobile.js';
+import { makeCanvas } from './no-dom.js';
 
 const TAU = Math.PI * 2;
 const SZ = 64;          // 精灵画布边长（弹型统一朝 +x，中心 (32,32)）
@@ -44,7 +45,7 @@ const mixc = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a
 const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 
 function mk(w, h) {
-  const c = document.createElement('canvas');
+  const c = makeCanvas();
   c.width = w; c.height = h;
   return c;
 }

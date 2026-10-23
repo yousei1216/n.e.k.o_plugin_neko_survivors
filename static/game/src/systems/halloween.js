@@ -22,6 +22,16 @@ import { layoutWord } from './halloween-font.js';
 export const ARENA = { cx: 0, cy: 40, hw: 640, hh: 330 };
 // 双猫悬浮位（屏幕上半部，左右对称；y 基线 + Math.sin 浮动在 draw/update 里加）
 export const CAT_Y = ARENA.cy - ARENA.hh + 120;
+
+// ---- 185 轮：追踪猫爪（NEKO TRACKER）与角落封堵（见 _tickCorners）参数 ----
+export const CLAW_SECTION_S = 13;   // 节长（原 7）
+export const CLAW_LIFE_S = 12;       // 爪寿命（原 6）
+export const CLAW_TURN = 2.8;        // 转向速率上限 rad/s（原 2.2）
+export const CLAW_INTERVAL = 2.2;    // 发射间隔（原 1.2）
+export const CLAW_PER_VOLLEY = 2;    // 每次几只（原 3）。寿命 12s ÷ 间隔 2.2s ≈ 5.5 次 × 2 ≈ 11 只同时在场
+export const CLAW_MAX = 14;          // 同屏上限 —— 必须 > 稳态数量，否则「丢最老」会把寿命实际压回 ~6s（测试抓到过）
+export const CORNER_PERIOD = { 2: 4.6, 3: 3.0 };   // 角落封堵的间隔（按阶段）
+export const NO_CORNER_SECTIONS = new Set(['intro', 'split', 'candy']);   // 这些节不加角落弹
 export const CAT_X_OFF = 270;
 
 // 弹速换算：原版 px/帧 @60fps → px/s
@@ -115,6 +125,7 @@ export class HalloweenFight {
     this.curSpell = '';
     this._alt = 0;               // 双猫交替旗
     this._orbit = 0;             // 激光旋转角
+    this._cornerAlt = 0;         // 185 轮：角落封堵由哪只猫出手（交替）
     this.waves = [];             // 激光束（{x,y,angle,rot,t,life,who}）
     this.pumpkins = [];          // 南瓜（投影点 + 落地计时）
     this.timeLeft = 0;           // UI 显示：剩余演出秒数
@@ -151,7 +162,7 @@ export class HalloweenFight {
       { name: 'split', spell: 'WE ARE SCARY!', word: ['HAPPY', 'HALLOWEEN'], dur: 6, tick: (dt) => this._tickSplit(dt) },
       { name: 'alt_ring', spell: 'TWIN FANG DANCE', dur: 10, tick: (dt) => this._tickAltRing(dt) },
       { name: 'laser', spell: 'CROSS NIGHT PARADE', dur: 10, tick: (dt) => this._tickLaser(dt) },
-      { name: 'claw', spell: 'NEKO TRACKER', dur: 7, tick: (dt) => this._tickClaw(dt) },
+      { name: 'claw', spell: 'NEKO TRACKER', dur: CLAW_SECTION_S, tick: (dt) => this._tickClaw(dt) },
       { name: 'candy', spell: 'SUGAR RUSH', word: ['SWEET'], dur: 7, tick: (dt) => this._tickCandy(dt) },
       { name: 'rage', spell: 'BUNNY EXTINCTION', word: ['BUNNY', 'EXTINCTION'], dur: 12, tick: (dt) => this._tickRage(dt) },
     ];
@@ -358,33 +369,80 @@ export class HalloweenFight {
     this.waves = this.waves.filter((b) => (b.t -= dt) > 0);
   }
 
+  /**
+   * 角落封堵（185 轮，用户："双猫boss战的角落较为安全，适当增加飞往角落的弹幕吧"）。
+   * 环/扇/墙都以猫或玩家为基准，躲在场地四角的玩家几乎碰不到任何东西。
+   * 阶段 2 起每 CORNER_PERIOD[阶段] 秒，由当前出手的猫向四个角**逐个错开 0.3s**各打一束 3 发扇形弹
+   * （不同时到达 → 角落里的人有读弹的时间，但不能一直赖着）。弹速 2.3 px/帧，射程盖过对角线。
+   * 阶段 1（开场/环）不加；开场、分裂、糖果雨不加（见 NO_CORNER_SECTIONS）。
+   */
+  _tickCorners(dt) {
+    const period = CORNER_PERIOD[this.phase];
+    if (!period) return;
+    this._cornerT = (this._cornerT ?? period * 0.5) - dt;
+    if (this._cornerT > 0) return;
+    this._cornerT = period;
+    const who = this._cornerAlt++ % 2 ? 'vanilla' : 'choco';
+    const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    const start = (this._cornerRot = ((this._cornerRot ?? -1) + 1) % 4);   // 每轮从不同的角开始，别让人背
+    for (let k = 0; k < 4; k++) {
+      const [sx, sy] = corners[(start + k) % 4];
+      const tx = ARENA.cx + sx * (ARENA.hw - 30), ty = ARENA.cy + sy * (ARENA.hh - 30);
+      this._q.push({
+        at: this.t + k * 0.3,
+        fn: () => {
+          const p = this._catPos(who);
+          const base = Math.atan2(ty - (p.y + 20), tx - p.x);
+          for (let i = -1; i <= 1; i++) this._shot(p.x, p.y + 20, base + i * 0.1, 2.3, { color: 'cyan', radius: 6, range: 1500, hwKind: 'corner' });
+        },
+      });
+    }
+  }
+
+  /** 离 (x,y) 最近的存活且未倒地的玩家（没有则 null） */
+  _nearestAlive(x, y) {
+    let best = null, bd = Infinity;
+    for (const pl of this.main.world.players()) {
+      if (!pl || pl.dead || pl.downed) continue;
+      const d = (pl.x - x) ** 2 + (pl.y - y) ** 2;
+      if (d < bd) { bd = d; best = pl; }
+    }
+    return best;
+  }
+
   _tickClaw(dt) {
     // 追踪猫爪：慢速追踪弹（转向速率有限，走位拉扯可以甩掉）
+    // 185 轮（用户："最后阶段那5个追踪紫球会散出一大堆弹幕很不错，但是持续时间太短了，还没怎么追就结束了……
+    // 让她们持续更久一些。不然现在还没造成威胁就消散了"）：
+    //   节长 7→13s、爪寿命 6→12s、转向 2.2→2.8 rad/s；追**最近的活人**（原来永远追第一个活着的，其余玩家几乎无感）；
+    //   发射间隔 1.2→1.6s，同屏最多 CLAW_MAX 只，避免寿命翻倍后弹量爆炸。
     this._emit += dt;
-    if (this._emit > 1.2) {
+    if (this._emit > CLAW_INTERVAL) {
       this._emit = 0;
       const who = this._alt % 2 ? 'vanilla' : 'choco';
       const px = this._catPos(who);
-      const target = this.main.world.players().find((pl) => pl && !pl.dead && !pl.downed);
+      const target = this._nearestAlive(px.x, px.y);
       if (target) {
         const base = Math.atan2(target.y - px.y, target.x - px.x);
-        for (let i = -1; i <= 1; i++) {
-          const a = base + i * 0.35;
-          const b = { x: px.x, y: px.y + 20, vx: Math.cos(a) * V(1.1), vy: Math.sin(a) * V(1.1), t: 6, life: 6 };
-          (this._claws ??= []).push(b);
+        for (let i = 0; i < CLAW_PER_VOLLEY; i++) {
+          const a = base + (i - (CLAW_PER_VOLLEY - 1) / 2) * 0.5;   // 2 只：±0.25rad；3 只：-0.5/0/+0.5
+          const b = { x: px.x, y: px.y + 20, vx: Math.cos(a) * V(1.1), vy: Math.sin(a) * V(1.1), t: CLAW_LIFE_S, life: CLAW_LIFE_S };
+          const list = (this._claws ??= []);
+          list.push(b);
+          if (list.length > CLAW_MAX) list.shift();   // 超限丢最老的
         }
       }
       this._alt++;
     }
     for (const c of (this._claws ?? [])) {
-      const target = this.main.world.players().find((pl) => pl && !pl.dead && !pl.downed);
+      const target = this._nearestAlive(c.x, c.y);
       if (target) {
         const want = Math.atan2(target.y - c.y, target.x - c.x);
         const cur = Math.atan2(c.vy, c.vx);
         let da = want - cur;
         while (da > Math.PI) da -= TAU;
         while (da < -Math.PI) da += TAU;
-        const turn = Math.max(-2.2 * dt, Math.min(2.2 * dt, da));   // 转向速率上限
+        const turn = Math.max(-CLAW_TURN * dt, Math.min(CLAW_TURN * dt, da));   // 转向速率上限
         const sp = Math.hypot(c.vx, c.vy);
         const na = cur + turn;
         c.vx = Math.cos(na) * sp; c.vy = Math.sin(na) * sp;
@@ -508,7 +566,10 @@ export class HalloweenFight {
       const step = Math.min(dt, sec.dur - this.phaseT);
       // 单词"独奏窗口"：带单词的节开场 1.6s 不叠加其他攻击，让灯珠字先被看清
       // （实测：与环形/扇形弹混在一起时，义眼和玩家都读不出单词）
-      if (!(sec.word && this.phaseT < 1.6)) sec.tick.call(this, dt, this.t);
+      if (!(sec.word && this.phaseT < 1.6)) {
+        sec.tick.call(this, dt, this.t);
+        if (!NO_CORNER_SECTIONS.has(sec.name)) this._tickCorners(dt);
+      }
       this.phaseT += step;
       if (this.phaseT >= sec.dur) { this.phaseIdx++; this.phaseT = 0; this._emit = 0; this.spellT = 0; this.spellT += 0; }
       this.timeLeft = Math.max(0, this.totalShow - this.t);

@@ -6,10 +6,11 @@
 //
 // 全部预烘焙精灵 + 确定性公式（无状态），帧内零 createRadialGradient / shadowBlur。
 // 粒子位置全由 (i, t) 推出，不占内存、暂停时自然冻结。
+import { makeCanvas } from './no-dom.js';
 const TAU = Math.PI * 2;
 
 function mk(w, h) {
-  const c = document.createElement('canvas');
+  const c = makeCanvas();
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
   return c;
 }

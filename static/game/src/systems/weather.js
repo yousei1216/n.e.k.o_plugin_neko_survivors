@@ -102,7 +102,7 @@ export class WeatherSystem {
       // 第一百八十三轮：淡出段的视觉消散**也要推进** —— 之前 blocked 直接
       // return，fadeT 永不倒计时 → 19 波的雾贴图一路卡到 20 波 boss、
       // 芙兰战都在（用户实测："雾气一直没消失……看不到周围的情况下打芙兰"）
-      if (this.phase === 'fading') this._tickFade(dt);
+      if (this.phase === 'fading') this._tickFade(dt, world);
       this._applyFlags();
       return;
     }
@@ -116,7 +116,7 @@ export class WeatherSystem {
       // ---- 第一百六十轮：淡出段（2.5s）----
       // 玩法效果已在 _end 里随 flags 归零停掉；这里只做视觉消散：
       // 雾团/龙卷按 r0 线性收缩到 0，雨滴按比例变稀。
-      this._tickFade(dt);
+      this._tickFade(dt, world);
     } else if (this.phase === 'cooldown') {
       this.cd -= dt;
       if (this.cd <= 0) { this.phase = 'idle'; this.rollAcc = 0; }
@@ -169,6 +169,8 @@ export class WeatherSystem {
     // id 和实体都保留（渲染继续画、visualAlpha 渐降）；玩法效果立刻停：
     // 下面的 _applyFlags 读不到 active，全部 hook 旗标归零。
     this.cd = this.dur;          // 天气结束后对应时长内不再进入
+    // 185 轮：流星雨结束时，尚未起飞的预警圈（warnT > 0.55）取消；已起飞的火球留着继续落地（见 _fadeMeteors）
+    if (this.id === 'meteor') this.meteors = this.meteors.filter((m) => m.warnT <= 0.55);
     this.phase = 'fading';
     this._fadeDur = fast ? 1.2 : WEATHER_FADE_T;
     this.fadeT = this._fadeDur;
@@ -186,9 +188,11 @@ export class WeatherSystem {
   }
 
   /** 淡出段推进（第一百八十三轮抽出 —— 正常路径与 boss 波 blocked 路径共用） */
-  _tickFade(dt) {
+  _tickFade(dt, world = null) {
     this.fadeT -= dt;
     const k = this.visualAlpha;
+    // 185 轮：流星雨的收尾 —— 之前淡出段不推进流星，空中的火球和燃烧区被冻住 2.5 秒再一把清掉（用户实测"卡住"）
+    if (this.id === 'meteor') this._fadeMeteors(dt, world);
     for (const c of this.fogClouds) {
       if (c.r0 == null) c.r0 = c.r;
       c.r = c.r0 * k;
@@ -203,6 +207,39 @@ export class WeatherSystem {
       this._clearEntities();
       this.id = null;
     }
+  }
+
+  /**
+   * 流星雨淡出段（纯视觉，无伤害、不上灼烧）：
+   *  · 已经起飞的火球（warnT ≤ 起飞阈值）继续落地，落地只放视觉；
+   *  · 燃烧区继续计时，剩余寿命封顶为淡出剩余 —— 所有特效在淡出结束的同一刻落幕，最后 0.8s 由渲染端渐隐。
+   * 还没起飞的预警圈已在 _end 里取消（它们只是预警，天气已结束）。
+   */
+  _fadeMeteors(dt, world) {
+    for (let i = this.meteors.length - 1; i >= 0; i--) {
+      const m = this.meteors[i];
+      m.warnT -= dt;
+      if (m.warnT > 0) continue;
+      this.meteors.splice(i, 1);
+      if (world) this._impactVisual(world, m);
+    }
+    const cap = Math.max(0.01, this.fadeT);
+    for (let i = this.burnZones.length - 1; i >= 0; i--) {
+      const z = this.burnZones[i];
+      z.t = Math.min(z.t - dt, cap);
+      if (z.t <= 0) this.burnZones.splice(i, 1);
+    }
+  }
+
+  /** 淡出段落地的纯视觉版 _impact：震屏减半、不扣血、不上灼烧；燃烧区寿命 ≤ 淡出剩余 */
+  _impactVisual(world, m) {
+    world.camera?.shake?.(4 + m.r / 80, 0.22);
+    this.flash = Math.max(this.flash, 0.1);
+    world.fx?.shockwave?.(m.x, m.y, m.r * 1.15, '#ffd9a0', 0.38);
+    world.fx?.shockwave?.(m.x, m.y, m.r * 0.9, '#ff7a3a', 0.52);
+    const shardN = Math.max(6, Math.min(24, Math.round(m.r / 10)));
+    world.fx?.shards?.(m.x, m.y, Math.round(m.r * 0.4), '#ffb066', shardN);
+    if (this.fadeT > 0.3) this.burnZones.push({ x: m.x, y: m.y, r: m.r, t: Math.min(3, this.fadeT), max: 3, visualOnly: true });
   }
 
   _clearEntities() {

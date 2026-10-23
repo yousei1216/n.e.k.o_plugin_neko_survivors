@@ -9,10 +9,11 @@
 // 本模块只管"画"，不碰任何判定/伤害（那些仍在 comet.js 里）。全部预烘焙，帧内零渐变创建。
 // 注意：规格书第 9 节说"没有龙"并不准确 —— 现有游戏有真正的龙贴图(fly.png / roar.png)，
 // 保留不动；本次重做的是火雨、爆炸、冲击波、龙吼与屏幕氛围。
+import { makeCanvas } from './no-dom.js';
 const TAU = Math.PI * 2;
 
 function mk(w, h) {
-  const c = document.createElement('canvas');
+  const c = makeCanvas();
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
   return c;
 }

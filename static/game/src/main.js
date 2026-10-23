@@ -441,11 +441,11 @@ export class Game {
       // 隐藏** —— 用户："把这个按钮默认隐藏，在玩家成功击败过一次EP
       // 难度芙兰之后永久开启。" EP（Extra Phantom）存活 60 秒拿到
       // outcome 'beat' 时置 meta.flandreUnlocked（localStorage 永久）。
-      onFlandreTest: this.meta.flandreUnlocked ? () => this._debugStartFlandre() : null,
-      // 第一百八十四轮：直通万圣节双猫按钮 —— 测试期**常显**（用户：
-      // "我的标题页没有按钮……加个新的测试按钮看看吧"；她的解锁排芙兰
-      // 后面，正式版再按 halloweenUnlocked 收口）。
-      onHalloweenTest: () => this._startHalloweenTest(),
+      // 第一百八十五轮（用户："把主菜单的测试双猫boss战按钮换成芙兰按钮吧，我可以直接进入测试"）：
+      // 芙兰按钮**常显**、不再要求击败过一次 EP；直通 4P 测试局（P1 自己操作，P2~P4 AI）。
+      // 万圣节双猫的标题页按钮下线（传 null 隐藏）；?halloween=1 直达口子保留，测试/调参不受影响。
+      onFlandreTest: () => this._startFlandreTest(),
+      onHalloweenTest: null,
       // 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮 + ?vergil=1 直达）
       // 第一百五十五轮：测试按钮下线（用户："测试完毕，很不错，把测试
       // 大排档椅子的按钮隐藏，ui布局看一下不难看就行"）—— 传 null 隐藏
@@ -655,6 +655,7 @@ export class Game {
     // 原来永久累计（跨局继承），语义改为"本局（自第 1 波起）累计"，
     // 开新一局就归零重新数。
     this.meta.retries = 0;
+    this.meta.manualRetries = 0;   // 185 轮：此前漏了清零，跨局永久累计（芙兰"0 重开却见不到"的根因）
     this._saveMeta();
     // 第十一轮：上一波用过的背景 id，用来保证相邻两波不重复。
     // 开局清零 —— 每局第 1 波都应该能随便抽（不该被上一局的最后一波限制）。
@@ -1693,8 +1694,8 @@ export class Game {
       // AI 团灭自动重试也累计 meta.retries，AI 代打打到 20 波时早已 >3，
       // 芙兰永不解锁（用户："芙兰还没出来就莫名判定赢了"）。手动重开才
       // 算"重开次数"；旧档没有 manualRetries 字段时回落总数（保守）。
-      const flandreRetries = this.meta?.manualRetries ?? this.meta?.retries;
-      if (flandreUnlockOk(this.difficultyId, flandreRetries)) {
+      // 185 轮：重开次数前置已删除（见 flandreUnlockOk 的说明），噩梦通关 20 波必见芙兰。
+      if (flandreUnlockOk(this.difficultyId)) {
         this._startFlandre();
         return;
       }
@@ -2086,20 +2087,25 @@ export class Game {
 
   /** 第一百八十四轮：直通芙兰战测试局（?flandre=1，同维吉尔实验室口子）。
    * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，AI 大脑全开 —— 弹幕躲避调参用。 */
-  _startFlandreTest() {
+  _startFlandreTest(opts = {}) {
     try {
       this.setDifficulty('nightmare');
-      this.startRun('yui');
+      this.startRun('yui', { party: 4 });   // 4P 阵容（AI 猫娘一起躲弹幕、倒地、救人）
       this.player.addWeapon('meow_cannon');
       this.player.addWeapon('meow_cannon');
       this.player.addWeapon('meow_cannon');
       this.player.charMul = { ...this.player.charMul, damage: 5 };
       for (const id of ['cat_taffy', 'warm_milk', 'warm_milk']) this.player.addItem(id);
       this.meta.retries = 0;
+      this.meta.manualRetries = 0;
       this._bindPartyPilots(4);
-      window.NekoAgent?.pilot?.adopt(this);
+      // 185 轮：不再 adopt P1 —— 旧版把 P1 交给 AI 木偶接管，玩家键盘被 agentBlocked 拦掉 = "无法操作"
+      //（与万圣节测试局 v0.3.88 同一个坑）。P2~P4 照常 AI 参战；用户要**自己**进去玩。
       this._startFlandre();
-    } catch { /* */ }
+    } catch (e) {
+      console.error('[flandre-test]', e);   // 以前这里是空 catch，?flandre=1 启动失败时完全没有任何线索
+      this.ui?.toast?.('芙兰测试局启动失败：' + (e?.message ?? e), 'bad');
+    }
   }
 
   /**

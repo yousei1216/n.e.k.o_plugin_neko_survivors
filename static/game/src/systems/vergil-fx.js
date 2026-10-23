@@ -10,10 +10,11 @@
 // 刀光(月牙/横斩)的形状是多轮打磨过的，不动；这里只在它们**下面垫一层**加法辉光和拖影。
 //
 // 全部预烘焙，帧内零渐变创建；位置由确定性公式给出(无状态、不占内存)。
+import { makeCanvas } from './no-dom.js';
 const TAU = Math.PI * 2;
 
 function mk(w, h) {
-  const c = document.createElement('canvas');
+  const c = makeCanvas();
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
   return c;
 }

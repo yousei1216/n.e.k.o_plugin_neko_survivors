@@ -101,9 +101,16 @@ export const CARD_INFO = {
   heart: { name: '「弹幕的心脏」' },
 };
 
-/** 解锁判定：噩梦难度 + 本局总重开次数 ≤ 3（用户原话"死亡超过3次无法见到她"） */
-export function flandreUnlockOk(difficultyId, retries) {
-  return difficultyId === 'nightmare' && (retries || 0) <= 3;
+/**
+ * 解锁判定：噩梦难度通关 20 波即见到她。
+ *
+ * 第一百八十五轮（用户实测："噩梦难度 0 重开没有遇到芙兰……把噩梦难度遇到芙兰的前置条件删了吧，感觉是遇到了
+ * 什么 bug"）：删除「重开次数 ≤ 3」前置。排查发现那个 bug 就是这个前置本身 ——
+ * 它读的 meta.manualRetries 从来没有在新局清零（meta.retries 有 5 处清零，唯独它是跨局永久累计并落盘），
+ * 手动重试几次后永远 >3，芙兰就再也不出现。第二参数 retries 保留只为兼容旧调用，现在被忽略。
+ */
+export function flandreUnlockOk(difficultyId, _retries) {
+  return difficultyId === 'nightmare';
 }
 
 // 芙兰本尊的敌人定义在 data/enemies.js（'flandre'）——

@@ -9,6 +9,7 @@
 //   drawSigil   世界空间 —— 每张符卡专属的星形法阵（{n/k} 星多边形 + 符文环），叠在原有两层阵外面
 //   drawDeclare 世界空间 —— 符卡宣言：核心闪光 + 双层冲击波环 + 放射光芒（主题色）
 //   drawHud     屏幕空间 —— 符卡名铭牌（滑入，分类 + 标题）、消弹冷却进度条、EP 倒计时、宣言白闪
+import { makeCanvas } from './no-dom.js';
 const TAU = Math.PI * 2;
 
 // ---------------------------------------------------------------
@@ -32,7 +33,7 @@ export const CARD_THEME = {
 const DEFAULT_THEME = { color: '#ff4060', n: 5, k: 2 };
 
 function mk(w, h) {
-  const c = document.createElement('canvas');
+  const c = makeCanvas();
   c.width = Math.max(1, Math.ceil(w)); c.height = Math.max(1, Math.ceil(h));
   return c;
 }
@@ -197,8 +198,11 @@ function bakeRays() {
   return c;
 }
 
+/** 没有 DOM（Node 测试 / 极端环境）时返回 false，调用方直接跳过绘制 —— 与项目"素材没就绪就不画、战斗照常"的原则一致 */
 function ensure() {
+  if (typeof document === 'undefined') return false;
   if (!WING) { WING = bakeWing(); FOG = bakeFog(); RAYS = bakeRays(); }
+  return true;
 }
 
 // ---------------------------------------------------------------
@@ -206,7 +210,7 @@ function ensure() {
 // ---------------------------------------------------------------
 /** ax, ay = 竞技场中心的屏幕坐标 */
 export function drawBg(ctx, fight, ax, ay, W, H) {
-  ensure();
+  if (!ensure()) return;
   const t = fight.t ?? 0;
   const eff = Math.min(1, fight.bg?.eff ?? 0);                // 芙兰登场后才浮现
   const tintA = Math.min(1, fight.tint?.alpha ?? 0);
@@ -288,7 +292,7 @@ export function themeOf(fight) {
 
 /** 叠在原有紫/黄两层阵外面的专属星形法阵；alpha 复用原阵的淡入淡出 */
 export function drawSigil(ctx, fight, anchor, alpha) {
-  ensure();
+  if (!ensure()) return;
   const th = themeOf(fight);
   const t = fight.t ?? 0, born = fight.circleBornAt ?? t;
   const sp = fight.spell;
@@ -315,7 +319,7 @@ export function drawSigil(ctx, fight, anchor, alpha) {
 export function drawDeclare(ctx, fight, anchor) {
   const sp = fight.spell;
   if (!sp || sp.t > 0.9) return;
-  ensure();
+  if (!ensure()) return;
   const th = themeOf(fight), u = sp.t / 0.9;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -343,7 +347,7 @@ export function drawDeclare(ctx, fight, anchor) {
 
 /** 发射器发光体（符卡脚本 st.vis 里 kind:'glow'）：白热核 + 主题色辉光 + 缓慢旋转的十字星芒，加法 */
 export function drawGlowEmitter(ctx, v, t) {
-  ensure();
+  if (!ensure()) return;
   const a = (v.a ?? 1);
   const pulse = 0.85 + 0.15 * Math.sin(t * 7 + (v.x + v.y) * 0.01);
   const d = v.r * 5.2 * pulse;

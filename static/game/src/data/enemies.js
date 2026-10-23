@@ -399,7 +399,8 @@ export const ENEMIES = [
   // 素材取自 rabiribi 弹幕库：潘多拉「格镜落弹」、诺诺「天幕横雨 + 三向落柱」。
   // 数值沿用同波次旧 Boss（血量/护甲/奖励/伤害完全对齐），平衡口径不变；只换"玩法"。
   {
-    id: 'boss_pandora', name: '格镜魔女·潘多拉', hp: 1860, speed: 110, damage: 19.2, radius: 44,
+    // speed 120 = 移速地板（第十八轮：所有怪不得慢于地板）
+    id: 'boss_pandora', name: '格镜魔女·潘多拉', hp: 1860, speed: 120, damage: 19.2, radius: 44,
     color: '#c56cf0', shape: 'star', behavior: 'boss', armor: 10,
     xp: 60 * BOSS_LOOT_MUL, materials: 60 * BOSS_LOOT_MUL,
     boss: true, bossName: '格镜魔女·潘多拉',
@@ -407,12 +408,12 @@ export const ENEMIES = [
     projectileCount: 6, projectileSpread: 360, summonCount: 3, summonCooldown: 9,
     bulletJitterDeg: [5, 15],
     noCanvasEyes: true,
-    kite: 'flee',
+    // 不配 kite:'flee'：那是被殴猫娘的专属走位（第四十轮测试钉死"只有她在用"）；潘多拉走通用的保持中距离。
     signature: 'pandora',
     desc: '第 10 波的守关 Boss（魔女）。弹幕按 64px 网格左右镜像砸落，正对你的位置留着安全缝；血越少，侧击与星弹螺旋越多。',
   },
   {
-    id: 'boss_nono', name: '天幕机兵·诺诺', hp: 2250, speed: 100, damage: 26.4, radius: 50,
+    id: 'boss_nono', name: '天幕机兵·诺诺', hp: 2250, speed: 120, damage: 26.4, radius: 50,
     color: '#4ab8ff', shape: 'star', behavior: 'boss', armor: 18,
     xp: 120 * BOSS_LOOT_MUL, materials: 120 * BOSS_LOOT_MUL,
     boss: true, bossName: '天幕机兵·诺诺',
