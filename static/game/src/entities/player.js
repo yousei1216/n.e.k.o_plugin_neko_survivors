@@ -1034,7 +1034,9 @@ export class Player extends Entity {
     if (this.invuln > 0 || this.dead || this.downed) return 0;   // 185 轮：倒地者不再吃弹（与 takeDamage 同口径）
     const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.22
       // 第一百六十六轮：猫娘代打光环对芙兰真伤同样削到 1/4（22% → 5%）
-      * (this.pilotBuff ? 0.25 : 1)));
+      * (this.pilotBuff ? 0.25 : 1)
+      // 199 轮：序章 30 秒教学卡里队友 AI 的减伤（FlandreFight 在序章期间置 0.5，转入正式符卡/收尾时复位 1）
+      * (this.flandreEase ?? 1)));
     this.hp -= dmg;
     this.damageTaken += dmg;
     // 第九十七轮：1 秒受击免疫（FLANDRE_HIT_INVULN），否则一发连发直接蒸发

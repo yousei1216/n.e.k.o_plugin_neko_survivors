@@ -617,6 +617,8 @@ export class NekoPilot {
       const vf = world?.vergilFight;
       const ff = world?.flandreFight;
       const hf = world?.halloweenFight;
+      // 199 轮：P1 代打在芙兰战里会用小小猫娘消弹（见 _maybePurge）。队友 AI（entity）不按 —— 消弹是 P1 的技能，冷却共享。
+      if (ff && !this.entity) this._maybePurge(world, p, ff);
       const b = vf?.boss ?? ff?.boss;
       // 第一百八十四轮：万圣节双猫战用宽屏场地（用户："移动场地可以大点"）
       const arena = hf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : VIRGIL_ARENA;
@@ -671,6 +673,21 @@ export class NekoPilot {
         const ss = this._safeStep(g, p, tx, ty, arena);
         tx = ss.x; ty = ss.y;
         this._dodgeNow = !!ss.danger;
+      } else if (ff) {
+        // ---- 199 轮（用户："教学30秒的弹幕因为没有芙兰存在，所以ai猫娘完全不动直接吃弹幕到全死"）----
+        // 序章 30 秒教学弹幕期间芙兰还没出场（ff.boss 为空），原来落进下面"待命"分支 —— 站着不动不躲弹。
+        // 现在和有 boss 时一样做预测式找缝（_safeStep），在场地下半区巡游（弹幕多从上方来）。
+        // 待命点：实测（tools/_prologue-map.mjs / _prologue-map2.mjs，全场 80+ 个静止位置 × 3~4 种子）——
+        // 这张卡的旋转十字弹幕在场地【侧边/四角堆积】（|x|≥0.5×半宽、|y|≥0.5×半高时 18~20 次被击中），中心也不好（12~17），
+        // 真正安全的是一个小口袋：|x| ≤ 0.2×半宽、y = 中心 ± 0.55×半高（4.3~5 次，比默认出生点站桩还好）。
+        // 所以：待在离自己较近的那一侧口袋里，横向只在 ±0.2×半宽内微调；弹逼近时再由 _safeStep 预测躲避。
+        const band = (p.y >= arena.cy ? 1 : -1) * arena.hh * 0.55;
+        tx = Math.max(arena.cx - arena.hw * 0.2, Math.min(arena.cx + arena.hw * 0.2, p.x));
+        ty = arena.cy + band;
+        // 不做任何位移躲避 —— 三种躲法 A/B 实测（10 个种子，30 秒）：
+        //   纯口袋待命 5.5 次 ＜ 口袋+逃避向量 7.0 次 ＜ 口袋+_safeStep 预测跳步 7.6~9.7 次。
+        // 这张卡是以场地中心为轴的切线"风车"弹线，一动就容易横穿弹线；站在口袋里让弹线从旁边掠过最稳。
+        // （旧行为：站在场地正中心不动 = 17.0 次，所以"全死"。）
       } else {
         // boss 不在场（演出阶段）：守在场地中心附近待命，绝不乱跑出框
         tx = arena.cx; ty = arena.cy;
@@ -910,6 +927,34 @@ export class NekoPilot {
    * 所以没危险时仍走原来的环绕/巡游，有危险时才被推进缝里。
    * 仅用于万圣节战；返回新的目标点（离开当前位置 ≤160px）。
    */
+  /**
+   * 199 轮：芙兰战里 P1 代打用"小小猫娘消弹"自救（用户："教学30秒的弹幕……ai猫娘完全不动直接吃弹幕到全死"）。
+   * 此前 AI 从来不按消弹 —— 它是这套战斗最核心的保命手段（半径 180、冷却 15s、手动触发送 1s 无敌）。
+   * 触发：≥1 颗弹在 0.3 秒内会擦到自己（弹道垂距 < 判定半径 + 自身 + 10px），且消弹已就绪（首版门槛 ≥2 颗：30 秒里 3 个种子只触发 1 次、且在 32 秒才触发，太晚）。
+   * 只有 P1 代打调用（!this.entity）：消弹冷却是整场共享的，队友 AI 按了会抢走人类玩家的技能。
+   */
+  _maybePurge(world, p, ff) {
+    if (ff.over || !ff._hinted || ff.purgeCd > 0 || ff.nova) return false;
+    const ebs = world?.enemyBullets?.items;
+    if (!Array.isArray(ebs)) return false;
+    const myR = p.hitR ?? p.radius ?? 10;
+    let imminent = 0;
+    for (const b of ebs) {
+      if (!b || b.dead) continue;
+      const dx = p.x - b.x, dy = p.y - b.y, d2 = dx * dx + dy * dy;
+      if (d2 > 140 * 140) continue;
+      const sp = b.speed ?? 0; if (sp < 30) continue;
+      const vx = Math.cos(b.angle ?? 0) * sp, vy = Math.sin(b.angle ?? 0) * sp;
+      const tcl = (dx * vx + dy * vy) / (sp * sp);          // 最近点时刻
+      if (tcl < 0 || tcl > 0.3) continue;
+      const mx = dx - vx * tcl, my = dy - vy * tcl;
+      if (Math.hypot(mx, my) < (b.hitRadius ?? b.radius ?? 6) + myR + 10) imminent++;
+      if (imminent >= 1) break;
+    }
+    if (imminent < 1) return false;   // 冷却只有 15s、手动触发还送 1s 无敌：有 1 颗确定会命中就按，不省着
+    ff.tryManualPurge();
+    return true;
+  }
   _safeStep(g, p, tx, ty, arena) {
     const S = this._skillCfg();
     // 197 轮：走神——整次预测被跳过（返回原目标，当没看见）。pro 为 0

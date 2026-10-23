@@ -344,12 +344,20 @@ export class Renderer {
     if (world.halloweenFight) HR.drawCats(ctx, world.halloweenFight);
 
     // ---- 敌人子弹 ----
-    BFX.beginFrame(world.enemyBullets.items.length);   // 按弹量选 LOD（拖尾/柔光）
+    BFX.beginFrame(world.enemyBullets.items.length, !!world.flandreFight);   // 按弹量选 LOD（拖尾/柔光）；199 轮：芙兰战永远全质量，其它战斗带迟滞
+    // 199 轮：普通弹收集成一批交给 BFX.drawBatch（两遍绘制：柔光/余烬一次加法 + 本体一次普通；旋转 setTransform 合成）。
+    // 激光(laser)与大玉(jade)是特例，仍走 _drawEnemyBullet，画在批之后（在最上层，大玉的判定圈要看得清）。
+    const batch = this._bfxBatch ?? (this._bfxBatch = []);
+    batch.length = 0;
+    let special = null;
     for (const b of world.enemyBullets.items) {
       if (b.halloween) continue;   // 万圣节弹走自己的发光批处理（下面 HR.drawWorldFx）
       if (!camera.isVisible(b.x, b.y, 40)) continue;
-      this._drawEnemyBullet(ctx, b);
+      if (b.laser || b.shape === 'jade') (special ??= []).push(b);
+      else batch.push(b);
     }
+    BFX.drawBatch(ctx, batch);
+    if (special) for (const b of special) this._drawEnemyBullet(ctx, b);
     // 第一百八十四轮：万圣节双猫战世界层 —— 南瓜/糖果/猫爪/光柱 + 全部发光弹幕(lighter) + Bloom
     if (world.halloweenFight) HR.drawWorldFx(ctx, world, world.halloweenFight, camera, W, H);
 

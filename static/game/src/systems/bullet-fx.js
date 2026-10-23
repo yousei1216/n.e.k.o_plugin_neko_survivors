@@ -22,9 +22,23 @@ const SZ = 64;          // 精灵画布边长（弹型统一朝 +x，中心 (32,
 const BODY_R = 15;      // 精灵里"本体半径"基准（orb 的半径；其余弹型以此为尺）
 
 let _lod = 2;           // 2 = 拖尾+柔光 / 1 = 只柔光 / 0 = 只本体
-export function beginFrame(bulletCount) {
-  _lod = bulletCount > 520 ? 0 : bulletCount > 340 ? 1 : 2;
+export const LOD_STEP1 = 340, LOD_STEP0 = 520, LOD_HYST = 40;
+/**
+ * 按弹量选 LOD。
+ * 第一百九十九轮（用户："子弹经常一闪一闪的，应该是你设置的子弹过多把特效渲染砍了的效果，芙兰战不用生效这个，
+ * 整体已经很流畅了……不是关闭LOD是改成全部生效LOD，然后不要因为弹幕多关闭它，让它一直存在"）：
+ *  · forceFull = 芙兰战：永远全质量（LOD 2：拖尾 + 柔光），不随弹量降档；
+ *  · 其它战斗仍按弹量降档以保帧率，但加【迟滞】：降档要超过阈值 +40，升回要低于阈值 −40。
+ *    原来弹数在 340/520 上下波动时每帧切档，所有弹的拖尾/柔光整片闪烁。
+ */
+export function beginFrame(bulletCount, forceFull = false) {
+  if (forceFull) { _lod = 2; return; }
+  const n = bulletCount;
+  if (_lod === 2) { if (n > LOD_STEP1 + LOD_HYST) _lod = n > LOD_STEP0 + LOD_HYST ? 0 : 1; }
+  else if (_lod === 1) { if (n > LOD_STEP0 + LOD_HYST) _lod = 0; else if (n < LOD_STEP1 - LOD_HYST) _lod = 2; }
+  else if (n < LOD_STEP0 - LOD_HYST) _lod = n < LOD_STEP1 - LOD_HYST ? 2 : 1;
 }
+export function currentLod() { return _lod; }
 
 // ---------------------------------------------------------------
 // 颜色工具
@@ -238,6 +252,74 @@ export function drawEnemyBullet(ctx, b) {
     ctx.drawImage(body, -BD / 2, -BD / 2, BD, BD);
     ctx.restore();
   }
+}
+
+/**
+ * 批量绘制（第一百九十九轮）。
+ *
+ * 为什么：芙兰战改为"永远全质量"(LOD 2) 之后，几百发弹就把帧时间推到 16~20ms（maze p95 30ms）。
+ * 逐发绘制时每发弹要 2 次 globalCompositeOperation 切换 + 3 次加法 drawImage + 非圆形弹的 save/translate/rotate/restore，
+ * 混合模式切换与 save/restore 是 canvas 里最贵的操作，几百发被放大几百倍。
+ * 做法：①两遍绘制 —— 第一遍加法混合一次画完所有弹的柔光/余烬点，第二遍普通混合画本体，混合模式切换从 O(弹数) 降到每帧 2 次；
+ *       ②旋转用一次 setTransform 直接合成（基准矩阵 × 平移 × 旋转），不用 save/restore；
+ *       ③精灵引用缓存在弹对象上（b._fxB / b._fxG），不再每发每帧做字符串拼接 + Map 查找。
+ * 画面与 drawEnemyBullet 逐像素一致（同样的精灵、透明度、尺寸），只是调用方式不同；LOD 语义不变。
+ */
+export function drawBatch(ctx, list) {
+  const n = list.length;
+  if (!n) return;
+  const lod = _lod, mob = MOBILE;
+  // —— 预处理：精灵引用 + 尺寸（每发一次，缓存在对象上）——
+  for (let i = 0; i < n; i++) {
+    const b = list[i];
+    if (b._fxK !== b.shape || b._fxC !== b.color) {
+      const shape = ALIAS[b.shape] ?? b.shape ?? 'orb';
+      const color = b.color ?? '#ff4060';
+      b._fxK = b.shape; b._fxC = b.color; b._fxS = shape;
+      b._fxB = getBody(shape, color); b._fxG = getGlow(color);
+      b._fxD = ((b.radius ?? 6) * 1.12 * SZ) / BODY_R;
+      b._fxO = ORIENTED.has(shape);
+    }
+  }
+  // —— 第一遍：柔光 + 余烬尾（加法，一次切换）——
+  if (lod >= 1) {
+    ctx.globalCompositeOperation = mob ? 'source-over' : 'lighter';
+    ctx.globalAlpha = mob ? 0.22 : 0.62;
+    for (let i = 0; i < n; i++) {
+      const b = list[i], age = b.age ?? 1, pop = age < 0.1 ? 0.55 + age * 4.5 : 1, GD = b._fxD * 1.9 * pop;
+      ctx.drawImage(b._fxG, b.x - GD / 2, b.y - GD / 2, GD, GD);
+    }
+    if (lod >= 2 && !mob) {
+      for (let k = 1; k <= 2; k++) {
+        ctx.globalAlpha = 0.34 / k;
+        for (let i = 0; i < n; i++) {
+          const b = list[i], age = b.age ?? 1, pop = age < 0.1 ? 0.55 + age * 4.5 : 1;
+          const r = b.radius ?? 6, d = r * (1.5 + k * 1.5), TD = b._fxD * (0.95 - k * 0.2) * pop;
+          const ca = Math.cos(b.angle), sa = Math.sin(b.angle);
+          ctx.drawImage(b._fxG, b.x - ca * d - TD / 2, b.y - sa * d - TD / 2, TD, TD);
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  // —— 第二遍：本体 ——
+  ctx.globalAlpha = 1;
+  const M = ctx.getTransform();
+  const ma = M.a, mb = M.b, mc = M.c, md = M.d, me = M.e, mf = M.f;
+  let rotated = false;
+  for (let i = 0; i < n; i++) {
+    const b = list[i], age = b.age ?? 1, BD = b._fxD * (age < 0.1 ? 0.55 + age * 4.5 : 1);
+    if (b._fxS === 'orb') {
+      if (rotated) { ctx.setTransform(ma, mb, mc, md, me, mf); rotated = false; }
+      ctx.drawImage(b._fxB, b.x - BD / 2, b.y - BD / 2, BD, BD);
+    } else {
+      const th = b._fxO ? b.angle : (b.rotation ?? 0) * 0.5, c = Math.cos(th), s = Math.sin(th);
+      ctx.setTransform(ma * c + mc * s, mb * c + md * s, -ma * s + mc * c, -mb * s + md * c, ma * b.x + mc * b.y + me, mb * b.x + md * b.y + mf);
+      rotated = true;
+      ctx.drawImage(b._fxB, -BD / 2, -BD / 2, BD, BD);
+    }
+  }
+  if (rotated) ctx.setTransform(ma, mb, mc, md, me, mf);
 }
 
 /** 测试/诊断用：当前缓存规模 */

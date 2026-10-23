@@ -19,6 +19,7 @@ import { FLANDRE_HIT_INVULN } from '../entities/player.js';
 import { getEnemy } from '../data/enemies.js';
 import { TAU, clamp } from '../core/math.js';
 import { audio } from './audio.js';
+import { MOBILE } from '../core/mobile.js';
 
 // ---- 数值（用户逐条指定）----
 // 第八十六轮：总血量 50万 → 80万 —— 用户："把芙兰的总血量改到80万。
@@ -47,7 +48,21 @@ export const PURGE_RADIUS = 180;          // 消弹光圈半径（第七十六�
 // 用户："我们现在陆续加强了很多芙兰的符卡威力之后这个消弹半径不够用了，
 // 遇到必吃的弹幕用了消弹也无法转移到安全地带就被再次压死了。"）
 export const PURGE_CD = 15;               // 消弹冷却 15 秒
-export const BULLET_CAP = 750;            // 同屏弹幕上限（VS-HANDOFF 4.1 的 300~800 区间）
+export const CULL_MARGIN = 140;               // 199 轮：弹飞出场地外多少 px 回收（见 _cullOutside）
+// 同屏弹幕预算。
+// 第一百九十九轮（用户："解除 800 的限制……你可以测试一下电脑极限，比如改到 1000、1100 会卡吗？只要不是掉帧严重都可以改……"）：
+// 真机压测（芙兰战真实场景、全质量 LOD2、批绘制；机器当时还被别的程序占着约 59% CPU，数字偏保守）——
+//   弹数   渲染CPU   帧间隔(最好/中位)
+//    800    5.4ms    14.1 / 15.1ms
+//   1000    6.6ms    16.5 / 18.2ms
+//   1200    8.1ms    18.1 / 20.7ms        ← 仍接近 60fps 的最大值，取为桌面上限
+//   1500    9.6ms    19.9 / 22.8ms
+//   2000   10.1ms    21.1 / 26.2ms        （中位已 38fps）
+//   3000   11.6ms    25.2 / 31.2ms        （~32fps，明显掉帧）
+// 渲染成本亚线性（批绘制），掉帧主要来自 GPU 填充与弹的更新/碰撞。移动端保持原来的 750。
+// 实际生效值是 FlandreFight._capNow：持续卡顿时自动降到 BULLET_CAP_MIN、恢复后升回（见 _adaptCap）。
+export const BULLET_CAP = MOBILE ? 750 : 1200;
+export const BULLET_CAP_MIN = MOBILE ? 500 : 800;
 export const LEAD = 0.6;                  // 提前量系数（VS-HANDOFF 4.2 推荐 0.6）
 
 // 竞技场：地图中心偏上方（用户原话"或者说地图中心偏上方"）
@@ -983,6 +998,7 @@ export class FlandreFight {
     this._hinted = false;
     // 消弹
     this.purgeCd = 0;
+    this._capNow = BULLET_CAP;   // 199 轮：自适应弹量上限的当前值（见 _adaptCap）
     this._purgeWasReady = true;
     this.nova = null;              // {x,y,r,hold,auto}
     // 渲染接口：背景压暗（black → 暗红）
@@ -1030,7 +1046,7 @@ export class FlandreFight {
   emit(cfg) {
     if (this.over) return;
     const list = this.main.world.enemyBullets;
-    if (list.items.length >= BULLET_CAP) return;   // 预算硬顶
+    if (list.items.length >= this._capNow) return;   // 预算硬顶（自适应：BULLET_CAP_MIN ~ BULLET_CAP）
     // 第五十四轮（用户反馈 3）：弹幕齐射声 —— audio 内部节流，
     // 每一波 fan/ring 至多响一次，不会变成噪音墙。
     audio.play('flandreShot');
@@ -1248,9 +1264,22 @@ export class FlandreFight {
     }
   }
 
+  /**
+   * 自适应弹量上限（199 轮）。dt 是真实帧间隔：平滑后 > 27ms（持续 <37fps）就每帧 −3 发往下收、直到 BULLET_CAP_MIN；
+   * 平滑后 < 21ms（>47fps）再每帧 +1 发往回放，最高 BULLET_CAP。这样配置差的机器不会被 1200 拖垮，配置好的一直满额。
+   * 忽略 dt>0.1 的样本（切后台/卡顿尖峰），免得一次尖峰就把上限砍掉。
+   */
+  _adaptCap(dt) {
+    if (!(dt > 0) || dt > 0.1) return;
+    this._ema = (this._ema ?? 0.016) * 0.96 + dt * 0.04;
+    if (this._ema > 0.027) this._capNow = Math.max(BULLET_CAP_MIN, this._capNow - 3);
+    else if (this._ema < 0.021) this._capNow = Math.min(BULLET_CAP, this._capNow + 1);
+  }
+
   update(dt) {
     if (this.over) return;
     this.t += dt;
+    this._adaptCap(dt);
     this._purgeUpdate(dt);
     this._mistUpdate(dt);
     this._hintTick();
@@ -1272,8 +1301,11 @@ export class FlandreFight {
         audio.playScene?.('flandre');                   // U.N. Owen
         this._beginSpell('prologue', PROLOGUE_CARD_TIME);
       }
+      // 199 轮（用户："教学30秒的弹幕……ai猫娘完全不动直接吃弹幕到全死"）：序章是无奖励的教学卡，队友 AI 的受伤减半。
+      // 躲避本身已改善（见 neko-pilot 序章分支：口袋待命，旧行为站正中心 17 次→5 次），这里再给一道保险。
+      this._setPrologueEase(0.5);
       if (this.spell) this._tickSpell(dt);
-      if (this.t >= PROLOGUE_END) this._spawnFlandre();
+      if (this.t >= PROLOGUE_END) { this._setPrologueEase(1); this._spawnFlandre(); }
       return;
     }
 
@@ -1385,6 +1417,7 @@ export class FlandreFight {
     if (!sp) return;
     sp.t += dt;
     SPELLS[sp.id].tick(sp, dt, this);
+    this._cullOutside();
     // 姿势贴图：Lævateinn 卡用专属攻击姿势（192），
     // Extra Phantom 用抱腿坐姿三帧循环（202/205/208，0.3s 一帧），
     // 其余时候回本体（172）。用户亲自核对的编号表。
@@ -1397,6 +1430,33 @@ export class FlandreFight {
         // 常态：172~175 翅膀慢慢循环（0.35s 一帧）
         this.boss.spriteId = IDLE_FRAMES[Math.floor(this.t / 0.35) % IDLE_FRAMES.length];
       }
+    }
+  }
+
+  /** 序章减伤：对 P2~P4（队友 AI）生效，P1 不动（P1 要么是人类，要么有代打光环自带 0.25×） */
+  _setPrologueEase(v) {
+    const list = this.main.world.partners?.() ?? [];
+    for (const pl of list) if (pl && pl.flandreEase !== v) pl.flandreEase = v;
+  }
+
+  /**
+   * 弹飞出场地外 CULL_MARGIN 就回收（第一百九十九轮）。
+   *
+   * 用户："有些符卡弹幕飞行时间过短，子弹飞一半就消失了，你可以拉长一些。"
+   * 根因：真实游戏里弹只在【射程用尽】或飞出整个世界边界(±1280)时才死 —— 没有"飞出场地就回收"。
+   * 为了不让弹在场外白占 750 的预算，几张卡把射程压得很短(520/560/640/700/900)，结果弹在场地里飞到一半就凭空消失。
+   * 现在：射程放开到"够飞出场地"，由这里在弹离开场地 140px 后统一回收 —— 弹的寿命 = 它在场地里能飞的全部距离。
+   * （符卡模拟器 tools/_spell-sim.mjs 早就按这个规则算的，现在真实游戏与模拟一致。）
+   * 反弹墙弹(495)在场地边缘反弹，不会越过边界；侧边刷出的弹起点在场外 40px，在 140px 余量内。
+   */
+  _cullOutside() {
+    const items = this.main.world.enemyBullets?.items;
+    if (!items) return;
+    const cx = this.ax, cy = this.ay, hw = ARENA.hw + CULL_MARGIN, hh = ARENA.hh + CULL_MARGIN;
+    for (let i = 0; i < items.length; i++) {
+      const b = items[i];
+      if (b.dead || !b.flandre) continue;
+      if (Math.abs(b.x - cx) > hw || Math.abs(b.y - cy) > hh) b.dead = true;
     }
   }
 

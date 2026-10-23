@@ -11,6 +11,9 @@
 //   5. 发射器可视体写进 sp.st.vis（kind: 'glow'），渲染层画成发光球。
 import { ARENA } from './flandre-consts.js';
 
+// 199 轮：「够飞出场地」的射程。弹的真实寿命由 FlandreFight._cullOutside（飞出场地 140px 回收）决定，不再靠压短射程去省预算。
+const LONG = 3200;
+
 const TAU = Math.PI * 2;
 const C = {
   magenta: '#E050F0', blue: '#4060FF', red: '#FF3040', white: '#FFF2F4', gold: '#FFE060',
@@ -55,7 +58,8 @@ export const NEW_SPELLS = {
         if (em.age > life) continue;
         em.rot += dt * lerp(1.05, 1.5, k) * em.dir;
         em.acc += dt;
-        const step = lerp(0.2, 0.15, k);                 // 珠距 ≈ 速度 × step ≈ 28~36px
+        // 199 轮（用户：新符卡密度偏低，玩家有消弹和回血 buff）：珠距 28~36px → 21~27px（模拟器：高手 30 秒仅被打 0.2 次，有余量）
+        const step = lerp(0.15, 0.11, k);
         while (em.acc >= step) {
           em.acc -= step; em.bead++;
           for (let arm = 0; arm < 3; arm++) {
@@ -68,14 +72,14 @@ export const NEW_SPELLS = {
         if (em.ring >= 2.5) {
           em.ring -= 2.5;
           const base = f.rnd() * TAU;
-          for (let i = 0; i < 14; i++) shot(f, em.x, em.y, base + (i * TAU) / 14, 105, C.gold, 'star', 5.5);
+          for (let i = 0; i < 20; i++) shot(f, em.x, em.y, base + (i * TAU) / 20, 105, C.gold, 'star', 5.5);
         }
       }
       // 本体：慢速瞄准米弹扇，防止在丝线缝里站桩
       st.aim = (st.aim ?? 0) + dt;
       if (st.aim >= lerp(1.9, 1.4, k)) {
         st.aim = 0;
-        f.fan(f.bx, f.by, f.aim(f.bx, f.by), 5, 30, 200, C.pink, 5, 'rice', { hitRadius: 3 });
+        f.fan(f.bx, f.by, f.aim(f.bx, f.by), 7, 30, 200, C.pink, 5, 'rice', { hitRadius: 3 });
       }
       st.vis = (st.ems ?? []).filter((e) => e.age < 5.0).map((e) => glow(e.x, e.y, 13, C.magenta, e.age, Math.min(1, (5.0 - e.age) / 0.5)));
     },
@@ -119,7 +123,7 @@ export const NEW_SPELLS = {
       if (st.bird >= 3.6) {
         st.bird = 0;
         const a = f.aim(f.bx, f.by);
-        f.emit({ x: f.bx, y: f.by, angle: a, speed: 120, color: C.gold, shape: 'orb', radius: 11, hitRadius: 6, range: 1100 });
+        f.emit({ x: f.bx, y: f.by, angle: a, speed: 120, color: C.gold, shape: 'orb', radius: 11, hitRadius: 6, range: LONG });
         f.fan(f.bx, f.by, a, 7, 40, 190, C.mint, 5, 'rice', { hitRadius: 3 });
       }
       st.vis = st.fl.map((e) => glow(e.x, e.y, 10, C.mint, f.t));
@@ -170,7 +174,7 @@ export const NEW_SPELLS = {
     tick(sp, dt, f) {
       const st = sp.st, k = clamp01(sp.t / sp.dur);
       st.beat = (st.beat ?? 0.5) + dt;
-      const interval = lerp(0.95, 0.65, k);
+      const interval = lerp(0.8, 0.55, k);   // 199 轮：0.95~0.65s → 0.8~0.55s（更密；高手原本 30 秒 0 次被打）
       if (st.beat >= interval) {
         st.beat = 0; const n = (st.n = (st.n ?? 0) + 1);
         const o = n % 3 === 0
@@ -181,7 +185,7 @@ export const NEW_SPELLS = {
         const V = [];
         for (let i = 0; i < points * 2; i++) { const a = rot + (i * Math.PI) / points; const rr = i % 2 ? inner : 1; V.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
         const towards = Math.atan2(f.P.y - o.y, f.P.x - o.x);
-        const NB = 60, gate = 0.3;
+        const NB = 66, gate = 0.3;   // 199 轮：60→66 发/星（星门宽度不变）；预算回到 800 后留出峰值余量
         for (let i = 0; i < NB; i++) {
           const th = (i * TAU) / NB + rot + Math.PI / NB;
           if (Math.abs(angDiff(th, towards)) < gate) continue;   // 星门
@@ -196,14 +200,14 @@ export const NEW_SPELLS = {
             if (r > 0 && u >= 0 && u <= 1) { rr = r; break; }
           }
           const sector = Math.floor((((th - rot) % TAU) + TAU) % TAU / TAU * RAINBOW.length);
-          shot(f, o.x, o.y, th, 150 * rr, RAINBOW[sector], 'star', 5.6, { range: 640 });
+          shot(f, o.x, o.y, th, 150 * rr, RAINBOW[sector], 'star', 5.6, { range: LONG });
         }
       }
       // 本体补射：慢速瞄准大玉，鼓励移动而非站桩
       st.big = (st.big ?? 0) + dt;
-      if (st.big >= 3.4) {
+      if (st.big >= 3.0) {   // 199 轮：3.4s → 3.0s
         st.big = 0;
-        f.emit({ x: f.bx, y: f.by, angle: f.aim(f.bx, f.by), speed: 105, color: C.violet, shape: 'orb', radius: 10, hitRadius: 5.5, range: 1000 });
+        f.emit({ x: f.bx, y: f.by, angle: f.aim(f.bx, f.by), speed: 105, color: C.violet, shape: 'orb', radius: 10, hitRadius: 5.5, range: LONG });
       }
       st.vis = [glow(f.bx, f.by, 14, C.gold, f.t)];
     },
@@ -220,15 +224,15 @@ export const NEW_SPELLS = {
     tick(sp, dt, f) {
       const st = sp.st, k = clamp01(sp.t / sp.dur);
       st.acc = (st.acc ?? 0.5) + dt;
-      if (st.acc >= lerp(1.0, 0.75, k)) {
+      if (st.acc >= lerp(0.9, 0.66, k)) {   // 199 轮：1.0~0.75s → 0.9~0.66s（更密；N 固定 12；0.86~0.62 时高手 5.0 次压线，留余量）
         st.acc = 0; st.n = (st.n ?? 0) + 1;
         for (const side of [-1, 1]) {
           const ex = f.bx + side * 140, ey = f.by + 10;
           const base = f.aim(ex, ey) + side * 0.3 * (st.n % 2 ? 1 : -1);
-          const N = 12;   // 模拟器：9 发/扇→站桩只被打 3 次；15 发/扇→AI 被打 6 次必死；取 12
+          const N = 12;   // 必须保持 12：站桩玩家正对扇面中央偏 ±0.3rad 处，N=12 时恰好正对一发弹(i=3, off=-0.307)，N=13 时落在两发之间的缝里 → 站桩只被打 3 次，失去逼人移动的作用（round188 抓到）。更密靠加快节奏，不靠加弹数
           for (let i = 0; i < N; i++) {
             const off = (i / (N - 1) - 0.5) * 1.35;
-            shot(f, ex, ey, base + off, 270 - Math.abs(off) * 70, side < 0 ? C.blue : C.red, 'shard', 5.6, { decel: 150, floorSpeed: 78, range: 1200 });
+            shot(f, ex, ey, base + off, 270 - Math.abs(off) * 70, side < 0 ? C.blue : C.red, 'shard', 5.6, { decel: 150, floorSpeed: 78, range: LONG });
           }
         }
       }
@@ -270,24 +274,24 @@ export const NEW_SPELLS = {
       for (const h of st.hands) {
         h.ang += h.w * lerp(1, 1.3, k) * dt;
         h.acc += dt;
-        while (h.acc >= 0.2) {
-          h.acc -= 0.2;
+        while (h.acc >= 0.15) {   // 199 轮：珠距 0.2s → 0.15s（更密）
+          h.acc -= 0.15;
           for (const r of h.rs) {
             const x = f.bx + Math.cos(h.ang) * r, y = f.by + Math.sin(h.ang) * r;
             if (Math.abs(x - ARENA.cx) > ARENA.hw || y < ARENA.cy - ARENA.hh || y > ARENA.cy + ARENA.hh) continue;
-            shot(f, x, y, h.ang + (h.w > 0 ? Math.PI / 2 : -Math.PI / 2), 46, h.col, h.shape, h.shape === 'orb' ? 6 : 4.4, { range: 520 });
+            shot(f, x, y, h.ang + (h.w > 0 ? Math.PI / 2 : -Math.PI / 2), 46, h.col, h.shape, h.shape === 'orb' ? 6 : 4.4, { range: LONG });
           }
         }
       }
       st.chime = (st.chime ?? 3.5) + dt;
-      if (st.chime >= 6) {
+      if (st.chime >= 5) {   // 199 轮：6s → 5s 报时
         st.chime = 0;
         const base = f.rnd() * TAU;
         for (let i = 0; i < 12; i++) shot(f, f.bx, f.by, base + (i * TAU) / 12, 140, C.gold, 'orb', 9);
         for (let i = 0; i < 12; i++) shot(f, f.bx, f.by, base + ((i + 0.5) * TAU) / 12, 95, '#A8C8FF', 'ring', 6);
       }
       st.aim = (st.aim ?? 0) + dt;
-      if (st.aim >= 2.0) { st.aim = 0; f.fan(f.bx, f.by, f.aim(f.bx, f.by), 3, 26, 180, C.white, 5, 'rice', { hitRadius: 3 }); }
+      if (st.aim >= 1.7) { st.aim = 0; f.fan(f.bx, f.by, f.aim(f.bx, f.by), 5, 26, 180, C.white, 5, 'rice', { hitRadius: 3 }); }
       st.vis = [glow(f.bx, f.by, 15, C.gold, f.t), ...st.hands.map((h) => glow(f.bx + Math.cos(h.ang) * 70, f.by + Math.sin(h.ang) * 70, 8, h.col, f.t, 0.8))];
     },
   },
@@ -307,14 +311,14 @@ export const NEW_SPELLS = {
         const aim0 = f.aim(f.bx, f.by);
         for (const side of [-1, 1]) {
           const a = aim0 + sweep * side + side * 0.35;
-          shot(f, f.bx + side * 28, f.by, a, 235, RAINBOW[(st.slot + (side > 0 ? 3 : 0)) % 7], 'petal', 5.4, { decel: 105, floorSpeed: 44, range: 560 });
+          shot(f, f.bx + side * 28, f.by, a, 235, RAINBOW[(st.slot + (side > 0 ? 3 : 0)) % 7], 'petal', 5.4, { decel: 105, floorSpeed: 44, range: LONG });
         }
       }
       // 瞄准花瓣扇：每 1.1s 一把 7 瓣、先快后缓，逼人别站在原地（模拟器：纯扫射站桩只被打 2 次）
       st.seed = (st.seed ?? 0.5) + dt;
       if (st.seed >= lerp(1.3, 0.95, k)) {
         st.seed = 0;
-        f.fan(f.bx, f.by, f.aim(f.bx, f.by), 7, 38, 215, RAINBOW[(st.slot + 2) % 7], 5.6, 'petal', { hitRadius: 3.4, decel: 90, floorSpeed: 60, range: 700 });
+        f.fan(f.bx, f.by, f.aim(f.bx, f.by), 7, 38, 215, RAINBOW[(st.slot + 2) % 7], 5.6, 'petal', { hitRadius: 3.4, decel: 90, floorSpeed: 60, range: LONG });
       }
       if (!st.burst && sp.t >= 8.5) {
         st.burst = true; st.burstT = 0;
@@ -326,7 +330,7 @@ export const NEW_SPELLS = {
           st.bacc -= 0.2; st.bslot = ((st.bslot ?? 0) + 1) % 7;
           for (let i = 0; i < 7; i++) {
             const a = -Math.PI / 2 + (i / 7) * TAU + st.burstT * 0.9 * (i % 2 ? 1 : -1);
-            shot(f, f.bx, f.by, a, 180, RAINBOW[(st.bslot + i) % 7], 'petal', 5, { decel: 70, floorSpeed: 50, range: 1100 });
+            shot(f, f.bx, f.by, a, 180, RAINBOW[(st.bslot + i) % 7], 'petal', 5, { decel: 70, floorSpeed: 50, range: LONG });
           }
         }
         if (st.burstT >= 6) st.burst = false, st.burstDone = true;
@@ -385,7 +389,7 @@ export const NEW_SPELLS = {
           const c = Math.abs(Math.cos(petals * th * 0.5));
           const spd = 70 + 150 * c;
           const col = c > 0.82 ? C.gold : c > 0.5 ? C.pink : '#c56cf0';
-          shot(f, f.bx, f.by, th + rot, spd, col, c > 0.82 ? 'star' : 'shard', c > 0.82 ? 5.6 : 5, { range: 900 });
+          shot(f, f.bx, f.by, th + rot, spd, col, c > 0.82 ? 'star' : 'shard', c > 0.82 ? 5.6 : 5, { range: LONG });
         }
       }
       st.rot = (st.rot ?? 0) + dt;

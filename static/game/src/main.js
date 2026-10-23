@@ -2125,6 +2125,7 @@ export class Game {
   _teardownFlandre() {
     const p = this.player;
     this._reviveDownedAfterBoss();
+    for (const pl of (this.world?.partners?.() ?? [])) if (pl) pl.flandreEase = 1;   // 199 轮：序章减伤复位（序章中途退出也不残留）
     if (p) {
       p.noHeal = false;
       p.noAttack = false;
