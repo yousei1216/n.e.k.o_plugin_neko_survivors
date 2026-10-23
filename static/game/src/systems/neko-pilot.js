@@ -352,6 +352,7 @@ export class NekoPilot {
         case 'vergil': this._combat(g, true, p); break;
         case 'flandre': this._combat(g, true, p); break;   // 芙兰战同款环绕（20 波后挑战）
       case 'halloween': this._combat(g, true, p); break; // 第一百八十四轮：万圣节双猫纯演出（躲弹幕游走即可）
+      case 'remilia': this._combat(g, true, p); break;   // 第二百零三轮：蕾米终演出同上（双人纯演出，躲弹幕）
         case 'level_up': this._pickUpgrade(g, p); break;
         case 'shop': this._nextWave(g, p); break;
         case 'result': if (!this.entity) this._settle(g); break;
@@ -617,11 +618,14 @@ export class NekoPilot {
       const vf = world?.vergilFight;
       const ff = world?.flandreFight;
       const hf = world?.halloweenFight;
+      // 第二百零三轮：蕾米莉亚终演出也是"宽屏纯演出"，与万圣节双猫共用同一块场地（REMILIA_ARENA 与它同尺寸）
+      const rf = world?.remiliaFight;
+      const perf = hf ?? rf;
       // 199 轮：P1 代打在芙兰战里会用小小猫娘消弹（见 _maybePurge）。队友 AI（entity）不按 —— 消弹是 P1 的技能，冷却共享。
       if (ff && !this.entity) this._maybePurge(world, p, ff);
       const b = vf?.boss ?? ff?.boss;
       // 第一百八十四轮：万圣节双猫战用宽屏场地（用户："移动场地可以大点"）
-      const arena = hf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : VIRGIL_ARENA;
+      const arena = perf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : VIRGIL_ARENA;
       if (b && !b.dead) {
         const dx = p.x - b.x, dy = p.y - b.y;
         const d = Math.hypot(dx, dy) || 1;
@@ -661,11 +665,12 @@ export class NekoPilot {
           tx += fleeX * kpx;
           ty += fleeY * kpx;
         }
-      } else if (hf) {
+      } else if (perf) {
         // ---- 第一百八十四轮：万圣节双猫战 —— 她俩没有 hitbox 不可打，
         // AI 的全部工作是**活下来**：场内大圈巡游（0.6×宽 / 0.55×高），
         // 弹幕/南瓜/激光躲避照常叠加（flee 向量按 dodgeW 混入）。
         // 用户："4人模式……她们几乎无法打过后期的怪" → AI 别站桩吃弹。
+        // 第二百零三轮：蕾米终演出（rf）走同一条分支 —— 同样是"打不到的纯演出，只能活下来"。
         this._hwA = (this._hwA ?? Math.random() * 6.283) + 0.5 / 60;
         tx = arena.cx + Math.cos(this._hwA) * arena.hw * 0.6;
         ty = arena.cy + Math.sin(this._hwA) * arena.hh * 0.55;

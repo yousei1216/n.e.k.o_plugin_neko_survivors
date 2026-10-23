@@ -23,6 +23,9 @@ import * as FR from './flandre-render.js';
 import * as WFX from './weather-fx.js';
 // 第一百九十八轮：雪原「冰晶迷宫」渲染（整座烘焙成一张图，每帧一次 drawImage）
 import * as MZ from './maze-fx.js';
+// 第二百零三轮：蕾米莉亚终演出（背景/双人/cut-in/HUD）
+import * as RR from './remilia-render.js';
+import { REMILIA_ARENA } from './remilia.js';
 import { drawZigzagBlade } from './dmc-blades.js';
 // 第一百八十四轮：万圣节双猫战渲染（发光弹幕 / Bloom / 墓地背景 / 灯珠字母 / 像素 HUD），
 // 全部在独立模块，渲染器只留调用点
@@ -282,6 +285,10 @@ export class Renderer {
     }
     // 第一百八十四轮：万圣节双猫背景（屏幕空间整层烘焙：黑→暖棕夜空/红月/栅栏/墓碑/雾）
     if (world.halloweenFight) HR.drawBg(ctx, world.halloweenFight, camera, W, H, this.dpr);
+    // 第二百零三轮：蕾米莉亚终演出背景（深红夜空 / 血色月亮 / 红雾 / 红魔馆远景 / 蝙蝠群）—— 屏幕空间
+    if (world.remiliaFight) {
+      RR.drawBg(ctx, world.remiliaFight, W / 2 + (REMILIA_ARENA.cx - camera.cx), H / 2 + (REMILIA_ARENA.cy - camera.cy), W, H);
+    }
 
     ctx.save();
     ctx.translate(W / 2 - camera.cx, H / 2 - camera.cy);
@@ -294,6 +301,9 @@ export class Renderer {
     // 黑屏换场（t<0 全黑 → 变亮）→ 伪横版夜空（深紫渐变+满月+山影，
     // hill_a 贴图下轮接入）+ 宽屏场地边界。
 
+
+    // 第二百零三轮：绕场飞的蝙蝠群（世界坐标，实体之下）
+    if (world.remiliaFight) RR.drawBats(ctx, world.remiliaFight, REMILIA_ARENA.cx, REMILIA_ARENA.cy);
 
     // ---- 世界边界 ----
     this._drawWorldBounds(ctx, world);
@@ -342,6 +352,8 @@ export class Renderer {
     // ---- 第一百八十四轮：万圣节双猫立绘画在弹幕**下层**（她们没有判定，是背景里的演出角色；
     // 灯珠字母弹幕开场会落在猫身下，画在上层会把 EXTINCTION 左半截挡住）----
     if (world.halloweenFight) HR.drawCats(ctx, world.halloweenFight);
+    // 第二百零三轮：蕾米 + 芙兰 —— 放到弹幕**上层**（见下方 enemyBullets 之后）。
+    // 这场弹幕密度是全游戏最高的（终段 ~900 发），画在下面两人会被完全埋掉。
 
     // ---- 敌人子弹 ----
     BFX.beginFrame(world.enemyBullets.items.length, !!world.flandreFight);   // 按弹量选 LOD（拖尾/柔光）；199 轮：芙兰战永远全质量，其它战斗带迟滞
@@ -358,6 +370,12 @@ export class Renderer {
     }
     BFX.drawBatch(ctx, batch);
     if (special) for (const b of special) this._drawEnemyBullet(ctx, b);
+    // 第二百零三轮：蕾米 + 芙兰画在弹幕之上（终段近千发弹，放下面会被埋掉）
+    if (world.remiliaFight) {
+      RR.drawRemilia(ctx, world.remiliaFight);
+      RR.drawFlandreSprite(ctx, world.remiliaFight, (id) => sprites.get('enemy', id));
+    }
+
     // 第一百八十四轮：万圣节双猫战世界层 —— 南瓜/糖果/猫爪/光柱 + 全部发光弹幕(lighter) + Bloom
     if (world.halloweenFight) HR.drawWorldFx(ctx, world, world.halloweenFight, camera, W, H);
 
@@ -453,6 +471,8 @@ export class Renderer {
 
     // ---- 第一百四十一轮：维吉尔战屏幕层（大招暗幕/红边/白闪/Boss 血条）----
     if (world.vergilFight) world.vergilFight.renderScreen(ctx, W, H);
+    // 第二百零三轮：蕾米战屏幕层（红闪 + 暗角）
+    if (world.remiliaFight) RR.drawScreen(ctx, world.remiliaFight, W, H);
 
     // ---- 第一百三十八轮：底部 HUD 条（纯 Canvas）----
     // 血条（底座/渐变/延迟伤害残影/护盾流光/描边数字）+ 经验条
@@ -466,6 +486,12 @@ export class Renderer {
 
     // ---- 第一百八十四轮：万圣节双猫屏幕层（像素字招式名 / 底部双猫血条 / 暗角 / 黑屏换场）----
     if (world.halloweenFight) HR.drawHud(ctx, world.halloweenFight, W, H, this.dpr);
+    // 第二百零三轮：蕾米战 HUD（连战进度条 + 剩余秒数 + 符卡名）+ 符卡 cut-in（画在最上层）
+    if (world.remiliaFight) {
+      RR.drawHud(ctx, world.remiliaFight, W, H);
+      const cut = world.remiliaFight.cutin;
+      if (cut > 0) RR.drawCutin(ctx, W, H, 1 - cut / 0.62, world.remiliaFight.t);
+    }
 
     // ---- 第一百八十轮：震动 translate 的配对 restore ----
     if (this._cometShakeRestore) ctx.restore();

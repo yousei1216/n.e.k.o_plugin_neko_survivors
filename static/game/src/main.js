@@ -45,6 +45,8 @@ import { pluginBridge } from './plugin-bridge.js';
 import { FlandreFight, flandreUnlockOk, ARENA } from './systems/flandre.js';
 // 第一百八十四轮：万圣节双猫（巧克力 & 香草）—— Rabi-Ribi 万圣节 DLC 拆包素材
 import { HalloweenFight, ARENA as HALLOWEEN_ARENA } from './systems/halloween.js';
+import { RemiliaFight, REMILIA_ARENA, REMILIA_TOTAL } from './systems/remilia.js';
+import * as RemiRender from './systems/remilia-render.js';
 import { VergilFight, VERGIL_MAX_HP, ARENA as VARENA } from './systems/vergil.js';
 import { NekoPilot } from './systems/neko-pilot.js';
 
@@ -59,6 +61,8 @@ export const STATE = {
   // 第四十九轮：隐藏挑战 Boss 芙兰朵露的专属状态（世界活着，波次系统停摆）
   FLANDRE: 'flandre',
   HALLOWEEN: 'halloween',
+  // 第二百零三轮：蕾米莉亚终演出（芙兰 EP 之后、万圣节双猫之前的中段）
+  REMILIA: 'remilia',
   // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同芙兰骨架）
   VERGIL: 'vergil',
 };
@@ -921,6 +925,7 @@ export class Game {
       case STATE.VERGIL: this._updateVergil(dt); break;
       // 第一百八十四轮：万圣节双猫（巧克力&香草）纯演出生存战
       case STATE.HALLOWEEN: this._updateHalloween(dt); break;
+        case STATE.REMILIA: this._updateRemilia(dt); break;
       case STATE.PAUSED:
         if (this.input.pressed('Escape')) this._resume();
         break;
@@ -2095,7 +2100,125 @@ export class Game {
     p.noHeal = this.world.flandreFight ? p.noHeal : false;
     p.onFlandrePlayerHit = null;
   }
+  /**
+   * 第二百零三轮：蕾米莉亚终演出（芙兰 EP 打完 → 这里 60 秒 → 万圣节双猫 90 秒）。
+   *
+   * 用户："最后一张卡是弹幕的心脏，30秒到了的时候芙兰就输了……现在加个30秒到了，蕾米直接飞进来，bgm切蕾米的，
+   *       然后芙兰从抱腿动画换回飞行动画，两个人一起攻击玩家……让蕾米芙兰继续无敌演出60秒，然后接上双猫的90秒。"
+   * 两人都没有 hitbox（纯演出）；弹幕每发 10% 真实伤害，走 Player.remiliaHit（与万圣节同口径），战斗期间禁疗。
+   * @param {{chain?:boolean}} opts chain = 从芙兰战衔接（3 秒黑屏换场）
+   */
+  _startRemilia(opts = {}) {
+    const p = this.player;
+    p.noHeal = true;
+    p.onFlandrePlayerHit = () => this.flandre?.autoPurge?.() ?? this.remilia?.autoPurge?.();
+    this.world.noSpawn = true;
+    this.world.enemies.items.forEach((e) => { e.dead = true; });
+    this.world.enemyBullets.items.forEach((b) => { b.dead = true; });
+    audio.stopMusic();                       // 黑屏期间静默，场景变亮后起 Sepette
+    try { RemiRender.warm(); } catch { /* 预热失败不影响演出 */ }
+    this.remilia = new RemiliaFight(this, {
+      chain: !!opts.chain,
+      onDone: (outcome) => this._remiliaFinish(outcome),
+    });
+    this.world.remiliaFight = this.remilia;
+    this.state = STATE.REMILIA;
+  }
 
+  _updateRemilia(dt) {
+    try {
+      if (this.input.pressed('Escape')) { this._pause(); return; }
+      const rf = this.remilia;
+      const arena = REMILIA_ARENA;
+      const p = this.player;
+      p.update(dt, { moveAxis: () => this.input.moveAxis() }, this.camera, this.world);
+      const p2r = this.world.player2;
+      if (p2r) {
+        const ax2r = this.input.moveAxisP2();
+        p2r.update(dt, { moveAxis: () => ax2r, p2SkillSlow: () => this.input.p2SkillSlow() }, this.camera, this.world);
+      }
+      for (const pl of [this.world.player3, this.world.player4]) {
+        if (pl) pl.update(dt, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
+      }
+      this.world.update(dt, p, 0);
+      const minX = arena.cx - arena.hw, maxX = arena.cx + arena.hw;
+      const minY = arena.cy - arena.hh, maxY = arena.cy + arena.hh;
+      for (const pl of [p, ...this.world.partners()]) {
+        if (!pl) continue;
+        pl.x = clamp(pl.x, minX, maxX);
+        pl.y = clamp(pl.y, minY, maxY);
+      }
+      this.camera.x = arena.cx;
+      this.camera.y = arena.cy;
+      this.camera.update(dt);
+      this.ui.updateHud(this);
+      rf?.update(dt);
+    } catch (e) { console.error('remilia update', e); }
+  }
+
+  _remiliaFinish(outcome) {
+    this._teardownRemilia();
+    audio.stopMusic();
+    const p = this.player;
+    if (outcome !== 'death') {
+      const def = getEnemy('boss_void_lord');
+      const scaling = this.world.waveScaling ?? { xp: 1, materials: 1 };
+      const xp = Math.round((def?.xp ?? 120) * 3 * (scaling.xp ?? 1));
+      const mats = Math.round((def?.materials ?? 120) * 3 * (scaling.materials ?? 1));
+      p.gainXp(xp);
+      p.gainMaterials(mats);
+      audio.play('bossKill');
+      this.ui.toast(`红雾散尽，姐妹俩退场了！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
+    }
+    if (p.dead) {
+      p.dead = false;
+      p.hp = p.stats.get('maxHp');
+      p.invuln = Math.max(p.invuln ?? 0, 1.5);
+    }
+    if (outcome === 'death') {
+      // 倒在蕾米手上 = 本次挑战结束（与双猫战败同口径）
+      this._teardownFlandre();
+      this.state = STATE.SHOP;
+      this._openShop();
+      return;
+    }
+    // 演出继续：接万圣节双猫 90 秒
+    this._halloweenChain = true;
+    this._startHalloween({ chain: true });
+  }
+
+  _teardownRemilia() {
+    if (this.world.remiliaFight) this.world.remiliaFight = null;
+    if (this.remilia) this.remilia = null;
+    const p = this.player;
+    if (this.world) {
+      this.world.noSpawn = false;
+      this.world.enemyBullets.clear();
+    }
+    if (p) {
+      p.noHeal = this.world?.flandreFight ? p.noHeal : false;
+      p.onFlandrePlayerHit = null;
+    }
+  }
+
+  /**
+   * 第二百零三轮：直通蕾米终演出测试局（?remilia=1）。
+   * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，4P 阵容（AI 猫娘一起躲弹幕）—— 调参/截图用。
+   */
+  _startRemiliaTest(opts = {}) {
+    try {
+      this.setDifficulty('nightmare');
+      this.startRun('yui', { party: 4 });
+      this.player.addWeapon('meow_cannon');
+      this.player.addWeapon('meow_cannon');
+      this.player.addWeapon('meow_cannon');
+      this.player.charMul = { ...this.player.charMul, damage: 5 };
+      for (const id of ['cat_taffy', 'warm_milk', 'warm_milk']) this.player.addItem(id);
+      this.meta.retries = 0;
+      this._bindPartyPilots(4);
+      this._startRemilia({ chain: true });
+    } catch (e) { console.error('[remilia-test]', e); }
+  }
   /**
    * 第一百八十四轮：直通万圣节双猫测试局（?halloween=1 / 标题页按钮）。
    * 悠怡 + 三喵喵炮 + 伤害×5 + 回复件，AI 大脑全开 —— 人工跑一轮演出用。
@@ -2321,8 +2444,11 @@ export class Game {
     // 换场 → 万圣节双猫纯演出生存战（连战）。奖励照常发，双猫战胜利
     // 后再走无尽询问；双猫战败 = 本次挑战结束（回商店整备再试）。
     if (outcome === 'beat') {
-      this._halloweenChain = true;
-      this._startHalloween({ chain: true });
+      // 202 轮以前：芙兰 EP 打赢 → 直接接万圣节双猫。
+      // 第二百零三轮（用户："加个30秒到了，蕾米直接飞进来……让蕾米芙兰继续无敌演出60秒，然后接上双猫的90秒"）：
+      // 中间插进蕾米莉亚的 60 秒双人演出，仍然 3 秒黑屏换场；双猫在 _remiliaFinish 里接上。
+      this._remiliaChain = true;
+      this._startRemilia({ chain: true });
       return;
     }
 
@@ -3464,6 +3590,10 @@ try {
   }
   // ?halloween=1：直通万圣节双猫测试局（人工跑一轮演出 —— 用户要求
   // "你试试跑一轮加个测试按钮，我人工跑跑看"）。
+  // ?remilia=1：直通蕾米终演出测试局
+  if (q.has('remilia')) {
+    game._startRemiliaTest();
+  }
   if (q.has('halloween')) {
     // ?hwphase=N（0~10）直达第 N 节，逐招截图验收用
     game._startHalloweenTest({ phase: Number(q.get('hwphase')) || 0 });

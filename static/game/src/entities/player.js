@@ -1033,6 +1033,27 @@ export class Player extends Entity {
     return dmg;
   }
 
+  /**
+   * 第二百零三轮：蕾米莉亚终演出的受击（与 halloweenHit 完全同口径 —— 每发 10% 最大生命真实伤害、
+   * 无视护甲、保留无敌帧、多人模式先转倒地）。两条演出战共用同一套"演出弹幕真伤"规则，
+   * 玩家在连战里不会因为换了 boss 就突然改变受伤手感。
+   */
+  remiliaHit(sourceX, sourceY) {
+    if (this.invuln > 0 || this.dead || this.downed) return 0;
+    const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.10));
+    this.hp -= dmg;
+    this.damageTaken += dmg;
+    this.invuln = FLANDRE_HIT_INVULN;
+    this.hurtFlash = 0.25;
+    this.onFlandrePlayerHit?.(sourceX, sourceY);
+    if (this.hp <= 0) {
+      this.hp = 0;
+      if (this.duoMode) this.down();
+      else this.dead = true;
+    }
+    return dmg;
+  }
+
   flandreHit(sourceX, sourceY) {
     if (this.invuln > 0 || this.dead || this.downed) return 0;   // 185 轮：倒地者不再吃弹（与 takeDamage 同口径）
     const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.22

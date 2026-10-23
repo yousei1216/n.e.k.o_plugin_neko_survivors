@@ -214,6 +214,7 @@ export class EnemyBullet extends Entity {
     this.halloween = !!cfg.halloween;
     // 视觉专用：hwKind='bead' 灯珠字母弹 / hwPhase 呼吸相位（渲染层 halloween-render.js 读取）
     this.hwKind = cfg.hwKind ?? '';
+    this.remilia = !!cfg.remilia;   // 203 轮：蕾米终演出弹幕（走 remiliaHit 真伤通道）
     this.hwPhase = cfg.hwPhase ?? 0;
     // 第一百三十二轮：波次真伤档位（1 小怪 / 2 精英 / 3 Boss；0 = 不附加，
     // 芙兰弹与未标注来源的弹）—— 命中时按当时的 world.currentWave 结算。
@@ -327,6 +328,8 @@ export class EnemyBullet extends Entity {
       // ---- 第一百八十四轮：万圣节双猫弹幕 —— 每发 10% 真伤（用户：
       // "做成每发弹幕10%真伤不给回血和护甲看看"），走 halloweenHit 通道。
       else if (this.halloween) player.halloweenHit?.(this.x, this.y);
+      // ---- 第二百零三轮：蕾米莉亚终演出弹幕（与万圣节同口径的 10% 真伤）----
+      else if (this.remilia) player.remiliaHit?.(this.x, this.y);
       else player.takeDamage(this.damage * (wxW?.enemyOut ?? 1), this.x, this.y, { projectile: true, trueBonus });
       this.dead = true;
       return;
