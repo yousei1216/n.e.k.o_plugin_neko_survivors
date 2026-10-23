@@ -486,12 +486,9 @@ export class Renderer {
 
     // ---- 第一百八十四轮：万圣节双猫屏幕层（像素字招式名 / 底部双猫血条 / 暗角 / 黑屏换场）----
     if (world.halloweenFight) HR.drawHud(ctx, world.halloweenFight, W, H, this.dpr);
-    // 第二百零三轮：蕾米战 HUD（连战进度条 + 剩余秒数 + 符卡名）+ 符卡 cut-in（画在最上层）
-    if (world.remiliaFight) {
-      RR.drawHud(ctx, world.remiliaFight, W, H);
-      const cut = world.remiliaFight.cutin;
-      if (cut > 0) RR.drawCutin(ctx, W, H, 1 - cut / 0.62, world.remiliaFight.t);
-    }
+    // 第二百零三轮：蕾米战 HUD（连战进度条 + 剩余秒数 + 符卡名）
+    // 205 轮：cut-in 已删（那张 eff07 会被认成芙兰战的空气墙标记）
+    if (world.remiliaFight) RR.drawHud(ctx, world.remiliaFight, W, H);
 
     // ---- 第一百八十轮：震动 translate 的配对 restore ----
     if (this._cometShakeRestore) ctx.restore();

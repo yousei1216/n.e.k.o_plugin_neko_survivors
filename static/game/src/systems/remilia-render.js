@@ -11,17 +11,21 @@
 //
 // 素材：assets/boss/remilia/
 //   remilia_00..23.png  24 帧战斗精灵
-//   cutin.png           eff07 符卡立绘
 //   tower.png           时钟塔（抠好透明通道，底部渐隐）
 //   moonskin.png        月面贴图（旋转用）
 //   sigil.png           魔法阵
+//
+// 205 轮改动：
+//   · 删掉符卡 cut-in（那张图就是 eff07，和芙兰战空气墙标记同一张，用户每 5 秒看到一次以为是残留 bug）
+//   · 删掉头顶名字牌（用户："认识的都认识，不认识的标了也不认识"）
+//   · 蕾米精灵再缩小一档，让她落在魔法阵里面（原来翼展比阵还大一圈）
 // ============================================================
 import { makeCanvas } from './no-dom.js';
 
 const TAU = Math.PI * 2;
 
 // ---- 贴图 ----
-const IMG = { frames: [], cutin: null, tower: null, moon: null, sigil: null };
+const IMG = { frames: [], tower: null, moon: null, sigil: null };
 function loadArt() {
   if (typeof Image === 'undefined') return;
   if (!IMG.frames.length) {
@@ -37,7 +41,6 @@ function loadArt() {
     im.src = `assets/boss/remilia/${file}`;
     IMG[key] = im;
   };
-  one('cutin', 'cutin.png');
   one('tower', 'tower.png');
   one('moon', 'moonskin.png');
   one('sigil', 'sigil.png');
@@ -272,27 +275,15 @@ function drawAura(ctx, img, x, y, R, alpha) {
   ctx.globalAlpha = 1;
 }
 
-function drawName(ctx, x, y, text, color, alpha) {
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.font = 'bold 13px "Microsoft YaHei", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const w = ctx.measureText(text).width + 16;
-  ctx.fillStyle = 'rgba(16,0,10,0.66)';
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - 11, w, 20, 10); else ctx.rect(x - w / 2, y - 11, w, 20);
-  ctx.fill();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = color;
-  ctx.fillText(text, x, y);
-  ctx.restore();
-}
-
 /** 两人共用的精灵半径（用户："蕾米太大只了，让她和芙兰一样大"） */
 export const CHAR_R = 66;
+/**
+ * 蕾米精灵的额外缩放。
+ * 用户（205 轮）："蕾米都大出魔法阵一大圈了，让她的大小在魔法阵大小左右"。
+ * 她的 24 帧是按内容紧裁的，芙兰那张 256² 贴图里人物只占中间一部分 —— 同一个 CHAR_R
+ * 画出来，蕾米视觉上会大出芙兰一截。乘 0.76 之后她就落在魔法阵里面了。
+ */
+const REMI_SPRITE_SCALE = 0.76;
 /** 精灵帧的标称高度 —— 帧原始尺寸在 135~151 之间浮动，用它做统一标度 */
 const NOMINAL_H = 150;
 
@@ -329,7 +320,6 @@ export function drawRemilia(ctx, fight) {
   }
 
   drawAura(ctx, s.aura, b.x, b.y, R * 1.9, (0.30 + 0.06 * Math.sin(t * 2.6)) * (b.alpha ?? 1));
-  drawName(ctx, b.x, b.y - R * 1.55, '蕾米莉亚', '#ff8fa8', b.alpha ?? 1);
 
   // 本体：统一标度（不按每帧高度拉伸 —— 旧写法会让 135/151 的帧互相拉扯，看起来像在闪）
   const fr = img.frames[b.frame ?? 0];
@@ -337,7 +327,7 @@ export function drawRemilia(ctx, fight) {
   ctx.globalAlpha = b.alpha ?? 1;
   ctx.translate(b.x, b.y);
   if (ready(fr)) {
-    const K = (R * 2.6) / NOMINAL_H;
+    const K = (R * 2.6 * REMI_SPRITE_SCALE) / NOMINAL_H;
     const w = fr.naturalWidth * K, h = fr.naturalHeight * K;
     ctx.drawImage(fr, -w / 2, -h * 0.60, w, h);
   } else {
@@ -365,7 +355,6 @@ export function drawFlandreSprite(ctx, fight, getSprite) {
   ctx.restore();
 
   drawAura(ctx, s.auraF, b.x, b.y, R * 1.85, (0.28 + 0.08 * Math.sin(t * 2.9 + 1)) * (b.alpha ?? 1));
-  drawName(ctx, b.x, b.y - R * 1.55, '芙兰朵露', '#ffd9a0', b.alpha ?? 1);
 
   const img = getSprite?.(b.spriteId);
   ctx.save();
@@ -381,20 +370,9 @@ export function drawFlandreSprite(ctx, fight, getSprite) {
 }
 
 // ---------------------------------------------------------------
-export function drawCutin(ctx, W, H, k, t) {
-  const { IMG: img } = art();
-  if (!ready(img.cutin)) return;
-  const u = 1 - k;
-  const a = u < 0.45 ? u / 0.45 : (1 - u) / 0.55;
-  const z = 1 + u * 0.22;
-  const size = Math.min(W, H) * 1.15 * z;
-  ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, a)) * 0.92;
-  ctx.drawImage(img.cutin, W / 2 - size / 2, H / 2 - size / 2, size, size);
-  ctx.restore();
-  void t;
-}
-
+// 205 轮：符卡 cut-in 已删除。
+// 那张图就是 flandre-stage7/eff07_nc_4k.png —— 与芙兰战里"标出空气墙范围"的那层暗红旋涡是同一张，
+// 换段时全屏闪一下，用户每几秒看到一次，以为是芙兰战的特效没删干净。换段现在只留卡名横幅 + 红闪。
 export function drawScreen(ctx, fight, W, H) {
   const f = fight?.flash ?? 0;
   if (f > 0.01) {

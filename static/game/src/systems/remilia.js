@@ -285,7 +285,7 @@ export class RemiliaFight {
     this.cardIdx = -1;
     this.cardT = 0;
     this.st = {};
-    this.cutin = 0;          // cut-in 立绘余时（秒）
+    // 205 轮：cut-in 演出已删除（原本用 eff07 全屏闪，用户认成芙兰战特效残留）
     this.flash = 0;          // 全屏白/红闪
     this.shake = 0;
     this.splits = [];        // 蝙蝠群演出粒子（纯视觉，渲染层画）
@@ -383,8 +383,10 @@ export class RemiliaFight {
     // 帧动画：施法段用施法帧，其余待机；cut-in 期间用咏唱
     R.ft += dt;
     const casting = ph === 'cards';
-    const pool = this.cutin > 0 ? REMI_CHANT : casting ? REMI_CAST : REMI_IDLE;
-    R.frame = pool[Math.floor(R.ft / 0.11) % pool.length];
+    // 205 轮：cut-in 那段影像已删；咏唱姿势改成换段后头 0.7 秒播放，保留'她在念符卡'的感觉
+    const pool = casting ? (this.cardT < 0.7 ? REMI_CHANT : REMI_CAST) : REMI_IDLE;
+    // 205 轮：每帧 0.11s（约 9fps）太快，放到 0.19s（约 5.3fps）
+    R.frame = pool[Math.floor(R.ft / 0.19) % pool.length];
     // 蓄力时背后的纯蝙蝠翼（20/21 帧）
     // 204 轮：这里原来用 0.55+0.45*sin(t*2.4)，2.6 秒一个周期掉到 0.10 —— 渲染层当年按 0.2 开闸，
     // 于是背后的蝙蝠翼每 2.6 秒闪一下。现在常量化，渲染层也不再按它开闸。
@@ -547,7 +549,7 @@ export class RemiliaFight {
     }
 
     // 视觉衰减
-    this.cutin = Math.max(0, this.cutin - dt);
+    // 205 轮：this.cutin 已废弃（cut-in 演出删除）
     this.flash = Math.max(0, this.flash - dt * 2.2);
     this.shake = Math.max(0, this.shake - dt * 2.4);
 
@@ -566,7 +568,7 @@ export class RemiliaFight {
       if (idx !== this.cardIdx) {
         this.cardIdx = idx;
         this.st = {};                        // 每段独立状态
-        this.cutin = 0.62;                   // cut-in 立绘闪一下
+        // 205 轮：不再触发全屏 cut-in（那张 eff07 会被当成芙兰战空气墙的残留）
         this.flash = 0.3;
         this.shake = 1;
         audio.play('spellCard');

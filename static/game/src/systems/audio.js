@@ -131,7 +131,9 @@ export const BGM_POOLS = {
   // Masquerade（bgm13.ogg → halloween.ogg），场景变亮后播放。
   halloween: ['halloween.ogg'],
   // 第二百零三轮：蕾米莉亚终演出 —— 亡き王女の為のセプテット（nc-bgm-14）
-  remilia: ['boss_remilia.ogg'],
+  // 205 轮：用户说 ctrl+F5 后 BGM 还是旧的 —— 浏览器按 URL 缓存音频，换个文件名强制重取。
+  // 现在这版是对着 bgm-out/nc-bgm-13.ogg 逐字节复制的（SHA256 一致）。
+  remilia: ['boss_remilia_b.ogg'],
   flandre_ex: ['boss_flandre_ex.ogg'],
 };
 
