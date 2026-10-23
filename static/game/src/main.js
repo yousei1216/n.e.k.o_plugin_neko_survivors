@@ -1892,7 +1892,21 @@ export class Game {
   }
 
   /** 维吉尔战现场复位（正常结算 / ESC 放弃 / 关闭游戏共用） */
+  /**
+   * 185 轮：Boss 战收尾时把仍处于倒地的队员拉起来（幂等）。
+   * 芙兰战/维吉尔战败北（全队 dead/downed）后回到普通流程，不能带着 downed 标记和 0 血进商店/下一波；
+   * 口径与 _endWave 的"过了这回合倒地的人自动满血复活"一致。
+   */
+  _reviveDownedAfterBoss() {
+    for (const pl of (this.world?.players?.() ?? [])) {
+      if (!pl) continue;
+      if (pl.downed && !pl.dead) { pl.downed = false; pl.hp = pl.maxHp; pl.invuln = 1.5; }
+      pl.resetDownCount?.();
+    }
+  }
+
   _teardownVergil() {
+    this._reviveDownedAfterBoss();
     if (this.world) {
       this.world.noSpawn = false;
       this.world.vergilFight = null;
@@ -2095,6 +2109,7 @@ export class Game {
    */
   _teardownFlandre() {
     const p = this.player;
+    this._reviveDownedAfterBoss();
     if (p) {
       p.noHeal = false;
       p.noAttack = false;
@@ -2175,7 +2190,12 @@ export class Game {
     fight.tintUpdate(dt);
     fight.update(dt);
     // 玩家死亡 → 整场作废（拿不到任何芙兰奖励），正常回到结算流程
-    if (p.dead && !fight.over) fight.onPlayerDeath();
+    // 185 轮：判负从"只看 P1"改成"全队失去战斗力"（每个玩家 dead 或 downed），与维吉尔战同口径 ——
+    // P1 倒下时只要还有队友站着，战斗继续，队友可以救起 P1。单人局 team 只有 P1，行为不变。
+    {
+      const team = this.world.players?.() ?? [p];
+      if ((p.dead || team.every((pl) => !pl || pl.dead || pl.downed)) && !fight.over) fight.onPlayerDeath();
+    }
   }
 
   /**

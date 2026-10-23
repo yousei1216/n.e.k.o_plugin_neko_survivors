@@ -452,8 +452,10 @@ export class Player extends Entity {
       this.onHurt?.(fixed, sourceX, sourceY);
       if (this.hp <= 0) {
         this.hp = 0;
-        this.dead = true;
-        this.onDeath?.();
+        // 185 轮补漏：定值真伤（维吉尔刀光）归零时多人模式也走倒地。
+        // vergil.js 的"全队 dead/downed 才判负"早就按倒地设计，这个分支却一直直接写 dead。
+        if (this.duoMode) this.down();
+        else { this.dead = true; this.onDeath?.(); }
       }
       return fixed;
     }
@@ -1029,7 +1031,7 @@ export class Player extends Entity {
   }
 
   flandreHit(sourceX, sourceY) {
-    if (this.invuln > 0 || this.dead) return 0;
+    if (this.invuln > 0 || this.dead || this.downed) return 0;   // 185 轮：倒地者不再吃弹（与 takeDamage 同口径）
     const dmg = Math.max(1, Math.round(this.stats.get('maxHp') * 0.22
       // 第一百六十六轮：猫娘代打光环对芙兰真伤同样削到 1/4（22% → 5%）
       * (this.pilotBuff ? 0.25 : 1)));
@@ -1041,7 +1043,11 @@ export class Player extends Entity {
     this.onFlandrePlayerHit?.(sourceX, sourceY);
     if (this.hp <= 0) {
       this.hp = 0;
-      this.dead = true;
+      // 185 轮补漏：多人模式先倒地等救援（与 takeDamage / halloweenHit 同口径）。
+      // 第一百八十四轮对维吉尔战做过这件事（用户："1p倒下就判定战败了，没有倒地"），芙兰战漏了：
+      // 队友被芙兰弹打到 0 血直接 dead，既不倒地也救不起来；P1 一死整场判负。
+      if (this.duoMode) this.down();
+      else this.dead = true;
     }
     return dmg;
   }
