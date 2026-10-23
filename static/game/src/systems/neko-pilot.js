@@ -49,9 +49,44 @@ const HANDOVER_LINES = [
 ];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)] ?? arr[0];
 
+// =====================================================================
+// 第一百九十七轮：AI 三档智商（用户游玩一整局后的反馈第 6 条）
+//   "目前的ai太聪明了……几乎不会死掉，太强了。这是好事，说明你的能力，但是游戏就是要突发够多才好玩，
+//    你能做3个智商的ai吗？最高的就是现在的你的作品，几乎不会死，横扫一切。然后做个普通的，比现在最强的容易吃弹幕一些，
+//    再做个菜的，吃弹幕概率再高点并且可能出现走位失误之类的。然后3个智商随机抽取进入游戏。
+//    不过不改变拆箱子和救人逻辑，让最菜的ai也会努力在队友全倒下只剩下自己的时候也去努力救人。"
+//
+// 只作用于【躲避与走位】，下面这些完全不受档位影响：救援（含近身踹醒）、拆宝箱、升级选卡、商店、结算、光环/护甲。
+// 档位通过 5 种"人类式"的不完美实现，而不是直接加伤害或减血量（那样玩家看得出来是作弊式削弱）：
+//   period      决策间隔（帧）—— 反应延迟。救援期间一律回到 4，保证最菜的也积极救人
+//   scan/skip   感知：只看得见近处的弹；每颗该躲的弹有概率被"漏看"
+//   angErr      躲避方向误差（弧度）—— 知道要躲，但闪的方向不够准
+//   taus/dirs   预测式找缝（_safeStep）看多远、试几个方向 —— 高手能算 0.52s 后的缝，菜鸟只看眼前 0.22s 的四邻
+//   safeSkip    _safeStep 整个被"走神"跳过的概率
+//   stumble     偶发失误：每隔约 stumbleEvery 秒朝随机方向踉跄 stumbleDur 秒
+// pro = 第一百八十五轮以前的行为，逐项为"中性值"，保证与旧版一致。
+// =====================================================================
+export const AI_SKILLS = {
+  pro:    { id: 'pro',    label: '高手', period: 4, scan: 1.0,  skip: 0,    angErr: 0,   taus: [0.10, 0.22, 0.36, 0.52], dirs: 16, safeSkip: 0,    scoreNoise: 0,  stumbleEvery: 0,  stumbleDur: 0 },
+  normal: { id: 'normal', label: '普通', period: 5, scan: 0.82, skip: 0.26, angErr: 0.45, taus: [0.10, 0.22, 0.36],       dirs: 12, safeSkip: 0.26, scoreNoise: 8,  stumbleEvery: 15, stumbleDur: 0.32 },
+  rookie: { id: 'rookie', label: '菜鸟', period: 8, scan: 0.65, skip: 0.45, angErr: 0.9, taus: [0.10, 0.22],              dirs: 8,  safeSkip: 0.45, scoreNoise: 16, stumbleEvery: 6,  stumbleDur: 0.45 },
+};
+export const AI_SKILL_IDS = Object.keys(AI_SKILLS);
+
+/** 三档等概率抽签。globalThis.__aiSkill = 'pro'|'normal'|'rookie' 可强制（测试/探针/想固定难度时用） */
+export function rollSkill(rnd = Math.random) {
+  const forced = globalThis.__aiSkill;
+  if (AI_SKILLS[forced]) return forced;
+  const u = rnd();
+  return u < 1 / 3 ? 'pro' : u < 2 / 3 ? 'normal' : 'rookie';
+}
+
 export class NekoPilot {
   constructor() {
     this.on = false;
+    this.skill = 'pro';       // 197 轮：AI 档位（entity 模式在 start 时抽签；P1 代打保持 pro）
+    this._rnd = Math.random;  // 可注入（测试要确定性）
+    this._fr = 0;             // 帧计数（失误计时用）
     this.win = false;
     this.gaveUp = false;
     this.attempt = 0;
@@ -61,6 +96,12 @@ export class NekoPilot {
     this.startedAt = 0;
     this._aimT = 0;          // 走位节流（帧计）
     this._events = [];       // 战报
+  }
+
+  /** 当前生效的档位参数（globalThis.__aiSkill 强制优先） */
+  _skillCfg() {
+    const forced = globalThis.__aiSkill;
+    return AI_SKILLS[AI_SKILLS[forced] ? forced : this.skill] ?? AI_SKILLS.pro;
   }
 
   /** 战报（探针/宿主读取） */
@@ -96,7 +137,10 @@ export class NekoPilot {
       this._events = [];
       this._hpSnapshot = null;
       this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
-      this._log(`P2 猫娘上线：${opts.entity.characterId}（双 0buff 实验）`);
+      // 197 轮：每个 AI 队友开局随机抽一档智商（重试/新局重新抽）。opts.skill 可指定
+      this.skill = AI_SKILLS[opts.skill] ? opts.skill : rollSkill(this._rnd);
+      this._stumble = null;
+      this._log(`P2 猫娘上线：${opts.entity.characterId}（双 0buff 实验）· 智商：${AI_SKILLS[this.skill].label}`);
       return true;
     }
     // 难度默认跟当前选角界面选的难度走（用户从选角界面点"猫娘帮你玩"
@@ -346,7 +390,13 @@ export class NekoPilot {
       return;
     }
     // 节流：每 4 帧重算一次目标（~0.13s）——太慢会被噩梦怪海围死
-    if (++this._aimT % 4 !== 1) return;
+    // 197 轮：档位 = 反应延迟（pro 4 帧 / normal 5 / rookie 8）；但队友倒地时一律回到 4 帧 ——
+    // 用户："不改变拆箱子和救人逻辑，让最菜的ai也会努力……去努力救人"，救援决策不能被降速。
+    const S = this._skillCfg();
+    this._fr++;
+    const rescueMode = (g.world?.players?.() ?? []).some((pl) => pl && pl !== p && pl.downed && !pl.dead);
+    const per = rescueMode ? 4 : S.period;
+    if (++this._aimT % per !== 1 % per) return;
     this._dodgeNow = false;   // 本次决策是否处于"躲弹中"（置位后跳过走位低通，指令直达）
 
     const world = g.world;
@@ -405,7 +455,7 @@ export class NekoPilot {
           if (!b || b.dead || b.hostileToEnemies) continue;
           const dx = p.x - b.x, dy = p.y - b.y;
           const d = Math.hypot(dx, dy);
-          if (d > 230 || d < 1) continue;
+          if (d > 230 * S.scan || d < 1) continue;   // 197 轮：感知范围随档位（菜鸟只看得见 150px 内的弹）
           // ---- 万圣节战实测纠偏：EnemyBullet 是 angle+speed 运动，从不写 vx/vy
           // （Entity 基类的 vx=vy=0 一直是 0）→ 旧写法 bv 恒为 0，**每一发敌弹都被当成
           // "静止的"跳过**，184 轮起整套弹幕躲避对全游戏敌弹都是空转。
@@ -422,8 +472,14 @@ export class NekoPilot {
           const along = d * dot;
           const miss = Math.sqrt(Math.max(0, d * d - along * along));
           if (miss > 46) continue;
+          // 197 轮：漏看——该躲的弹有概率根本没注意到（pro 为 0，行为不变）
+          if (S.skip && this._rnd() < S.skip) continue;
           // 垂直闪避：两侧选离弹更远的一边，越近权重越大
-          const px = -bvy / bv, py = bvx / bv;
+          let px = -bvy / bv, py = bvx / bv;
+          if (S.angErr) {   // 197 轮：躲避方向误差——知道要躲，但闪得不够准
+            const er = (this._rnd() - 0.5) * 2 * S.angErr, ce = Math.cos(er), se = Math.sin(er);
+            const rx = px * ce - py * se, ry = px * se + py * ce; px = rx; py = ry;
+          }
           const side = (dx * px + dy * py) >= 0 ? 1 : -1;
           const w = (1 - d / 230) * 2.4;
           fleeX += px * side * w;
@@ -813,6 +869,24 @@ export class NekoPilot {
     if (bossE && !vergilMode) {
       mix = { x: mix.x * 0.68 + bossE.x * 0.32, y: mix.y * 0.68 + bossE.y * 0.32 };
     }
+    // ---- 197 轮：偶发走位失误（只在非救援/非拆箱的常规走位阶段；救援与拆箱在更早处已 return）----
+    // 每个决策拍以 (拍长秒数 / stumbleEvery) 的概率开始一次踉跄：stumbleDur 秒内朝随机方向走，无视目标。
+    if (S.stumbleEvery) {
+      const nowS = this._fr / 60;
+      if (!this._stumble && this._rnd() < (per / 60) / S.stumbleEvery) {
+        this._stumble = { until: nowS + S.stumbleDur, ang: this._rnd() * Math.PI * 2 };
+      }
+      if (this._stumble) {
+        if (nowS < this._stumble.until) {
+          let sx = p.x + Math.cos(this._stumble.ang) * 140, sy = p.y + Math.sin(this._stumble.ang) * 140;
+          if (this._bossArenaClamp) ({ x: sx, y: sy } = this._bossArenaClamp({ x: sx, y: sy }));
+          this._dodgeNow = true;
+          p.agentMoveTarget = { x: sx, y: sy };
+          return;
+        }
+        this._stumble = null;
+      }
+    }
     if (!vergilMode && !bossE && this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
     // ---- 第一百八十三轮：最终落点也 clamp 进 boss 场地 ----
     // spawn 警告避让/地形避让都可能把落点推到空气墙外 —— boss 战里一切
@@ -837,6 +911,9 @@ export class NekoPilot {
    * 仅用于万圣节战；返回新的目标点（离开当前位置 ≤160px）。
    */
   _safeStep(g, p, tx, ty, arena) {
+    const S = this._skillCfg();
+    // 197 轮：走神——整次预测被跳过（返回原目标，当没看见）。pro 为 0
+    if (S.safeSkip && this._rnd() < S.safeSkip) return { x: tx, y: ty, danger: 0 };
     const world = g.world;
     const hf = world?.halloweenFight;
     const ebs = world?.enemyBullets?.items;
@@ -857,7 +934,7 @@ export class NekoPilot {
 
     const myR = p.hitR ?? p.radius ?? 10;
     const spd = Math.max(120, (p.baseSpeed ?? 220) * (p.stats?.moveSpeedMultiplier ?? 1));
-    const TAUS = [0.10, 0.22, 0.36, 0.52];
+    const TAUS = S.taus;   // 197 轮：预测地平线随档位（pro 0.52s / normal 0.36s / rookie 0.22s）
     const minX = arena.cx - arena.hw + 40, maxX = arena.cx + arena.hw - 40;
     const minY = arena.cy - arena.hh + 40, maxY = arena.cy + arena.hh - 40;
 
@@ -881,8 +958,8 @@ export class NekoPilot {
     };
 
     let best = null, bestScore = -Infinity, stayClear = 99;
-    for (let k = -1; k < 16; k++) {
-      const ang = k < 0 ? 0 : (k * Math.PI) / 8;
+    for (let k = -1; k < S.dirs; k++) {
+      const ang = k < 0 ? 0 : (k * 2 * Math.PI) / S.dirs;   // pro: 16 向，与旧版 k*π/8 逐位相同
       const ux = k < 0 ? 0 : Math.cos(ang), uy = k < 0 ? 0 : Math.sin(ang);
       let clear = 99, hz = 0, lx = p.x, ly = p.y;
       for (const tau of TAUS) {
@@ -898,7 +975,7 @@ export class NekoPilot {
       }
       if (k < 0) stayClear = clear;
       const c = clear < 0 ? clear * 3 : Math.min(clear, 36);
-      const score = c - hz - Math.hypot(lx - tx, ly - ty) * 0.06;
+      const score = c - hz - Math.hypot(lx - tx, ly - ty) * 0.06 + (S.scoreNoise ? (this._rnd() - 0.5) * S.scoreNoise : 0);
       if (score > bestScore) { bestScore = score; best = { ux, uy, k }; }
     }
     if (!best || best.k < 0) return { x: p.x, y: p.y, danger: stayClear < 30 ? 1 : 0, stay: true };
