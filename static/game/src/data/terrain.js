@@ -46,6 +46,8 @@
  *
  * 一致性由测试保证：test/terrain-check.mjs 会断言这两个值相等。
  */
+import { buildMaze, SNOW_MAZE } from './maze.js';
+
 export const WORLD_SIZE = 2400;
 
 /** 背景图的平铺周期（世界像素）。和 renderer._ensureBgCache 里的 tile 一致。 */
@@ -119,6 +121,8 @@ export const TERRAIN = {
   // 9 个圆：冰封池塘(最大) + 5 棵覆雪松 + 3 块冰岩
   snow: {
     name: '雪原',
+    // 第一百九十八轮：世界坐标里的「冰晶迷宫」（唯一一座，不随图案平铺）。见 data/maze.js
+    maze: SNOW_MAZE,
     rects: [
     ],
     circles: [
@@ -211,6 +215,30 @@ export function expandTerrain(bgId, worldSize = WORLD_SIZE) {
   if (!t) return out;
 
   const half = worldSize / 2;
+  // ---- 第一百九十八轮：迷宫 + 冰砖广场（plaza）----
+  // 迷宫区域里贴图烘焙的池塘/松树会透出来 —— 所以迷宫下面铺一块不透明广场把它们盖住，同时撤掉广场内的图案碰撞体：
+  // 「画什么就挡什么」（第十二轮的铁律）。广场从"迷宫外框 + 边距"起步，把任何与它相交的图案障碍的整个画出范围
+  // （视觉半径 = 碰撞半径 / 0.92）吞进来，直到稳定；这样不会留下"半个池塘露在广场外却没有碰撞"的画面。
+  let maze = null, plaza = null;
+  if (t.maze) {
+    maze = buildMaze(t.maze);
+    plaza = { x0: maze.x0 - 50, y0: maze.y0 - 50, x1: maze.x1 + 50, y1: maze.y1 + 50 };
+    const inst = [];
+    const sp = Math.ceil(half / BG_TILE) + 1;
+    for (let i = -sp; i <= sp; i++) for (let j = -sp; j <= sp; j++) for (const c of t.circles) {
+      const rr = (c.r * BG_TILE) / 0.92;
+      inst.push({ cx: i * BG_TILE + c.cx * BG_TILE, cy: j * BG_TILE + c.cy * BG_TILE, rr });
+    }
+    for (let grow = true, guard = 0; grow && guard < 20; guard++) {
+      grow = false;
+      for (const c of inst) {
+        if (c.cx + c.rr <= plaza.x0 || c.cx - c.rr >= plaza.x1 || c.cy + c.rr <= plaza.y0 || c.cy - c.rr >= plaza.y1) continue;
+        const nx0 = Math.min(plaza.x0, c.cx - c.rr), ny0 = Math.min(plaza.y0, c.cy - c.rr), nx1 = Math.max(plaza.x1, c.cx + c.rr), ny1 = Math.max(plaza.y1, c.cy + c.rr);
+        if (nx0 < plaza.x0 || ny0 < plaza.y0 || nx1 > plaza.x1 || ny1 > plaza.y1) { plaza = { x0: nx0, y0: ny0, x1: nx1, y1: ny1 }; grow = true; }
+      }
+    }
+  }
+  const inPlaza = (cx, cy, r) => plaza && cx + r > plaza.x0 && cx - r < plaza.x1 && cy + r > plaza.y0 && cy - r < plaza.y1;
   // 需要覆盖 [-half, half] 的重复范围：i 从 -ceil(half/tile) 到 +ceil(half/tile)
   const span = Math.ceil(half / BG_TILE) + 1;
   for (let i = -span; i <= span; i++) {
@@ -226,6 +254,7 @@ export function expandTerrain(bgId, worldSize = WORLD_SIZE) {
           y1: oy + y1 * BG_TILE,
         };
         if (r.x1 <= -half || r.x0 >= half || r.y1 <= -half || r.y0 >= half) continue;
+        if (plaza && r.x1 > plaza.x0 && r.x0 < plaza.x1 && r.y1 > plaza.y0 && r.y0 < plaza.y1) continue;
         out.rects.push(r);
       }
 
@@ -237,9 +266,15 @@ export function expandTerrain(bgId, worldSize = WORLD_SIZE) {
         };
         if (cc.cx + cc.r <= -half || cc.cx - cc.r >= half
           || cc.cy + cc.r <= -half || cc.cy - cc.r >= half) continue;
+        if (inPlaza(cc.cx, cc.cy, cc.r / 0.92)) continue;   // 198 轮：广场内的图案障碍已被盖住，同步撤掉碰撞体
         out.circles.push(cc);
       }
     }
+  }
+  if (maze) {
+    for (const w of maze.walls) out.rects.push(w);
+    out.maze = maze;
+    out.plaza = plaza;
   }
   return out;
 }

@@ -21,6 +21,8 @@ import { ARENA, PURGE_CD } from './flandre.js';
 import * as FR from './flandre-render.js';
 // 第一百八十五轮：天气特效 v2（流星雨火球/燃烧区、血月、太阳、花瓣、热浪、雨纹）
 import * as WFX from './weather-fx.js';
+// 第一百九十八轮：雪原「冰晶迷宫」渲染（整座烘焙成一张图，每帧一次 drawImage）
+import * as MZ from './maze-fx.js';
 import { drawZigzagBlade } from './dmc-blades.js';
 // 第一百八十四轮：万圣节双猫战渲染（发光弹幕 / Bloom / 墓地背景 / 灯珠字母 / 像素 HUD），
 // 全部在独立模块，渲染器只留调用点
@@ -717,6 +719,9 @@ export class Renderer {
     this._drawTerrain(ctx, camera, W, H);
   }
 
+  /** 198 轮：换到带迷宫的地图时预烘焙（避免第一帧现场烘焙卡一下） */
+  warmMaze(terrain) { try { MZ.warm(terrain); } catch { /* 无 DOM 环境 */ } }
+
   /**
    * 给不可通行地形描边（第十二轮，用户要求）。
    *
@@ -747,6 +752,9 @@ export class Renderer {
     const toSX = (wx) => wx - camera.cx + W / 2;
     const toSY = (wy) => wy - camera.cy + H / 2;
 
+    // 198 轮：迷宫广场 + 冰墙先画（盖住贴图里烘焙的池塘/松树），其上再画常规障碍描边
+    if (t.maze) MZ.drawMaze(ctx, camera, W, H, t, performance.now() / 1000);
+
     ctx.save();
     // 只画看得见的那部分，屏幕外的直接跳过（障碍物可能有很多重复实例）
     const inView = (x0, y0, x1, y1) => x1 >= 0 && x0 <= W && y1 >= 0 && y0 <= H;
@@ -757,6 +765,7 @@ export class Renderer {
     // 矩形（实验室的深色方块）
     ctx.beginPath();
     for (const r of t.rects) {
+      if (r.maze) continue;   // 198 轮：迷宫墙自带并集外框（见 maze-fx.js），不再逐段描边（会在拐角处画出内部接缝）
       const x0 = toSX(r.x0), y0 = toSY(r.y0);
       const x1 = toSX(r.x1), y1 = toSY(r.y1);
       if (!inView(x0, y0, x1, y1)) continue;
@@ -783,6 +792,7 @@ export class Renderer {
     ctx.strokeStyle = this._terrainStrokeInner ?? 'rgba(255,255,255,0.10)';
     ctx.beginPath();
     for (const r of t.rects) {
+      if (r.maze) continue;   // 198 轮：迷宫墙自带并集外框（见 maze-fx.js），不再逐段描边（会在拐角处画出内部接缝）
       const x0 = toSX(r.x0), y0 = toSY(r.y0);
       const x1 = toSX(r.x1), y1 = toSY(r.y1);
       if (!inView(x0, y0, x1, y1)) continue;

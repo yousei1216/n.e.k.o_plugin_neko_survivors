@@ -802,6 +802,15 @@ export class Game {
         // 地形必须和背景同步换：障碍物在画面上就是这张图里的深色方块/花坛。
         // 换图不换地形 = 撞空气墙；换地形不换图 = 能穿墙。
         this.world.setTerrain(bg);
+        // 198 轮：雪原的「冰晶迷宫」深处每波放一只宝箱 —— 走进去的理由（用户："1个入口1个出口里面各种窄路选择的感觉"）。
+        // 落点是 BFS 离入口最远的格子中心（见 data/maze.js），保证在通道里、够得着；普通宝箱，不是稀有箱。
+        const mz = this.world.terrain?.maze;
+        if (mz) {
+          try {
+            this.world.spawnChest(this.player, { x: mz.chest.x, y: mz.chest.y });
+            this.renderer?.warmMaze?.(this.world.terrain);
+          } catch { /* 宝箱失败不影响开波 */ }
+        }
       }
     }
 
