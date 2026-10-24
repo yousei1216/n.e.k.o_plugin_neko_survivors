@@ -181,27 +181,27 @@ export class Renderer {
     const W = this.width, H = this.height;
     const t = performance.now() / 1000;
 
-    // ---- 径向星空底：中心暗紫蓝，向外沉入近黑 ----
+    // ---- 径向底：明亮天空色（206 轮：标题页整体换成浅色主题）----
     const grad = ctx.createRadialGradient(
       W * 0.5, H * 0.36, 30,
       W * 0.5, H * 0.52, Math.max(W, H) * 0.78,
     );
-    grad.addColorStop(0, '#271c52');
-    grad.addColorStop(0.55, '#181034');
-    grad.addColorStop(1, '#0a0716');
+    grad.addColorStop(0, '#f2f9ff');
+    grad.addColorStop(0.55, '#dcecff');
+    grad.addColorStop(1, '#cfe4fa');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // ---- 远景静态星（闪烁）：小而密，走 alpha 呼吸 ----
+    // ---- 远景静态星（闪烁）：浅底上用淡蓝灰，像细小的浮尘 ----
     ctx.save();
-    ctx.fillStyle = '#cfd8ff';
+    ctx.fillStyle = '#7fa6cf';
     // 第一百六十二轮：移动端标题星星减半（桌面 46 不变）
     for (let i = 0; i < (MOBILE ? 23 : 46); i++) {
       const seed = i * 97.13;
       const x = (seed * 5.31) % W;
       const y = (seed * 3.77) % H;
       const tw = 0.12 + 0.5 * Math.abs(Math.sin(t * 0.7 + i * 1.71));
-      ctx.globalAlpha = tw * 0.7;
+      ctx.globalAlpha = tw * 0.45;
       ctx.beginPath();
       ctx.arc(x, y, 0.7 + (i % 3) * 0.4, 0, TAU);
       ctx.fill();
@@ -219,26 +219,27 @@ export class Renderer {
       const y = (((seed * 3.7 - t * speed) % (H + 90)) + H + 90) % (H + 90) - 45;
       const r = 1.1 + (i % 3);
       const glow = 0.10 + (i % 5) * 0.05;
-      ctx.fillStyle = i % 3 === 0 ? '#ff7bac' : i % 3 === 1 ? '#5fd3e8' : '#b794f6';
+      // 206 轮：浅底上要更饱和的颜色才看得见（原来是给深紫星空配的）
+      ctx.fillStyle = i % 3 === 0 ? '#ff5d9e' : i % 3 === 1 ? '#2aa8d0' : '#8a6bf0';
       // 外圈光晕（大而淡）+ 内核（小而亮）
-      ctx.globalAlpha = glow * 0.55;
+      ctx.globalAlpha = glow * 0.85;
       ctx.beginPath();
       ctx.arc(x, y, r * 3.2, 0, TAU);
       ctx.fill();
-      ctx.globalAlpha = Math.min(0.85, glow + 0.35);
+      ctx.globalAlpha = Math.min(0.9, glow + 0.5);
       ctx.beginPath();
       ctx.arc(x, y, r, 0, TAU);
       ctx.fill();
     }
     ctx.restore();
 
-    // ---- 暗角：边缘极暗的紫红色，把视觉焦点压向中间 ----
+    // ---- 暗角：浅蓝雾（原来是暗紫红，浅底上会脏）----
     const vig = ctx.createRadialGradient(
       W * 0.5, H * 0.5, Math.min(W, H) * 0.42,
       W * 0.5, H * 0.5, Math.max(W, H) * 0.74,
     );
-    vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(42,4,36,0.55)');
+    vig.addColorStop(0, 'rgba(255,255,255,0)');
+    vig.addColorStop(1, 'rgba(120,170,220,0.16)');
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, W, H);
   }
@@ -2374,13 +2375,14 @@ export class Renderer {
     ctx.quadraticCurveTo(bx - w / 2, by - h / 2, bx - w / 2 + rr, by - h / 2);
     ctx.closePath();
 
-    // 粉框对话气泡样式（与 .neko-bubble-slot > * 逐项对齐）
-    // 第八十二轮：背景透明度 50%（用户："所有框的背景透明度调到50%，
-    // 方便玩家看清框后面的东西"）
-    ctx.fillStyle = 'rgba(20, 24, 33, 0.5)';
+    // 台词气泡（206 轮：整体换浅色主题）
+    // 用户："小小猫娘不走语音的纯台词对话框还是黑色本体粉色边框，改到和语音框一样，
+    //       然后给这个语音框加个可爱颜色的边框吧。"
+    // 这个气泡是画布画的（不在 DOM 里），所以之前那批 CSS 覆盖全都没碰到它。
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
     ctx.fill();
-    ctx.strokeStyle = '#ff7bac';
-    ctx.lineWidth = 1 / zoom;
+    ctx.strokeStyle = '#ffa8cf';
+    ctx.lineWidth = 2 / zoom;
     ctx.stroke();
 
     // 指向她的小尾巴（一个三角形）
@@ -2390,18 +2392,19 @@ export class Renderer {
     ctx.lineTo(bx, ty + fs * 0.7);
     ctx.lineTo(bx + fs * 0.45, ty);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(20, 24, 33, 0.5)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
     ctx.fill();
     // 只描两条斜边，底边不描（否则会在气泡上划一道线）
-    ctx.strokeStyle = '#ff7bac';
+    ctx.strokeStyle = '#ffa8cf';
+    ctx.lineWidth = 2 / zoom;
     ctx.beginPath();
     ctx.moveTo(bx - fs * 0.45, ty);
     ctx.lineTo(bx, ty + fs * 0.7);
     ctx.lineTo(bx + fs * 0.45, ty);
     ctx.stroke();
 
-    // 文字（与粉框一致的浅色文字，逐行居中）
-    ctx.fillStyle = '#e8ecf6';
+    // 文字（深蓝，配白底）
+    ctx.fillStyle = '#1d3c63';
     const startY = by - ((lines.length - 1) * lineH) / 2 + fs * 0.06;
     lines.forEach((l, i) => ctx.fillText(l, bx, startY + i * lineH));
     ctx.restore();

@@ -1906,3 +1906,54 @@ input[type="range"].fx-slider::-moz-range-thumb {
   color: #1d3c63;
   box-shadow: 0 8px 22px rgba(26, 62, 120, .16);
 }
+
+/* ---------- 206 轮之二：标题页贴图不再遮住粒子 ----------
+   用户："你新加的淡蓝色贴图其实把背景挡住了，背景有一些粒子效果之类的飞来飞去，
+        能不能把贴图弄到底部……记得放大，不然现在4个角还是黑色的。"
+   做法：那一层 CSS 渐变整块去掉 —— 背景改由画布的 renderIdleBackground 画（浅色天空 + 粒子），
+   这样粒子就在最底层之上、四角也不会再露出黑边。 */
+.title-scene {
+  background: none;
+  width: 100vw;
+  min-height: 100vh;
+  margin: -24px;
+  padding: 24px;
+}
+.title-vignette { display: none; }
+/* DOM 粒子（.title-stars）在浅底上改成更饱和的颜色，并加一点点白边好读 */
+.title-stars .t-pink   { color: #ff4f92; background: #ffd0e4; }
+.title-stars .t-cyan   { color: #1f9fc4; background: #cdf1fa; }
+.title-stars .t-violet { color: #7d5ce8; background: #e2d8ff; }
+
+/* ---------- 206 轮之二：左下角属性小字太暗（它在深色战场上，用的却是浅色主题的 --text-dim） ---------- */
+.hud-stats {
+  color: #dcebfb;
+  text-shadow: 0 1px 3px rgba(6, 16, 34, .9);
+}
+.hud-stats .hud-stat b {
+  color: #ffd23a;
+  text-shadow: 0 1px 3px rgba(6, 16, 34, .9);
+}
+
+/* ---------- 206 轮之二：小小猫娘台词框 ----------
+   用户："小小猫娘不走语音的纯台词对话框还是黑色本体粉色边框，改到和语音框一样，
+        然后给这(个)语音框加个可爱颜色的边框吧。"
+   两条路都堵上：既覆盖 .neko-line 本体（.neko-bubble-slot 的直接子元素继承不到时也有救），
+   也给整族一个可爱的粉蓝渐变描边。 */
+.neko-line,
+#neko-bubble-slot > .neko-line,
+.neko-bubble-slot > .neko-line {
+  background: linear-gradient(180deg, #ffffff, #f2f9ff);
+  border: 2px solid #ffb3d4;
+  border-radius: 14px;
+  color: #1d3c63;
+  box-shadow: 0 10px 24px rgba(26, 62, 120, .18), 0 0 0 3px rgba(255, 179, 212, .18);
+  font-weight: 700;
+}
+/* 语音在念的时候（.speaking / .voice）换一层更亮的天蓝描边，和"在说话"区分开 */
+.neko-line.speaking,
+.neko-line.voice,
+#neko-bubble-slot > .speaking {
+  border-color: #7cc6ff;
+  box-shadow: 0 10px 24px rgba(26, 62, 120, .18), 0 0 0 3px rgba(124, 198, 255, .22);
+}

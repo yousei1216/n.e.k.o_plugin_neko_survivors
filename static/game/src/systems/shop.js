@@ -66,6 +66,16 @@ export const STEAL_LUCK_CAP = 220;       // 生效幸运到达这个值就拉满
 //
 //    实测第 21 波（无限模式）= 400%，正好落在用户说的数字上。
 export const PRICE_WAVE_STEP = 0.10;     // 每回合商品涨价 10%
+/**
+ * 206 轮：全游戏商品涨价系数。
+ * 用户："道具价格还是太便宜了，算算11回合时最便宜的传说道具是多少钱，把它改到100，
+ *       然后把这个涨幅试用全游戏。"
+ *
+ * 第 11 波（currentWave = 10）最便宜的传说武器 = 48（T4 基价）× 0.9（最小抖动）× 2.0（1 + 10×0.1）
+ * = 86.4 → 86。要变成 100，系数就是 100 / 86。
+ * 乘在 _weaponPrice / _itemPrice 的最后一步，所以所有档位、所有道具一起涨同样的比例。
+ */
+export const PRICE_GLOBAL_MUL = 100 / 86;
 export const NIGHTMARE_EXTRA_STEP = 0.10; // 噩梦第 11 波起**额外**再涨 10%/波
 export const NIGHTMARE_EXTRA_FROM = 10;   // w=10 即第 11 波
 export const REROLL_STEP_WAVE = 10;       // w=10 即第 11 波
@@ -463,12 +473,12 @@ export class Shop {
     const base = def.tier === 4 ? LEGENDARY_BASE_PRICE
       : def.tier === 3 ? 26 : def.tier === 2 ? 16 : 9;
     const jitter = 0.9 + this.rng.next() * 0.25;
-    return Math.max(3, Math.round(base * jitter * this.priceWaveMul * (1 - luckBonus * 0.22)));
+    return Math.max(3, Math.round(base * jitter * this.priceWaveMul * (1 - luckBonus * 0.22) * PRICE_GLOBAL_MUL));
   }
 
   _itemPrice(def, luckBonus) {
     const jitter = 0.92 + this.rng.next() * 0.2;
-    return Math.max(3, Math.round(def.price * jitter * this.priceWaveMul * (1 - luckBonus * 0.22)));
+    return Math.max(3, Math.round(def.price * jitter * this.priceWaveMul * (1 - luckBonus * 0.22) * PRICE_GLOBAL_MUL));
   }
 
   // ---------------------------------------------------------
