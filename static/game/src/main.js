@@ -2133,6 +2133,10 @@ export class Game {
     try {
       if (this.input.pressed('Escape')) { this._pause(); return; }
       const rf = this.remilia;
+      // 207 轮（用户："蕾米芙兰战音效只有开头的一颗弹幕有音效"）：
+      // 芙兰战每帧都调 audio.beginFrame()，它会清掉"同帧去重"表（_seFrame）。
+      // 不调的话 tan00 这颗弹幕音一辈子只会响一次 —— 这就是"只有开头有音效"的原因。
+      audio.beginFrame();
       // 204 轮（用户："小小猫娘消弹技能可使用"）：与芙兰战同键位（Space / P2 小键盘 .）。
       if (this.input.pressed('Space')) rf?.tryManualPurge?.();
       if (this.input.p2SkillClear()) rf?.tryManualPurge?.();

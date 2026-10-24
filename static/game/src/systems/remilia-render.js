@@ -386,6 +386,15 @@ export function drawFlandreSprite(ctx, fight, getSprite) {
 // 那张图就是 flandre-stage7/eff07_nc_4k.png —— 与芙兰战里"标出空气墙范围"的那层暗红旋涡是同一张，
 // 换段时全屏闪一下，用户每几秒看到一次，以为是芙兰战的特效没删干净。换段现在只留卡名横幅 + 红闪。
 export function drawScreen(ctx, fight, W, H) {
+  // 207 轮：换场过渡黑幕（黑屏期间全黑 → 进入正片 0.9 秒淡出），
+  // 让"从芙兰战切过来"不那么生硬，也顺带盖住换场那一瞬间的姿势切换。
+  const veil = fight?.fade ?? 0;
+  if (veil > 0.01) {
+    ctx.save();
+    ctx.fillStyle = `rgba(6, 2, 10, ${Math.min(1, veil)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
   const f = fight?.flash ?? 0;
   if (f > 0.01) {
     ctx.save();

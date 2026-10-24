@@ -2379,7 +2379,9 @@ export class Renderer {
     // 用户："小小猫娘不走语音的纯台词对话框还是黑色本体粉色边框，改到和语音框一样，
     //       然后给这个语音框加个可爱颜色的边框吧。"
     // 这个气泡是画布画的（不在 DOM 里），所以之前那批 CSS 覆盖全都没碰到它。
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+    // 207 轮（用户："小小猫娘对话框适当半透明一些吧，不然芙兰战的台词又会挡住弹幕反而成为了难度之一"）：
+    // 0.96 → 0.55，边框保持不透明、字仍是深蓝，弹幕能透出来。
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
     ctx.fill();
     ctx.strokeStyle = '#ffa8cf';
     ctx.lineWidth = 2 / zoom;
@@ -2392,7 +2394,8 @@ export class Renderer {
     ctx.lineTo(bx, ty + fs * 0.7);
     ctx.lineTo(bx + fs * 0.45, ty);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+    // 尾巴跟本体一样半透明（207 轮）
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
     ctx.fill();
     // 只描两条斜边，底边不描（否则会在气泡上划一道线）
     ctx.strokeStyle = '#ffa8cf';

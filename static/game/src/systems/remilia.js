@@ -278,7 +278,7 @@ export class RemiliaFight {
     // 两人各占一个位置：蕾米 = 主角，芙兰 = 对角（一左一右、一上一下）
     this.b = {
       remilia: { x: REMILIA_ARENA.cx + 520, y: REMILIA_ARENA.cy - 420, frame: 0, ft: 0, cast: 0, alpha: 0, wing: 0, side: 1 },
-      flandre: { x: REMILIA_ARENA.cx - 520, y: REMILIA_ARENA.cy + 180, spriteId: FLAN_SIT[0], ft: 0, alpha: 1, wing: 0, side: -1, rising: 0 },
+      flandre: { x: REMILIA_ARENA.cx - 520, y: REMILIA_ARENA.cy + 180, spriteId: FLAN_FLY[0], ft: 0, alpha: 0, wing: 0, side: -1, rising: 0 },
     };
     this.orbit = 0;
     this.orbitSpeed = 0.55;
@@ -287,6 +287,8 @@ export class RemiliaFight {
     this.st = {};
     // 205 轮：cut-in 演出已删除（原本用 eff07 全屏闪，用户认成芙兰战特效残留）
     this.flash = 0;          // 全屏白/红闪
+    // 207 轮：换场过渡 —— 黑屏 1 → 开头 0.9 秒淡到 0，免得"啪"地跳进战斗。
+    this.fade = 1;
     this.shake = 0;
     this.splits = [];        // 蝙蝠群演出粒子（纯视觉，渲染层画）
     this.timeLeft = REMILIA_TOTAL;
@@ -343,7 +345,7 @@ export class RemiliaFight {
 
     let tx, ty, fx, fy;
     if (ph === 'intro') {
-      // 蕾米从右上飞入；芙兰原地起身
+      // 蕾米从右上飞入；芙兰原地待机（已经是飞行姿势）
       const u = Math.min(1, Math.max(0, this.t / REMILIA_INTRO));
       const e = 1 - (1 - u) * (1 - u);
       tx = A.cx + (1 - e) * 640;
@@ -351,6 +353,9 @@ export class RemiliaFight {
       fx = A.cx - 300;
       fy = A.cy + 130;
       R.alpha = Math.min(1, u * 1.6);
+      // 207 轮（用户："刚转换的一瞬间芙兰还是抱腿，要不慢慢加个过渡画面看看？"）：
+      // 芙兰也一起淡入，别让她在换场瞬间"啪"地出现成抱腿帧。
+      F.alpha = Math.min(1, u * 1.6);
       F.rising = u;
     } else if (ph === 'outro') {
       const u = Math.min(1, Math.max(0, (this.t - REMILIA_INTRO - REMILIA_CARDS) / REMILIA_OUTRO));
@@ -544,6 +549,8 @@ export class RemiliaFight {
     const dt = dtReal * this.timeScale;
     const before = this.t;
     this.t += dt;
+    // 换场过渡：黑屏期间全黑，进入正片后 0.9 秒淡出（用户要的"慢慢加个过渡画面"）
+    this.fade = this.t < 0 ? 1 : Math.max(0, 1 - this.t / 0.9);
     if (this.t < 0) return;      // 黑屏换场期间只走计时
 
     if (!this.bgmOn) {

@@ -1957,3 +1957,10 @@ input[type="range"].fx-slider::-moz-range-thumb {
   border-color: #7cc6ff;
   box-shadow: 0 10px 24px rgba(26, 62, 120, .18), 0 0 0 3px rgba(124, 198, 255, .22);
 }
+
+/* ---------- 207 轮：DOM 台词框也跟着半透明（芙兰战里别挡弹幕） ---------- */
+.neko-line,
+#neko-bubble-slot > .neko-line,
+.neko-bubble-slot > .neko-line {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .82), rgba(240, 249, 255, .72));
+}
