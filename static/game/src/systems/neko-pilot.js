@@ -454,7 +454,7 @@ export class NekoPilot {
       if (Array.isArray(ebs)) {
         for (const b of ebs) {
           if (!b || b.dead || b.hostileToEnemies) continue;
-          const dx = p.x - b.x, dy = p.y - b.y;
+          const dx = p.x - b.x, dy = p.y + (p.hitOY ?? 0) - b.y;   // 判定点在脸上（hitOY）
           const d = Math.hypot(dx, dy);
           if (d > 230 * S.scan || d < 1) continue;   // 197 轮：感知范围随档位（菜鸟只看得见 150px 内的弹）
           // ---- 万圣节战实测纠偏：EnemyBullet 是 angle+speed 运动，从不写 vx/vy
@@ -627,7 +627,7 @@ export class NekoPilot {
       // 第一百八十四轮：万圣节双猫战用宽屏场地（用户："移动场地可以大点"）
       const arena = perf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : VIRGIL_ARENA;
       if (b && !b.dead) {
-        const dx = p.x - b.x, dy = p.y - b.y;
+        const dx = p.x - b.x, dy = p.y + (p.hitOY ?? 0) - b.y;   // 判定点在脸上（hitOY）
         const d = Math.hypot(dx, dy) || 1;
         // ---- 第一百八十四轮（用户："猫娘ai打维吉尔会一直卡远程射击位，
         // 而维吉尔可以格挡远程伤害"+"修复之后猫娘ai好像也不打他了"）——
@@ -946,7 +946,7 @@ export class NekoPilot {
     let imminent = 0;
     for (const b of ebs) {
       if (!b || b.dead) continue;
-      const dx = p.x - b.x, dy = p.y - b.y, d2 = dx * dx + dy * dy;
+      const dx = p.x - b.x, dy = p.y + (p.hitOY ?? 0) - b.y, d2 = dx * dx + dy * dy;   // 判定点在脸上
       if (d2 > 140 * 140) continue;
       const sp = b.speed ?? 0; if (sp < 30) continue;
       const vx = Math.cos(b.angle ?? 0) * sp, vy = Math.sin(b.angle ?? 0) * sp;

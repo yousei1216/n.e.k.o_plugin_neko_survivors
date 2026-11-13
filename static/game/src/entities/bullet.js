@@ -306,7 +306,8 @@ export class EnemyBullet extends Entity {
     for (const player of list) {
       if (!player || player.dead || player.downed) continue;
       const rr = this.hitRadius + (player.hitR ?? player.radius);
-      const ddx = player.x - this.x, ddy = player.y - this.y;
+      // 第二百零五轮：判定圆心在"脸"上（玩家 hitOY），不再是脚底
+      const ddx = player.x - this.x, ddy = player.y + (player.hitOY ?? 0) - this.y;
       if (ddx * ddx + ddy * ddy > rr * rr) continue;
       // 第一百零八轮：浓雾里敌人的弹也会 miss（天气独立随机流）；
       // 雾雨"所有人造成的伤害+25%"乘在敌弹伤害上。

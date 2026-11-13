@@ -340,7 +340,11 @@ export class Renderer {
     // 可被击中），这里的画布版分身退役。本体的隐身由 _drawEnemy 处理。
 
     // ---- 第二百零二轮：危险地形（地面效果，压在一切实体下面）----
-    if (world.hazards) drawHazards(ctx, world.hazards, camera, performance.now() / 1000, MOBILE);
+    // 第二百零五轮：特殊战（维吉尔 / 芙兰 / 蕾米 / 万圣节双猫）是独立场地，不再画世界里的危险地形 ——
+    // 否则上一张图若是火山 / 毒池，岩浆河与毒沼会直接盖在演出背景上（用户："检查有没有新bug"时发现）。
+    if (world.hazards && !world.halloweenFight && !world.flandreFight && !world.remiliaFight && !world.vergilFight) {
+      drawHazards(ctx, world.hazards, camera, performance.now() / 1000, MOBILE);
+    }
     // ---- 第二百零一轮：冰面（压在拾取物 / 实体下面）----
     if (world.iceZones?.length) this._drawIceZones(ctx, world.iceZones, camera);
     if (world.mortarShells?.length) this._drawMortarShells(ctx, world.mortarShells, camera);
@@ -1199,7 +1203,7 @@ export class Renderer {
     if (items) {
       for (let i = 0; i < items.length; i++) {
         const b = items[i];
-        const dx = b.x - p.x, dy = b.y - p.y;
+        const dx = b.x - p.x, dy = b.y - (p.y + (p.hitOY ?? 0));
         const d2 = dx * dx + dy * dy;
         if (d2 < near) near = d2;
       }
@@ -1209,7 +1213,8 @@ export class Renderer {
     const a = Math.max(bossFight ? 0.5 : 0.12, prox);
     if (a < 0.05) return;
     ctx.save();
-    ctx.translate(p.x, p.y);
+    // 第二百零五轮：判定圆心在脸上（hitOY），和 bullet.js / player.js 同源
+    ctx.translate(p.x, p.y + (p.hitOY ?? 0));
     // 判定圈：半径 = 真实 hitR（弹幕中心进入"圈半径 + 弹幕自身判定半径"才算命中）
     ctx.globalAlpha = a * 0.7;
     ctx.strokeStyle = '#ff5a7a';

@@ -363,7 +363,7 @@ export class HalloweenFight {
       // 激光伤害走 halloweenHit 同款 10% 真伤：判定 = 玩家到射线垂距
       for (const pl of this.main.world.players()) {
         if (!pl || pl.dead || pl.downed || pl.invuln > 0 || pl.halloweenHit == null) continue;
-        const dx = pl.x - b.x, dy = pl.y - b.y;
+        const dx = pl.x - b.x, dy = pl.y + (pl.hitOY ?? 0) - b.y;   // 判定点在脸上
         const proj = dx * Math.cos(b.angle) + dy * Math.sin(b.angle);
         if (proj <= 0) continue;
         const perp = Math.abs(-dx * Math.sin(b.angle) + dy * Math.cos(b.angle));

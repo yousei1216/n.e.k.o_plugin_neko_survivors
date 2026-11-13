@@ -66,7 +66,16 @@ export class Player extends Entity {
     // 到原来的80%左右，全模式通用修改"）。
     // radius 保持 16：身体接触伤害/拾取磁铁/移动边界都还用它，
     // 只有**弹幕命中**（bullet.js）走 hitR。
-    this.hitR = this.radius * 0.8;
+    //
+    // 第二百零五轮：再缩 10%（0.8 → 0.72），并把判定圆心抬到"脸"上 ——
+    // 用户："你看一下我们的角色的判定点，缩小10%然后移动到角色的'脸部'，有些角色有双马尾，
+    //        导致判定点有些浮空。"
+    // 立绘锚点在脚底（renderer._drawPlayer 把脚底画在 y + r*0.85），所以判定要往上抬；
+    // 双马尾角色视觉重心更高，判定落在脸/上半身才不像飘在头发里。
+    // hitOY 是判定圆心相对 p.y 的竖直偏移，凡是用玩家坐标判弹的地方都要带上它
+    //（bullet.js 的弹幕、renderer 的判定点、neko-pilot 的躲避、万圣节战的激光）。
+    this.hitR = this.radius * 0.72;
+    this.hitOY = -this.radius * 1.35;
     // 第十九轮：200 → 215。噩梦怪提速 + 玩家数值削弱后，满速怪能贴着玩家
     // 跑，第一波就能把角色围殴致死。玩家默认提速 7.5%，重新拉开能逃生的
     // 空间。（同轮末：敌人移速绝对上限 ENEMY_SPEED_CAP 已整个移除 ——
@@ -870,6 +879,10 @@ export class Player extends Entity {
     if (this.groundSpeedMul != null && this.groundSpeedMul !== 1 && !(this.flandreSpeed && this.flandreSpeed !== 1)) {
       speed *= this.groundSpeedMul;
     }
+    // 第二百零五轮：双猫万圣节战移速上限 130% ——
+    // 用户："双猫万圣节boss战移速限定不超过130%移速，不然玩家速度成长太快这个boss战无法躲避弹幕。"
+    // 只封顶、不锁死：低于 130% 的成长（属性 / 道具 / 角色被动）照常生效，超出的部分削掉。
+    if (world?.halloweenFight && speed > this.baseSpeed * 1.3) speed = this.baseSpeed * 1.3;
     // 202 轮：把本帧的实际移速记下来，四重存在的分身直接取它（"移速和玩家一致"）。
     // 只是个只读快照，不参与任何玩家自己的计算。
     this.curSpeed = speed;
