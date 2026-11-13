@@ -10,6 +10,10 @@ on:
 
 permissions:
   contents: write
+  # 上游 plugin-market-release.yml 的 attest 作业要签名/存证；caller 不给够权限会在启动阶段直接
+  # startup_failure（0.4.19 就是这样失败的）。
+  id-token: write
+  attestations: write
 
 jobs:
   release:
