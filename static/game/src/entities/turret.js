@@ -126,7 +126,9 @@ export class Turret extends Entity {
     this.shotsFired += n;
     this.cooldown = Math.max(0.1, (def.turretCooldown ?? def.cooldown ?? 3) / Math.max(0.2, this.rateMul));
     this.recoil = 0.16;
-    world.fx?.ring(this.x, this.y, 16, def.color, 0.22);
+    // 第二百轮 A1：开火换成枪口闪光（沿炮口方向）+ 小火花，取代原来的小圆环
+    world.fx?.muzzle(this.x + Math.cos(this.angle) * 16, this.y + Math.sin(this.angle) * 16, this.angle, def.color, 1.1);
+    world.fx?.sparkle(this.x + Math.cos(this.angle) * 16, this.y + Math.sin(this.angle) * 16, '#ffffff', 2);
 
     // 第十四轮 ④（用户反馈"我这边游玩一直没有武器音效"）：
     // **炮台武器原本一声不响**。

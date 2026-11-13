@@ -15,6 +15,9 @@
 //   元素·追踪      star_wand  → bubble_gun   → meteor_paw     ─┐
 //   元素·连锁      lucky_coin → bell_chime   → chain_bell     ─┴→ thunder_god_bell
 //   炮台           toy_turret → cardboard_turret → cat_ear_turret → meow_fortress
+//   精准（新）     whisker_bow → paw_crossbow → pad_sniper → meow_laser_rifle
+//   火焰（新）     ember_wand → cat_torch → flamethrower → inferno_cannon
+//   冰冻（新）     frost_wand → icicle_gun → frost_sprayer → absolute_zero
 //
 // behavior: 决定开火模式，由 weapon.js 解释
 //   'sweep'    近战横扫（扇形判定，带击退）
@@ -31,6 +34,7 @@
 //   'nova'     以自身为中心的爆发环
 //   'orbit'    环绕的实体弹
 //   'deploy'   部署炮台（放置后自动索敌开火）
+//   'flame'    第二百零一轮：喷射（短冷却的扇形连续判定，火焰 / 冰霜喷射器）
 // ============================================================
 
 export const WEAPONS = [
@@ -240,6 +244,115 @@ export const WEAPONS = [
     turretLife: 0, turretMax: 8, turretCooldown: 0.85,
     desc: '三连装要塞炮台，最多 8 座，摆好阵就能挂机。炮台流的顶点。',
   },
+
+  // ==========================================================
+  // 第二百零一轮 · 三个新系列（每系列 T1~T4）
+  //
+  // 精准（kind:ranged，吃远程伤害 / 射程加成）：
+  //   射程比同阶远程远 40%~100%，单发伤害是同阶 2~4 倍，射速只有一半。
+  //   whisker_bow → paw_crossbow → pad_sniper → meow_laser_rifle
+  //
+  // 火焰（kind:element，吃元素伤害）：
+  //   直接伤害故意压在同阶之下，靠 ignite（点燃 DoT）补回来：
+  //   点燃每 0.5s 一跳、每 0.5s 向 64px 内的怪传染（×0.8/代，最多 4 代），
+  //   DoT 同样吃元素伤害 / 全局伤害 / 等级成长（见 WeaponInstance.computeStatusMul）。
+  //   ember_wand → cat_torch → flamethrower → inferno_cannon
+  //
+  // 冰冻（kind:element）：
+  //   slow 减速、chill 累积寒意（小怪 100 / 精英 180，满了冻结；Boss 不冻结但被大幅减速）、
+  //   bite 冻伤 DoT；喷射器（iceZone）会在地面留下冰面，踩上去的怪持续减速 + 冻伤。
+  //   frost_wand → icicle_gun → frost_sprayer → absolute_zero
+  // ==========================================================
+
+  // ---------------- 精准系列 ----------------
+  {
+    id: 'whisker_bow', name: '猫须短弓', tier: 1, kind: 'ranged', behavior: 'shot',
+    color: '#d9a05b', glyph: '弓',
+    damage: 11, cooldown: 1.15, range: 440, speed: 720, pierce: 0,
+    desc: '用猫胡须当弦的短弓。射得慢，但又远又疼。精准系列的起点。',
+  },
+  {
+    id: 'paw_crossbow', name: '猫爪弩', tier: 2, kind: 'ranged', behavior: 'shot',
+    color: '#7fd1ff', glyph: '弩',
+    damage: 24, cooldown: 1.3, range: 520, speed: 860, pierce: 1,
+    desc: '肉垫扳机的重弩，弩箭可以穿透一个敌人。',
+  },
+  {
+    id: 'pad_sniper', name: '肉垫狙击枪', tier: 3, kind: 'ranged', behavior: 'shot',
+    color: '#b794f6', glyph: '狙',
+    damage: 58, cooldown: 1.9, range: 660, speed: 1150, pierce: 2,
+    critBonus: 15, critDamageBonus: 30,
+    desc: '超远射程的狙击枪，子弹贯穿 2 个敌人，暴击率 +15%。',
+  },
+  {
+    id: 'meow_laser_rifle', name: '喵星激光步枪', tier: 4, kind: 'ranged', behavior: 'beam',
+    color: '#ff3b6b', glyph: '镭',
+    damage: 105, cooldown: 1.55, range: 780, width: 11, pierce: 99,
+    critBonus: 25, critDamageBonus: 50,
+    desc: '瞬发的高能激光，贯穿一整条线。精准系列的顶点。',
+  },
+
+  // ---------------- 火焰系列 ----------------
+  {
+    id: 'ember_wand', name: '火苗魔杖', tier: 1, kind: 'element', behavior: 'shot',
+    color: '#ff8a3d', glyph: '焰',
+    damage: 4, cooldown: 0.9, range: 285, speed: 340, pierce: 0,
+    ignite: { dps: 3.5, dur: 3 },
+    desc: '喷出小火球点燃敌人。直接伤害很低，主要靠燃烧；点着的怪会把火传给身边的同伴。',
+  },
+  {
+    id: 'cat_torch', name: '猫猫火把', tier: 2, kind: 'element', behavior: 'sweep',
+    color: '#ff7a2a', glyph: '炬',
+    damage: 7, cooldown: 0.8, range: 74, arc: 130, knockback: 40,
+    ignite: { dps: 6, dur: 3.5 },
+    desc: '近身挥舞的火把，横扫一片并点燃。烧得比魔杖更旺。',
+  },
+  {
+    id: 'flamethrower', name: '暖炉喷火器', tier: 3, kind: 'element', behavior: 'flame', fx: 'fire',
+    color: '#ff6a2a', glyph: '喷',
+    damage: 3, cooldown: 0.2, range: 150, arc: 52, knockback: 6,
+    ignite: { dps: 9, dur: 3.5 },
+    desc: '持续喷出一道扇形火焰，被喷到的怪一起烧起来，火还会越传越多。',
+  },
+  {
+    id: 'inferno_cannon', name: '炼狱喷火炮', tier: 4, kind: 'element', behavior: 'flame', fx: 'fire',
+    color: '#ff3d1f', glyph: '狱',
+    damage: 5, cooldown: 0.16, range: 200, arc: 70, knockback: 8,
+    ignite: { dps: 18, dur: 4.5 },
+    desc: '又宽又远的炼狱火龙，点燃的火焰极烈。火焰系列的顶点。',
+  },
+
+  // ---------------- 冰冻系列 ----------------
+  {
+    id: 'frost_wand', name: '冰晶魔杖', tier: 1, kind: 'element', behavior: 'shot',
+    color: '#8fd9f0', glyph: '冰',
+    damage: 4, cooldown: 0.9, range: 290, speed: 330, pierce: 0,
+    slow: { mul: 0.72, dur: 1.6 }, chill: 24,
+    desc: '射出冰晶，命中减速并累积寒意。同一个怪被冰多次会被冻住一小会儿。',
+  },
+  {
+    id: 'icicle_gun', name: '冰锥枪', tier: 2, kind: 'element', behavior: 'spread',
+    color: '#b8ecff', glyph: '锥',
+    damage: 4, cooldown: 1.1, range: 300, speed: 420, shots: 3, spreadAngle: 24, pierce: 0,
+    slow: { mul: 0.65, dur: 1.8 }, chill: 22, bite: { dps: 3, dur: 2 },
+    desc: '一次射出三根冰锥，每根都减速、累积寒意并带来冻伤。',
+  },
+  {
+    id: 'frost_sprayer', name: '冰霜喷射器', tier: 3, kind: 'element', behavior: 'flame', fx: 'ice',
+    color: '#8fe4ff', glyph: '霜',
+    damage: 3, cooldown: 0.22, range: 165, arc: 56, knockback: 4,
+    slow: { mul: 0.6, dur: 1.2 }, chill: 13, bite: { dps: 4, dur: 2 },
+    iceZone: { r: 34, life: 3.2, slow: 0.55, dps: 4 },
+    desc: '喷出冷雾，在地上留下冰面——踩上去的怪会减速并持续冻伤，被冻多了还会冻住。',
+  },
+  {
+    id: 'absolute_zero', name: '绝对零度喷射器', tier: 4, kind: 'element', behavior: 'flame', fx: 'ice',
+    color: '#5fd0ff', glyph: '零',
+    damage: 5, cooldown: 0.17, range: 215, arc: 72, knockback: 6,
+    slow: { mul: 0.5, dur: 1.5 }, chill: 20, bite: { dps: 8, dur: 2.5 },
+    iceZone: { r: 44, life: 4.5, slow: 0.45, dps: 8 },
+    desc: '冻彻一切的寒潮：范围更大的冰面、更强的冻伤。Boss 无法冻结，但会被大幅减速。',
+  },
 ];
 
 export const WEAPON_MAP = Object.fromEntries(WEAPONS.map((w) => [w.id, w]));
@@ -278,6 +391,10 @@ export const RECIPES = [
   { from: 'star_wand',        to: 'bubble_gun',       cost: 10 },
   { from: 'lucky_coin',       to: 'bell_chime',       cost: 10 },
   { from: 'toy_turret',       to: 'cardboard_turret', cost: 10 },
+  // 第二百零一轮：新系列
+  { from: 'whisker_bow',      to: 'paw_crossbow',     cost: 10 },
+  { from: 'ember_wand',       to: 'cat_torch',        cost: 10 },
+  { from: 'frost_wand',       to: 'icicle_gun',       cost: 10 },
 
   // ---- T2 → T3 ----
   { from: 'tuna_blade',       to: 'fish_bone_scythe', cost: 18 },
@@ -287,6 +404,9 @@ export const RECIPES = [
   { from: 'bubble_gun',       to: 'meteor_paw',       cost: 24 },
   { from: 'bell_chime',       to: 'chain_bell',       cost: 20 },
   { from: 'cardboard_turret', to: 'cat_ear_turret',   cost: 20 },
+  { from: 'paw_crossbow',     to: 'pad_sniper',       cost: 22 },
+  { from: 'cat_torch',        to: 'flamethrower',     cost: 22 },
+  { from: 'icicle_gun',       to: 'frost_sprayer',    cost: 22 },
 
   // ---- T3 → T4（各流派各自的传说顶点） ----
   // 第十五轮 ②：这一段整体 ×1.2（用户要求"史诗武器合成他们的价格变贵20%"）。
@@ -298,6 +418,9 @@ export const RECIPES = [
   { from: 'meteor_paw',       to: 'thunder_god_bell', cost: 41 },
   { from: 'chain_bell',       to: 'thunder_god_bell', cost: 41 },
   { from: 'cat_ear_turret',   to: 'meow_fortress',    cost: 43 },
+  { from: 'pad_sniper',       to: 'meow_laser_rifle', cost: 45 },
+  { from: 'flamethrower',     to: 'inferno_cannon',   cost: 43 },
+  { from: 'frost_sprayer',    to: 'absolute_zero',    cost: 43 },
 ];
 
 export const RECIPE_MAP = Object.fromEntries(RECIPES.map((r) => [r.from, r]));

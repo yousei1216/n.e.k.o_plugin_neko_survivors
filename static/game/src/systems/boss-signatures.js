@@ -152,7 +152,92 @@ function nono(e, dt, ctx) {
   }
 }
 
-const TABLE = { pandora, nono };
+// ---------------------------------------------------------------
+// 第二百零二轮 · 中 Boss 招牌（rabiribi 弹幕库：HP 自适应扇形 / 星形螺旋 / 弹墙 / 狙击线）
+// 中 Boss 没有 bossPhase，phase 由 enemy.js 的 _midPhase() 按血量折算（>66% / >33% / 其余）。
+// ---------------------------------------------------------------
+
+/** 露娜 · 星屑：1 阶段九向扇 → 2 阶段叠星屑螺旋 → 3 阶段叠留缺口的圆环 */
+function luna(e, dt, ctx) {
+  const { world, player, phase } = ctx;
+  const S = e._sig ??= { fan: 1.4, spiral: 0, rot: 0, ring: 3.5 };
+  const toP = Math.atan2(player.y - e.y, player.x - e.x);
+
+  S.fan -= dt;
+  if (S.fan <= 0) {
+    S.fan = phase >= 3 ? 2.0 : phase === 2 ? 2.4 : 2.8;
+    const n = phase >= 2 ? 11 : 9, spread = (phase >= 2 ? 84 : 70) * Math.PI / 180;
+    for (let i = 0; i < n; i++) {
+      put(e, world, e.x, e.y, toP - spread / 2 + spread * (i / (n - 1)), 205, 'rice', '#ff9fe0', 6);
+    }
+  }
+  if (phase >= 2) {
+    S.spiral += dt;
+    while (S.spiral >= 0.3) {
+      S.spiral -= 0.3;
+      S.rot += 0.42;
+      for (let a = 0; a < 3; a++) put(e, world, e.x, e.y, S.rot + (a * TAU) / 3, 125, 'star', '#ffe27a', 6, 760);
+    }
+  }
+  if (phase >= 3) {
+    S.ring -= dt;
+    if (S.ring <= 0) {
+      S.ring = 4.2;
+      const N = 22;
+      for (let i = 0; i < N; i++) {
+        const a = toP + (i / N) * TAU;
+        const d = Math.abs(((a - toP + Math.PI) % TAU + TAU) % TAU - Math.PI);   // 离瞄准线的角距
+        if (d < 0.34) continue;                                                   // 正对玩家留一条安全道
+        put(e, world, e.x, e.y, a, 150, 'orb', '#c9a8ff', 7);
+      }
+    }
+  }
+}
+
+/** 霰 · 弹墙：整面弹墙 + 双格缺口；2 阶段起加高速狙击弹，3 阶段补第二面垂直弹墙 */
+function barrage(e, dt, ctx) {
+  const { world, player, phase } = ctx;
+  const S = e._sig ??= { wall: 1.6, snipe: 2.5, second: 0, side2: 0 };
+  const rnd = rngOf(world);
+
+  const wall = (side) => {
+    const a = side * Math.PI / 2;                                  // 弹墙前进方向
+    const fx = Math.cos(a), fy = Math.sin(a), lx = -fy, ly = fx;  // 前进 / 横向单位向量
+    const N = 13, SP = 52;
+    const gapIdx = (N >> 1) + (rnd() < 0.5 ? -1 : 1) * (1 + Math.floor(rnd() * 3));   // 缺口偏离玩家 1~3 格
+    const sx = player.x - fx * 560, sy = player.y - fy * 560;
+    for (let i = 0; i < N; i++) {
+      if (i === gapIdx || i === gapIdx + 1) continue;               // 缺口 2 格宽
+      const off = (i - (N >> 1)) * SP;
+      put(e, world, sx + lx * off, sy + ly * off, a, 170, 'orb', '#59f0ff', 7, 1200);
+    }
+  };
+
+  S.wall -= dt;
+  if (S.wall <= 0) {
+    S.wall = phase >= 3 ? 4.2 : 5.0;
+    const side = Math.floor(rnd() * 4);
+    wall(side);
+    if (phase >= 3) {
+      S.second = 1.3;                                               // 稍后补一面垂直方向的墙
+      S.side2 = (side + (rnd() < 0.5 ? 1 : 3)) % 4;
+    }
+  }
+  if (S.second > 0) {
+    S.second -= dt;
+    if (S.second <= 0) wall(S.side2);
+  }
+  if (phase >= 2) {
+    S.snipe -= dt;
+    if (S.snipe <= 0) {
+      S.snipe = phase >= 3 ? 2.4 : 3.2;
+      const a = Math.atan2(player.y - e.y, player.x - e.x);
+      for (let k = -2; k <= 2; k++) put(e, world, e.x, e.y, a + k * 0.045, 320, 'shard', '#e8ffff', 5.5);
+    }
+  }
+}
+
+const TABLE = { pandora, nono, luna, barrage };
 
 /** enemy.js 的 _boss() 末尾调用。name 来自 def.signature；未知名字静默忽略。 */
 export function runBossSignature(name, e, dt, player, world, phase, pm) {

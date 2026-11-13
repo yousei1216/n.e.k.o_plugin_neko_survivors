@@ -47,6 +47,7 @@
  * 一致性由测试保证：test/terrain-check.mjs 会断言这两个值相等。
  */
 import { buildMaze, SNOW_MAZE } from './maze.js';
+import { HAZARD_TERRAIN } from './terrain-hazard.js';
 
 export const WORLD_SIZE = 2400;
 
@@ -159,6 +160,9 @@ export const TERRAIN = {
     ],
   },
 };
+
+// 第二百零二轮：四张危险地形图的障碍物（毒池下水道 / 火山熔岩 / 冰川 / 传送带车间），并入后 Boss 波自动避开
+Object.assign(TERRAIN, HAZARD_TERRAIN);
 
 /** 有复杂地形的地图 id（其余地图完全没有障碍物） */
 export const TERRAIN_IDS = Object.keys(TERRAIN);

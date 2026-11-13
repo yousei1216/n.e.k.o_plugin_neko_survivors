@@ -1328,7 +1328,7 @@ export class FlandreFight {
       }
       const lost = (this.phaseStartHp - (this.boss?.hp ?? 0))
         + (this.cloneDamage ?? 0);   // 第六十三轮：Four of a Kind 期间伤害记在分身账上
-      const beaten = lost >= FLANDRE_MAX_HP * CARD_HP_FRAC;
+      const beaten = lost >= (this.hpMax || FLANDRE_MAX_HP) * CARD_HP_FRAC;
       const timeUp = this.spell && this.spell.t >= this.spell.dur;
       if ((beaten || timeUp) && this.lockLeft <= 0) {
         if (beaten) this.cardsDone++;
@@ -1486,6 +1486,13 @@ export class FlandreFight {
     // 第五十轮：站桩舞台点 —— def 上的 speed=120 是给移速地板检查看的，
     // 实例归零，位置由 _pinBoss 每帧钉死，Boss AI 永远追不到人。
     e.speed = 0;
+    // 第二百零三轮：多人血量加成 —— 用户："新流派加入之后特殊boss更脆皮了，让她们也享受多人玩家血量加成吧。就是大排档椅子维吉尔和芙兰的血量享受人数加成。"
+    // 口径同普通 Boss（world.spawnEnemy）：每多一个玩家 +45%（2P ×1.45，4P ×2.35）。阶段门槛 / 符卡分段全部按实例 hpMax 算。
+    this.hpMax = FLANDRE_MAX_HP;
+    {
+      const k = (w.players?.().length ?? 1) - 1;
+      if (k > 0) { this.hpMax = Math.round(FLANDRE_MAX_HP * (1 + 0.45 * k)); e.maxHp = this.hpMax; e.hp = this.hpMax; }
+    }
     // 第五十轮：芙兰出现 → 立刻恢复玩家攻击
     //（用户："把不攻击的设置改成芙兰出现就恢复攻击"）
     this.main.player.noAttack = false;
@@ -1550,8 +1557,9 @@ export class FlandreFight {
    *   · 'extra' 阶段不需要地板：takeDamage 整体拦截，EP 血量全程锁死。
    */
   _hpFloor() {
-    const start = this.phaseStartHp || FLANDRE_MAX_HP;
-    return Math.max(FLANDRE_MAX_HP * 0.2, start - FLANDRE_MAX_HP * CARD_HP_FRAC);
+    const M = this.hpMax || FLANDRE_MAX_HP;
+    const start = this.phaseStartHp || M;
+    return Math.max(M * 0.2, start - M * CARD_HP_FRAC);
   }
 
   /** 切符卡：清全屏弹幕 + 锁血 3 秒（用户要求） */

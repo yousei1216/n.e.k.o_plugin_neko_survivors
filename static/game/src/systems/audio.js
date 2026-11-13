@@ -267,6 +267,9 @@ function noteFreq(name, octave) {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
+// 第二百零一轮：精准系列武器 id（用专属音效）
+const PRECISION_SFX_IDS = new Set(['whisker_bow', 'paw_crossbow', 'pad_sniper', 'meow_laser_rifle']);
+
 export class AudioSystem {
   constructor() {
     this.ctx = null;
@@ -720,8 +723,29 @@ export class AudioSystem {
       this._elementSfx(behavior, pitch, vol);
     } else if (kind === 'turret') {
       this._turretSfx(pitch, vol);
+    } else if (PRECISION_SFX_IDS.has(def?.id)) {
+      this._precisionSfx(tier, pitch, vol, behavior);
     } else {
       this._rangedSfx(behavior, pitch, vol, heavy);
+    }
+  }
+
+  /** 第二百零一轮：精准系列 —— 弓弦嗡 / 弩机咔 / 狙击脆响 / 激光嗤 */
+  _precisionSfx(tier, pitch, vol, behavior) {
+    if (behavior === 'beam') {
+      this._tone({ type: 'sawtooth', freq: 2200, freqEnd: 500, dur: 0.16, gain: 0.05 * vol });
+      this._tone({ type: 'sine', freq: 140, freqEnd: 60, dur: 0.18, gain: 0.07 * vol });
+      return;
+    }
+    if (tier === 1) {      // 弓：弦嗡 + 破风
+      this._tone({ type: 'triangle', freq: 330, freqEnd: 150, dur: 0.12, gain: 0.07 * vol });
+      this._noise({ dur: 0.07, gain: 0.04 * vol, filter: 'bandpass', freq: 2200, q: 1.2 });
+    } else if (tier === 2) { // 弩：机括咔 + 弦弹
+      this._tone({ type: 'square', freq: 240, freqEnd: 120, dur: 0.04, gain: 0.06 * vol });
+      this._tone({ type: 'triangle', freq: 420, freqEnd: 190, dur: 0.1, gain: 0.07 * vol, delay: 0.02 });
+    } else {                // 狙击：脆响 + 低频回震
+      this._noise({ dur: 0.08, gain: 0.09 * vol, filter: 'highpass', freq: 1800 });
+      this._tone({ type: 'sine', freq: 180, freqEnd: 50, dur: 0.22, gain: 0.10 * vol });
     }
   }
 
@@ -769,6 +793,11 @@ export class AudioSystem {
       // 光环/新星：柔和的钟鸣，一同发声的三度和声
       this._tone({ type: 'sine', freq: 880 * pitch, dur: 0.22, gain: 0.05 * vol });
       this._tone({ type: 'sine', freq: 1320 * pitch, dur: 0.20, gain: 0.035 * vol, delay: 0.02 });
+      return;
+    }
+    if (behavior === 'flame') {
+      // 喷射：一小段"呲——"的气流（高频噪声下滑），触发很频繁所以压得很轻
+      this._noise({ dur: 0.10, gain: 0.05 * vol, filter: 'bandpass', freq: 1900 * pitch, freqEnd: 900, q: 0.8 });
       return;
     }
     // homing（魔杖飞弹）：上滑的"咻叮"，最可爱的一个

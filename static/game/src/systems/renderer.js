@@ -32,6 +32,9 @@ import { drawZigzagBlade } from './dmc-blades.js';
 import * as HR from './halloween-render.js';
 // 第一百八十五轮：敌弹视觉语言 v2（白核彩环 + 柔光 + 7 种弹型），laser / jade 仍走旧渲染
 import * as BFX from './bullet-fx.js';
+// 第二百零二轮：危险地形（毒池 / 熔岩 / 厚雪 / 冰面 / 传送带）的实时绘制
+import { drawHazards } from './hazard-fx.js';
+import { iceBlobRadius } from '../data/hazards.js';
 // 眼睛锚点（第九轮）：贴图按 2.6r 画，眼睛必须按同一个尺度画在"脸"上，
 // 否则就会像用户看到的那样"眼睛飞到脸外面"。见 data/enemy-eyes.js 的说明。
 import { eyeAnchor, eyePlacement } from '../data/enemy-eyes.js';
@@ -336,6 +339,12 @@ export class Renderer {
     // 第六十三轮：Four of a Kind 的分身改用真敌人实体绘制（正常大小、
     // 可被击中），这里的画布版分身退役。本体的隐身由 _drawEnemy 处理。
 
+    // ---- 第二百零二轮：危险地形（地面效果，压在一切实体下面）----
+    if (world.hazards) drawHazards(ctx, world.hazards, camera, performance.now() / 1000, MOBILE);
+    // ---- 第二百零一轮：冰面（压在拾取物 / 实体下面）----
+    if (world.iceZones?.length) this._drawIceZones(ctx, world.iceZones, camera);
+    if (world.mortarShells?.length) this._drawMortarShells(ctx, world.mortarShells, camera);
+
     // ---- 拾取物 ----
     for (const p of world.pickups.items) {
       if (!camera.isVisible(p.x, p.y, 40)) continue;
@@ -423,6 +432,12 @@ export class Renderer {
       if (!camera.isVisible(b.x, b.y, 40)) continue;
       this._drawBullet(b.isEnemyBullet ? ctx : this._scaledCtx(ctx), b);
     }
+
+    // ---- 第二百轮 C：判定点（东方式）----
+    // 立绘放大后，玩家看不出"到底哪里会被打中"。弹幕靠近时在角色中心浮出
+    // 判定圈（真实弹幕判定半径 hitR）+ 白色核心点，离得越近越清晰。
+    this._drawHitDot(ctx, player, world);
+    for (const mate of (world.partners?.() ?? [])) this._drawHitDot(ctx, mate, world);
 
     // ---- 特效 ----
     // 记录本帧的特效数量，供 _fxSaturated() 做 LOD 降级判断。
@@ -749,6 +764,152 @@ export class Renderer {
 
     // ---- 不可通行地形描边（第十二轮）----
     this._drawTerrain(ctx, camera, W, H);
+
+    // ---- 第二百轮 A4：地面收尾（暗角 + 脚下柔光 + 漂浮尘光）----
+    this._drawGroundFinish(ctx, camera, W, H);
+  }
+
+  /**
+   * 第二百零一轮：敌人状态覆盖层。
+   *  点燃：脚下橙色火光 + 随身晃动的火舌；
+   *  寒意：冷蓝色薄雾罩（强度随寒意累积）；
+   *  冻结：半透明冰块 + 高光 + 裂纹，不动的怪看起来「被封在冰里」。
+   */
+  _drawEnemyStatus(ctx, e, r) {
+    const st = e.st;
+    const burning = st.burnT > 0;
+    const frozen = st.frozenT > 0;
+    const th = e.elite ? 180 : 100;
+    const chillK = frozen ? 1 : Math.min(1, st.chill / th);
+    const biting = st.biteT > 0;
+    if (!burning && !frozen && chillK < 0.08 && !biting) return;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    if (burning && !frozen) {
+      const t = e.age * 9 + e.id * 1.7;
+      if (!this._fxSaturated()) {
+        const gr = r * 1.9;
+        ctx.globalAlpha = 0.5 + Math.sin(t) * 0.1;
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
+        ctx.drawImage(this._glowSprite('#ff7a2a'), -gr, -gr * 0.9, gr * 2, gr * 2);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      // 三根火舌，随身左右摇摆
+      ctx.globalAlpha = 0.92;
+      for (let i = 0; i < 3; i++) {
+        const ox = (i - 1) * r * 0.55;
+        const h = r * (0.75 + 0.28 * Math.sin(t * 1.3 + i * 2.1));
+        const sw = Math.sin(t + i * 1.7) * r * 0.16;
+        const bx = ox, by = -r * 0.35;
+        ctx.fillStyle = '#ff6a2a';
+        ctx.beginPath();
+        ctx.moveTo(bx - r * 0.22, by);
+        ctx.quadraticCurveTo(bx - r * 0.18 + sw, by - h * 0.6, bx + sw, by - h);
+        ctx.quadraticCurveTo(bx + r * 0.18 + sw, by - h * 0.6, bx + r * 0.22, by);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#ffd166';
+        ctx.beginPath();
+        ctx.moveTo(bx - r * 0.1, by);
+        ctx.quadraticCurveTo(bx + sw * 0.6, by - h * 0.5, bx + sw * 0.7, by - h * 0.68);
+        ctx.quadraticCurveTo(bx + r * 0.08 + sw * 0.5, by - h * 0.4, bx + r * 0.1, by);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    if (chillK >= 0.08 && !frozen) {
+      ctx.globalAlpha = 0.12 + chillK * 0.3;
+      ctx.fillStyle = '#9fdcff';
+      ctx.beginPath(); ctx.arc(0, -r * 0.1, r * 1.05, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.35 + chillK * 0.5;
+      ctx.strokeStyle = '#e6f7ff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(0, -r * 0.1, r * 1.05, -2.6, -2.6 + TAU * 0.5 * chillK); ctx.stroke();
+    }
+    if (frozen) {
+      const w = r * 1.25, h = r * 1.35;
+      const fade = Math.min(1, st.frozenT / 0.25);
+      ctx.globalAlpha = 0.62 * fade;
+      ctx.fillStyle = '#a8e2ff';
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.8, -h * 0.9); ctx.lineTo(w * 0.35, -h * 1.12); ctx.lineTo(w, -h * 0.5);
+      ctx.lineTo(w * 0.9, h * 0.7); ctx.lineTo(-w * 0.1, h * 0.95); ctx.lineTo(-w, h * 0.45);
+      ctx.lineTo(-w * 1.02, -h * 0.3);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.95 * fade;
+      ctx.strokeStyle = '#2b4f7a'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-w * 0.6, -h * 0.55); ctx.lineTo(-w * 0.25, -h * 0.82); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(w * 0.45, -h * 0.55); ctx.lineTo(w * 0.62, -h * 0.2); ctx.stroke();
+      ctx.globalAlpha = 0.5 * fade; ctx.strokeStyle = '#2b4f7a'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-w * 0.1, -h * 0.2); ctx.lineTo(w * 0.15, h * 0.1); ctx.lineTo(w * 0.05, h * 0.5); ctx.stroke();
+    } else if (biting) {
+      // 冻伤：脚下淡蓝霜环
+      ctx.globalAlpha = 0.5; ctx.strokeStyle = '#bfeaff'; ctx.lineWidth = 1.6;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.ellipse(0, r * 0.7, r * 0.95, r * 0.34, 0, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 第二百轮 A4：地面质感收尾。全部画在背景层，实体/弹幕都在它之上，
+   * 不会被压暗。
+   *  1) 暗角：缓存的径向渐变（尺寸变了才重建），边缘压暗把视线聚到中心；
+   *  2) 脚下柔光：玩家位置一团很淡的冷白光池（缓存精灵），地面有"被照亮"的层次；
+   *  3) 尘光：26 粒世界坐标锚定的漂浮光点，缓慢飘动 + 呼吸闪烁（手机端跳过）。
+   */
+  _drawGroundFinish(ctx, camera, W, H) {
+    // 1) 暗角
+    if (!this._vigCache || this._vigCache.width !== W || this._vigCache.height !== H) {
+      try {
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const x = c.getContext('2d');
+        const rr = Math.hypot(W, H) / 2;
+        const g = x.createRadialGradient(W / 2, H / 2, rr * 0.45, W / 2, H / 2, rr);
+        g.addColorStop(0, 'rgba(6,7,16,0)');
+        g.addColorStop(1, 'rgba(6,7,16,0.5)');
+        x.fillStyle = g;
+        x.fillRect(0, 0, W, H);
+        this._vigCache = c;
+      } catch { this._vigCache = null; }
+    }
+    if (this._vigCache) ctx.drawImage(this._vigCache, 0, 0, W, H);
+
+    // 2) 脚下柔光
+    const pl = this.world?.player;
+    if (pl) {
+      const sx = pl.x - camera.cx + W / 2, sy = pl.y - camera.cy + H / 2;
+      const gr = 210;
+      ctx.save();
+      ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
+      ctx.globalAlpha = MOBILE ? 0.04 : 0.08;
+      ctx.drawImage(this._glowSprite('#bfd8ff'), sx - gr, sy - gr, gr * 2, gr * 2);
+      ctx.restore();
+    }
+
+    // 3) 尘光
+    if (MOBILE) return;
+    const t = performance.now() / 1000;
+    const span = 1400;   // 光点分布的世界范围（环绕相机，超出自动回卷）
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = '#cfe4ff';
+    for (let i = 0; i < 26; i++) {
+      // 伪随机但确定：每个 i 固定一组种子，位置由时间缓慢漂移
+      const sx0 = ((i * 7919) % 1000) / 1000, sy0 = ((i * 6007) % 1000) / 1000;
+      const wx = sx0 * span + Math.sin(t * 0.18 + i) * 24 + t * (4 + (i % 5));
+      const wy = sy0 * span + Math.cos(t * 0.15 + i * 1.7) * 20 - t * (3 + (i % 4));
+      // 世界 → 屏幕（以相机为中心回卷，保证屏幕里始终有光点）
+      let px = ((wx - camera.cx + span / 2) % span + span) % span - span / 2 + W / 2;
+      let py = ((wy - camera.cy + span / 2) % span + span) % span - span / 2 + H / 2;
+      if (px < -4 || px > W + 4 || py < -4 || py > H + 4) continue;
+      const tw = 0.5 + Math.sin(t * 1.3 + i * 2.1) * 0.5;
+      ctx.globalAlpha = 0.07 + tw * 0.16;
+      ctx.beginPath();
+      ctx.arc(px, py, 1.2 + (i % 3) * 0.7, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   /** 198 轮：换到带迷宫的地图时预烘焙（避免第一帧现场烘焙卡一下） */
@@ -846,14 +1007,14 @@ export class Renderer {
     const now = performance.now() / 1000;
     for (const w of world.spawnWarnings) {
       // 进度 0→1（t 从满秒数倒数到 0）
-      const total = w.elite ? 1.4 : 1.0;
+      const total = w.midboss ? 2.2 : w.elite ? 1.4 : 1.0;
       const p = Math.min(1, Math.max(0, 1 - w.t / total));
       // 闪烁：频率随进度加快（越接近落地闪得越急），alpha 抖动
       const blink = 0.5 + 0.5 * Math.abs(Math.sin(now * (6 + p * 10)));
       const alpha = 0.30 + 0.45 * blink;
       // 收缩：外圈从 46px 收到 20px（精英 58→26），像"怪要从这里钻出来"
-      const r = (w.elite ? 58 : 46) * (1 - p * 0.55);
-      const color = w.elite ? '#ffb84d' : '#ff5d5d';
+      const r = (w.midboss ? 92 : w.elite ? 58 : 46) * (1 - p * 0.55);
+      const color = w.midboss ? '#ff6bd6' : w.elite ? '#ffb84d' : '#ff5d5d';
       ctx.save();
       ctx.globalAlpha = alpha;
       // 外圈
@@ -874,6 +1035,21 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(w.x, w.y, 3, 0, Math.PI * 2);
       ctx.fill();
+      if (w.midboss) {
+        // 第二百零二轮：中 Boss 预警 —— 再套一圈粗外环 + 四向尖刺，和精英的单圈区分开
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, r * 1.18, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        for (let k = 0; k < 4; k++) {
+          const a = now * 1.2 + k * Math.PI / 2;
+          ctx.beginPath();
+          ctx.moveTo(w.x + Math.cos(a) * r * 1.25, w.y + Math.sin(a) * r * 1.25);
+          ctx.lineTo(w.x + Math.cos(a) * r * 1.55, w.y + Math.sin(a) * r * 1.55);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     }
   }
@@ -1008,6 +1184,52 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * 第二百轮 C：判定点。立绘放大后，用它告诉玩家"真正会被打中的只有中心这一点"。
+   * - 圈半径 = 真实弹幕判定半径 p.hitR（不是立绘大小）；
+   * - 平时几乎不可见，最近的敌弹进入 90px 内渐显；芙兰/蕾米战常驻半亮；
+   * - 只读 enemyBullets，不影响任何判定或逻辑。
+   */
+  _drawHitDot(ctx, p, world) {
+    if (!p || p.downed || p.dead) return;
+    const hitR = p.hitR ?? p.radius * 0.8;
+    const bossFight = !!(world.flandreFight || world.remiliaFight);
+    let near = 1e9;
+    const items = world.enemyBullets?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const b = items[i];
+        const dx = b.x - p.x, dy = b.y - p.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < near) near = d2;
+      }
+    }
+    const d = near < 1e9 ? Math.sqrt(near) : 1e9;
+    const prox = d < 90 ? 1 - d / 90 : 0;
+    const a = Math.max(bossFight ? 0.5 : 0.12, prox);
+    if (a < 0.05) return;
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    // 判定圈：半径 = 真实 hitR（弹幕中心进入"圈半径 + 弹幕自身判定半径"才算命中）
+    ctx.globalAlpha = a * 0.7;
+    ctx.strokeStyle = '#ff5a7a';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, hitR, 0, TAU);
+    ctx.stroke();
+    // 核心点：白底深描边，任何地面上都看得清
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(20,10,30,0.85)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 3.4, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.2, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
   _drawPlayer(ctx, p) {
     const bob = p.isMoving ? Math.sin(p.walkPhase) * 2 : Math.sin(p.age * 2) * 1.2;
     const r = p.radius;
@@ -1065,7 +1287,10 @@ export class Renderer {
     if (charSprite) {
       // 立绘是**全身站立**的，锚点定在"脚底"而不是中心 ——
       // 否则角色会像浮在半空。所以往上偏移一个半高。
-      const drawH = r * 3.6;
+      // 第二百轮 C：立绘视觉放大（3.6 → 4.2 倍半径）。只改绘制尺寸，
+      // p.radius / p.hitR（弹幕判定）完全不动 —— 配合 _drawHitDot 的判定点，
+      // 角色看着更大但生存难度不变。
+      const drawH = r * 4.2;
       const drawW = drawH * (charSprite.width / charSprite.height);
       // 朝向：和宠物同一套（左移时水平翻转）
       const flip = Math.cos(p.facing) < -0.15;
@@ -1371,13 +1596,65 @@ export class Renderer {
     }
 
     // 蓄力预警
-    if (e.behavior === 'charger' && e.state === 'windup') {
+    if ((e.behavior === 'charger' || e.behavior === 'midMelee') && e.state === 'windup') {
       const pulse = 0.5 + Math.sin(e.age * 30) * 0.5;
       ctx.strokeStyle = `rgba(255,45,85,${0.4 + pulse * 0.5})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(0, 0, r + 8 + pulse * 4, 0, TAU);
       ctx.stroke();
+    }
+
+    // ---- 第二百零二轮：新小怪的预警/特效 ----
+    if (e.behavior === 'sniper' && e.state === 'aim') {
+      const tot = e.aimTotal || 1.1;
+      const p = 1 - Math.max(0, e.stateTimer) / tot;
+      const locked = e.stateTimer <= 0.3;
+      ctx.save();
+      ctx.globalAlpha = 0.4 + 0.5 * p;
+      ctx.strokeStyle = locked ? '#ff2040' : 'rgba(255,110,130,0.9)';
+      ctx.lineWidth = locked ? 4 : 2;
+      if (!locked) ctx.setLineDash([12, 8]);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(e.aimAngle) * 1000, Math.sin(e.aimAngle) * 1000);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (e.behavior === 'blink' && e.state === 'blinkOut') {
+      const tx = e.blinkX - e.x, ty = e.blinkY - e.y;
+      const pulse = 0.5 + Math.sin(e.age * 22) * 0.5;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(89,240,255,' + (0.55 + pulse * 0.4) + ')';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(tx, ty, 26 + pulse * 5, 0, TAU); ctx.stroke();
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath(); ctx.arc(tx, ty, 14, 0, TAU); ctx.stroke();
+      ctx.restore();
+      ctx.globalAlpha = 0.2 + 0.7 * Math.max(0, e.stateTimer) / (e.blinkTotal || 0.55);
+    } else if (e.behavior === 'blink' && e.state === 'blinkIn') {
+      ctx.globalAlpha = 0.4 + 0.6 * (1 - Math.max(0, e.stateTimer) / 0.45);
+    }
+    if (e.behavior === 'summoner' && e.summonFlash > 0) {
+      const q = 1 - e.summonFlash / 0.6;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(183,139,255,' + (0.9 * (1 - q)) + ')';
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0, 0, r + 8 + q * 46, 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
+    if (e.def?.shieldRatio && !e.shieldBroken) {
+      const ratio = e.shieldMax ? Math.max(0, e.shieldHp / e.shieldMax) : 1;
+      const fl = e.shieldFlash > 0 ? 1 : 0;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(120,170,255,' + (0.3 + 0.35 * ratio + fl * 0.3) + ')';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, r + 9, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = 'rgba(190,225,255,' + (0.55 + 0.4 * ratio) + ')';
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(0, 0, r + 9, (e.facing || 0) - 0.9 * (0.4 + 0.6 * ratio), (e.facing || 0) + 0.9 * (0.4 + 0.6 * ratio)); ctx.stroke();
+      ctx.restore();
     }
 
     const col = e.hurtFlash > 0 ? '#ffffff' : (e.mutant ? '#9c2231' : e.color);
@@ -1862,20 +2139,47 @@ export class Renderer {
     }
 
     // 精英/Boss 标记
+    // 第二百轮 C：精英光环 —— 原来只有一圈静止虚线。现在：脚底一圈金色光晕
+    // （缓存精灵，几乎零开销）+ 旋转的金色虚线圈 + 绕圈的 3 颗小星，
+    // 远远就能认出"这只不一样"。
     if (e.elite) {
-      ctx.strokeStyle = 'rgba(255,200,87,0.9)';
-      ctx.lineWidth = 2;
+      // 第二百零二轮：中 Boss 用洋红色光环 + 更大的光晕 + 5 颗绕圈星，和金色精英一眼区分
+      const haloCol = e.midboss ? '#ff6bd6' : '#ffc857';
+      const pulse = 0.5 + Math.sin(e.age * 4) * 0.5;
+      if (!this._fxSaturated()) {
+        const gr = r * ((e.midboss ? 2.5 : 2.0) + pulse * 0.25);
+        ctx.save();
+        ctx.globalAlpha = 0.28 + pulse * 0.12;
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
+        ctx.drawImage(this._glowSprite(haloCol), -gr, -gr + r * 0.3, gr * 2, gr * 2);
+        ctx.restore();
+      }
+      ctx.strokeStyle = e.midboss ? 'rgba(255,107,214,0.95)' : 'rgba(255,200,87,0.9)';
+      ctx.lineWidth = e.midboss ? 3 : 2;
       ctx.setLineDash([5, 4]);
+      ctx.lineDashOffset = -e.age * 14;
       ctx.beginPath();
       ctx.arc(0, 0, r + 6, 0, TAU);
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.fillStyle = e.midboss ? '#ffe3f6' : '#fff2b8';
+      const nStar = e.midboss ? 5 : 3;
+      for (let i = 0; i < nStar; i++) {
+        const sa = e.age * 2.2 + (i / nStar) * TAU;
+        ctx.beginPath();
+        ctx.arc(Math.cos(sa) * (r + 6), Math.sin(sa) * (r + 6), e.midboss ? 3 : 2.2, 0, TAU);
+        ctx.fill();
+      }
     }
 
     ctx.restore();
 
+    // ---- 第二百零一轮：状态覆盖层（点燃 / 寒意 / 冻结）----
+    if (e.st) this._drawEnemyStatus(ctx, e, r);
+
     // 血条（受伤后显示）
-    if (e.hp < e.maxHp && !e.boss) {
+    if (e.hp < e.maxHp && !e.boss && !e.midboss) {
       const w = Math.max(20, r * 2);
       const h = 3.5;
       const y = e.y - r - 10;
@@ -2811,6 +3115,109 @@ export class Renderer {
   // =========================================================
   // 子弹
   // =========================================================
+  /** 第二百零一轮：冰面 —— 淡蓝渐变斑块 + 白色冰裂纹 + 闪点，最后 0.9s 渐隐 */
+  /** 第二百零二轮：迫击炮落点圈 —— 虚线外圈 + 逐渐扩大的实心内圈 + 一颗从天上落下的炮弹 */
+  _drawMortarShells(ctx, shells, camera) {
+    const now = performance.now() / 1000;
+    ctx.save();
+    for (const s of shells) {
+      if (!camera.isVisible(s.x, s.y, s.r + 40)) continue;
+      const p = 1 - Math.max(0, s.t) / s.max;
+      ctx.fillStyle = 'rgba(255,110,50,' + (0.08 + 0.2 * p) + ')';
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,150,60,0.9)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([9, 7]);
+      ctx.lineDashOffset = -now * 40;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(255,230,160,' + (0.5 + 0.4 * p) + ')';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(2, s.r * p), 0, TAU); ctx.stroke();
+      // 十字准星
+      ctx.beginPath();
+      ctx.moveTo(s.x - 10, s.y); ctx.lineTo(s.x + 10, s.y);
+      ctx.moveTo(s.x, s.y - 10); ctx.lineTo(s.x, s.y + 10);
+      ctx.stroke();
+      // 从天上落下的炮弹（最后 45% 才出现）
+      if (p > 0.55) {
+        const q = (p - 0.55) / 0.45;
+        const sy = s.y - (1 - q) * (1 - q) * 380;
+        ctx.strokeStyle = 'rgba(255,200,120,0.45)';
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(s.x, sy - 26); ctx.lineTo(s.x, sy); ctx.stroke();
+        ctx.fillStyle = '#ffb03a';
+        ctx.beginPath(); ctx.arc(s.x, sy, 7, 0, TAU); ctx.fill();
+        ctx.strokeStyle = '#1c1a38'; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  _drawIceZones(ctx, zones, camera) {
+    const t = performance.now() / 1000;
+    ctx.save();
+    for (const z of zones) {
+      if (!camera.isVisible(z.x, z.y, z.r * 1.5 + 20)) continue;
+      const a = Math.min(1, z.life / 0.9);
+      const r = z.r;
+      ctx.globalAlpha = a;
+      // 第二百零三轮：不规则冰板（拉长 + 旋转 + 棱角边），与判定共用 iceBlobRadius
+      const N = 15, pts = [];
+      let rmax = 0;
+      for (let i = 0; i < N; i++) {
+        const ang = (i / N) * TAU + (((i * 53 + Math.floor(z.seed * 97)) % 7) - 3) * 0.018;
+        const rr = iceBlobRadius(z.seed, r, ang);
+        if (rr > rmax) rmax = rr;
+        pts.push(z.x + Math.cos(ang) * rr, z.y + Math.sin(ang) * rr);
+      }
+      const edge = () => {
+        ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+        for (let i = 1; i < N; i++) ctx.lineTo(pts[i * 2], pts[i * 2 + 1]);
+        ctx.closePath();
+      };
+      if (MOBILE) {
+        ctx.fillStyle = 'rgba(176,226,250,0.6)';
+        edge(); ctx.fill();
+        continue;
+      }
+      const g = ctx.createRadialGradient(z.x, z.y, rmax * 0.05, z.x, z.y, rmax);
+      g.addColorStop(0, 'rgba(236,251,255,0.88)');
+      g.addColorStop(0.65, 'rgba(160,216,246,0.66)');
+      g.addColorStop(1, 'rgba(120,196,238,0.42)');
+      ctx.fillStyle = g;
+      edge(); ctx.fill();
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(70,128,182,0.55)'; ctx.lineWidth = 2.4; ctx.stroke();
+      ctx.strokeStyle = 'rgba(224,246,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+      // 冰裂纹：从冰心向边缘的折线，随机分叉
+      ctx.save();
+      edge(); ctx.clip();
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const ang = z.seed * 1.7 + i * 1.256 + Math.sin(z.seed + i) * 0.3;
+        const len = iceBlobRadius(z.seed, r, ang) * (0.55 + ((i * 37 + Math.floor(z.seed * 10)) % 3) * 0.2);
+        const mx = z.x + Math.cos(ang) * len * 0.5, my = z.y + Math.sin(ang) * len * 0.5;
+        ctx.moveTo(z.x, z.y);
+        ctx.lineTo(mx + Math.cos(ang + 1.3) * 5, my + Math.sin(ang + 1.3) * 5);
+        ctx.lineTo(z.x + Math.cos(ang) * len, z.y + Math.sin(ang) * len);
+        ctx.moveTo(mx + Math.cos(ang + 1.3) * 5, my + Math.sin(ang + 1.3) * 5);
+        ctx.lineTo(mx + Math.cos(ang + 0.5) * 14, my + Math.sin(ang + 0.5) * 14);
+      }
+      ctx.stroke();
+      ctx.restore();
+      // 闪点
+      const ph = (t * 1.3 + z.seed) % 1;
+      ctx.globalAlpha = a * (1 - ph);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(z.x + Math.cos(z.seed * 3) * r * 0.45, z.y + Math.sin(z.seed * 5) * r * 0.3, 1 + ph * 2.4, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   _drawBullet(ctx, b) {
     // 第一百三十九轮 D：子弹视觉身份分家（用户："魔法棒、硬币、炮台
     // 全是长条+十字星，同质化太严重"）——
@@ -2819,7 +3226,8 @@ export class Renderer {
     //   turret   → 能量曳光弹（加粗长条 + 青色外晕 + 多角刺芒头 + 尾焰）
     //   其余     → 通用弹头椭圆 + 白芯（去掉千篇一律的十字星芒）
     const isCoin = b.behavior === 'bounce';
-    const isOrb = b.kind === 'element';
+    const wid = b.owner?.def?.id ?? '';     // 第二百轮 A1：按武器分弹形
+    const isOrb = b.kind === 'element' && wid !== 'bubble_gun' && wid !== 'meteor_paw';
     const isTracer = b.kind === 'turret';
 
     // ---- 拖尾 ----
@@ -2925,6 +3333,77 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(-b.radius * 0.45, -b.radius * 0.25, b.radius * 0.2, 0, TAU);
       ctx.fill();
+    } else if (wid === 'whisker_bow' || wid === 'paw_crossbow') {
+      // ---- 第二百零一轮：箭 / 弩矢：木杆 + 钢制箭头 + 尾羽（不用加色混合，保持实体感）----
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.rotate(b.angle);
+      const R = b.radius, bolt = wid === 'paw_crossbow';
+      const tail = R * (bolt ? 2.4 : 3.4), head = R * (bolt ? 1.7 : 1.5);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = bolt ? '#3a4a5e' : '#8a5a2b';
+      ctx.lineWidth = bolt ? 3 : 2;
+      ctx.beginPath(); ctx.moveTo(-tail, 0); ctx.lineTo(head, 0); ctx.stroke();
+      // 箭头
+      ctx.fillStyle = bolt ? b.color : '#eef3f8';
+      ctx.strokeStyle = '#2a2f45'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(head + R * 1.5, 0); ctx.lineTo(head - R * 0.3, -R * 0.75); ctx.lineTo(head + R * 0.2, 0); ctx.lineTo(head - R * 0.3, R * 0.75);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // 尾羽
+      ctx.fillStyle = bolt ? '#b8ecff' : '#ff9ec7';
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(-tail, 0); ctx.lineTo(-tail - R * 0.9, s * R * 0.9); ctx.lineTo(-tail + R * 1.1, s * R * 0.7); ctx.lineTo(-tail + R * 1.0, 0);
+        ctx.closePath(); ctx.fill();
+      }
+    } else if (wid === 'pad_sniper') {
+      // ---- 狙击弹：细长的亮紫曳光 + 白芯 + 弹头星芒 ----
+      ctx.rotate(b.angle);
+      const R = b.radius;
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.ellipse(-R * 1.2, 0, R * 3.4, R * 0.62, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.ellipse(-R * 0.7, 0, R * 2.4, R * 0.26, 0, 0, TAU); ctx.fill();
+      this._starPath(ctx, R * 1.5, R * 0.45, 4);
+      ctx.fill();
+    } else if (wid === 'ember_wand') {
+      // ---- 火球：外橙 / 中黄 / 白芯 + 向后抖动的火舌 ----
+      ctx.rotate(b.angle);
+      const R = b.radius;
+      ctx.fillStyle = '#ff5a1f';
+      for (let i = -1; i <= 1; i++) {
+        const fl = R * (2.0 + Math.sin(b.age * 32 + i * 2) * 0.6) * (i === 0 ? 1.2 : 0.9);
+        ctx.beginPath();
+        ctx.moveTo(-R * 0.4, i * R * 0.7 - R * 0.5);
+        ctx.lineTo(-R * 0.4 - fl, i * R * 0.7);
+        ctx.lineTo(-R * 0.4, i * R * 0.7 + R * 0.5);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = b.color; ctx.beginPath(); ctx.arc(0, 0, R * 1.2, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.arc(R * 0.1, 0, R * 0.8, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#fff6d0'; ctx.beginPath(); ctx.arc(R * 0.25, 0, R * 0.4, 0, TAU); ctx.fill();
+    } else if (wid === 'frost_wand') {
+      // ---- 冰晶：旋转菱形 + 六向雪花线 + 白芯 ----
+      ctx.rotate(b.age * 3);
+      const R = b.radius * 1.5;
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.moveTo(R, 0); ctx.lineTo(0, -R * 0.62); ctx.lineTo(-R, 0); ctx.lineTo(0, R * 0.62); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.3; ctx.globalAlpha = 0.9;
+      for (let i = 0; i < 3; i++) {
+        const a = i * Math.PI / 3;
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * R * 1.25, Math.sin(a) * R * 1.25); ctx.lineTo(-Math.cos(a) * R * 1.25, -Math.sin(a) * R * 1.25); ctx.stroke();
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.28, 0, TAU); ctx.fill();
+    } else if (wid === 'icicle_gun') {
+      // ---- 冰锥：尖头长三角 + 高光棱 ----
+      ctx.rotate(b.angle);
+      const R = b.radius;
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.moveTo(R * 2.4, 0); ctx.lineTo(-R * 1.2, -R * 0.8); ctx.lineTo(-R * 1.7, 0); ctx.lineTo(-R * 1.2, R * 0.8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.moveTo(R * 2.2, 0); ctx.lineTo(-R * 0.9, -R * 0.2); ctx.lineTo(-R * 1.2, 0); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
     } else if (isOrb) {
       // ---- 元素光球：高亮大圆 + 白芯 + 环绕小金星 ----
       ctx.fillStyle = b.color;
@@ -2979,8 +3458,84 @@ export class Renderer {
       ctx.fillStyle = '#ffffff';
       this._starPath(ctx, b.radius * 1.9, b.radius * 0.65, 6);
       ctx.fill();
+    } else if (wid === 'pebble_toss') {
+      // ---- 石子：旋转的不规则多边形 + 深边 + 高光 ----
+      ctx.rotate(b.age * 9);
+      const R = b.radius * 1.25;
+      ctx.fillStyle = b.color;
+      ctx.beginPath();
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * TAU, rr = R * (0.8 + ((i * 37) % 5) * 0.07);
+        ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = this._shade(b.color, 0.5); ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath(); ctx.arc(-R * 0.3, -R * 0.3, R * 0.28, 0, TAU); ctx.fill();
+    } else if (wid === 'yarn_thrower') {
+      // ---- 毛线球：圆球 + 几道弧形线圈 + 尾巴线头 ----
+      ctx.rotate(b.age * 7);
+      const R = b.radius * 1.2;
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill();
+      ctx.strokeStyle = this._shade(b.color, 0.4); ctx.lineWidth = 1.3;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath(); ctx.ellipse(0, 0, R * 0.95, R * (0.35 + Math.abs(i) * 0.25), i * 0.7, 0, TAU); ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.7, -2.2, -0.9); ctx.stroke();
+      // 线头
+      ctx.strokeStyle = b.color; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(R * 0.8, R * 0.2);
+      ctx.quadraticCurveTo(R * 1.8, R * 0.9, R * 1.3, R * 1.7); ctx.stroke();
+    } else if (wid === 'bubble_gun') {
+      // ---- 泡泡：几乎透明的球 + 彩虹边 + 两粒高光（不用加色填充）----
+      const R = b.radius * 1.45 * (1 + Math.sin(b.age * 14) * 0.05);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 0.28; ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 0.95; ctx.lineWidth = 1.8;
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = '#ff9ed6'; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.86, 0.3, 1.6); ctx.stroke();
+      ctx.strokeStyle = '#9ef0ff';
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.86, 3.4, 4.7); ctx.stroke();
+      ctx.globalAlpha = 0.95; ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.ellipse(-R * 0.35, -R * 0.4, R * 0.26, R * 0.14, -0.7, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(R * 0.38, R * 0.3, R * 0.09, 0, TAU); ctx.fill();
+    } else if (wid === 'meow_cannon') {
+      // ---- 喵喵炮：大粉色能量弹 + 爱心核 + 外圈能量环 ----
+      ctx.rotate(b.angle);
+      const R = b.radius * 1.7;
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.ellipse(-R * 0.2, 0, R * 1.5, R, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.ellipse(-R * 0.2, 0, R * 1.5, R, 0, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.fillStyle = '#ffffff';
+      ctx.save(); ctx.scale(R * 0.04, R * 0.04);
+      ctx.beginPath();
+      ctx.moveTo(0, 7); ctx.bezierCurveTo(-14, -4, -6, -12, 0, -5);
+      ctx.bezierCurveTo(6, -12, 14, -4, 0, 7); ctx.fill();
+      ctx.restore();
+    } else if (wid === 'meteor_paw') {
+      // ---- 陨石：火球头 + 向后拖的火焰锥 + 火星 ----
+      ctx.rotate(b.angle);
+      const R = b.radius * 1.3;
+      const fl = R * (2.8 + Math.sin(b.age * 38) * 0.6);
+      ctx.fillStyle = '#ff9a3d'; ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(-R * 0.4, -R * 0.95);
+      ctx.quadraticCurveTo(-R - fl * 0.6, -R * 0.4, -R - fl, 0);
+      ctx.quadraticCurveTo(-R - fl * 0.6, R * 0.4, -R * 0.4, R * 0.95);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1; ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ffe9b0';
+      ctx.beginPath(); ctx.arc(R * 0.15, -R * 0.1, R * 0.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(R * 0.25, -R * 0.15, R * 0.22, 0, TAU); ctx.fill();
     } else {
-      // ---- 通用弹头：椭圆 + 白芯（十字星芒已除名）----
       ctx.rotate(b.angle);
       ctx.fillStyle = b.color;
       ctx.beginPath();
@@ -3371,15 +3926,18 @@ export class Renderer {
   // 两端（剑尖/剑柄）用锥形渐变（createConicGradient）渐隐到全透明；
   // 整体加法混合，暗色地板上像在发光。内核不支持 conic 时退回实线
   //（旧内核只是少了渐隐，三层结构仍在）。
-  _bladeArc(ctx, r, a0, a1, fade, phaseShift = 0) {
+  _bladeArc(ctx, r, a0, a1, fade, phaseShift = 0, color = null) {
     ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
     ctx.lineCap = 'round';
     const span = a1 - a0;
     const useConic = typeof ctx.createConicGradient === 'function';
+    // 第二百轮 A1：刀光按武器颜色着色（原来所有近战都是同一条青蓝光）。
+    // 三层：白高光（细）/ 武器色主体 / 武器色压暗的深核，整体比旧版更细更利。
+    const hex = /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#7ee7ff';
     const layers = [
-      { col: '#ffffff', w: 10 * fade + 2.5, rr: r * 1.02, al: 0.92 },  // 白高光
-      { col: '#7ee7ff', w: 6.5 * fade + 2, rr: r * 0.94, al: 0.8 },    // 青主体
-      { col: '#1e3a8a', w: 2.2 * fade + 0.8, rr: r * 0.86, al: 0.85 }, // 深蓝核
+      { col: '#ffffff', w: 6 * fade + 1.6, rr: r * 1.02, al: 0.9 },       // 白高光
+      { col: hex, w: 9 * fade + 2.5, rr: r * 0.95, al: 0.78 },             // 武器色主体
+      { col: this._shade(hex, 0.45), w: 2.4 * fade + 0.8, rr: r * 0.87, al: 0.85 }, // 深色核
     ];
     for (const L of layers) {
       ctx.globalAlpha = L.al * fade;
@@ -3432,7 +3990,18 @@ export class Renderer {
           ctx.restore();
         }
 
-        this._bladeArc(ctx, r, -half, half, fade);
+        this._bladeArc(ctx, r, -half, half, fade, 0, fx.color);
+
+        // 第二百轮 A1：劈砍落点的"刃尖亮星"—— 弧线前端沿挥动方向有一粒
+        // 白色亮点领跑（刀光扫过的方向感），随进度从弧一端滑向另一端
+        if (!this._fxSaturated()) {
+          const ha = -half + (half * 2) * Math.min(1, k * 1.6);
+          const hx = Math.cos(ha) * r * 1.0, hy = Math.sin(ha) * r * 1.0;
+          ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
+          ctx.globalAlpha = fade * 0.95;
+          const gs = 9 + fade * 7;
+          ctx.drawImage(this._glowSprite('#ffffff'), hx - gs, hy - gs, gs * 2, gs * 2);
+        }
         ctx.restore();
         break;
       }
@@ -3489,24 +4058,109 @@ export class Renderer {
       }
 
       case FX_TYPE.SHOCKWAVE: {
-        // 又粗又钝的压缩环：外圈厚、内圈空，配重击
+        // 第二百轮 A1：旧版外环 14px 粗 + 纯白边，叠几层就成了一坨白圈。
+        // 改为"渐变冲击面 + 细亮边"：内侧有一圈淡淡的填充随环扩散，
+        // 边线按武器色细描、只在边缘留一条白线，叠多层也能看清层次。
         ctx.save();
         ctx.translate(fx.x, fx.y);
-        const rr = fx.radius * (0.35 + k * 1.15);
+        const rr = fx.radius * (0.35 + (1 - Math.pow(1 - k, 2.2)) * 1.15);
         ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
-        // 外环
-        ctx.globalAlpha = fade * 0.85;
+        // 内侧淡填充（径向：中空 → 边缘微亮），用 stroke 粗线 + 低 alpha 近似
+        ctx.globalAlpha = fade * 0.22;
         ctx.strokeStyle = fx.color;
-        ctx.lineWidth = 14 * fade + 2;
+        ctx.lineWidth = Math.max(2, rr * 0.28 * fade);
+        ctx.beginPath();
+        ctx.arc(0, 0, rr * 0.88, 0, TAU);
+        ctx.stroke();
+        // 主边线（武器色）
+        ctx.globalAlpha = fade * 0.9;
+        ctx.strokeStyle = fx.color;
+        ctx.lineWidth = 4 * fade + 1;
         ctx.beginPath();
         ctx.arc(0, 0, rr, 0, TAU);
         ctx.stroke();
-        // 白色薄边贴在外环外侧
-        ctx.globalAlpha = fade * 0.7;
+        // 外缘细白线
+        ctx.globalAlpha = fade * 0.75;
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3 * fade + 0.5;
+        ctx.lineWidth = 1.4 * fade + 0.4;
         ctx.beginPath();
-        ctx.arc(0, 0, rr + 6 * fade, 0, TAU);
+        ctx.arc(0, 0, rr + 3 * fade, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
+        break;
+      }
+
+      case FX_TYPE.MUZZLE: {
+        // 第二百轮 A1：枪口闪光 —— 沿射击方向的锥形火光 + 白核 + 两道侧芒。
+        // 极短（0.1s），先大后小，不抢弹道本身的戏。
+        ctx.save();
+        ctx.translate(fx.x, fx.y);
+        ctx.rotate(fx.angle);
+        ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
+        const s = fx.size * (0.7 + fade * 0.6);
+        // 锥形火光
+        ctx.globalAlpha = fade * 0.85;
+        ctx.fillStyle = fx.color;
+        ctx.beginPath();
+        ctx.moveTo(4 * s, 0);
+        ctx.lineTo(0, -5 * s);
+        ctx.lineTo(-3 * s, 0);
+        ctx.lineTo(0, 5 * s);
+        ctx.closePath();
+        ctx.moveTo(22 * s * fade + 6, 0);
+        ctx.lineTo(2 * s, -3.4 * s);
+        ctx.lineTo(2 * s, 3.4 * s);
+        ctx.closePath();
+        ctx.fill();
+        // 白核
+        ctx.globalAlpha = fade;
+        const gs = 7 * s;
+        ctx.drawImage(this._glowSprite('#ffffff'), 3 * s - gs, -gs, gs * 2, gs * 2);
+        ctx.restore();
+        break;
+      }
+
+      case FX_TYPE.CRACKS: {
+        // 第二百轮 A1：重击地裂 —— 放射状折线裂纹由内向外"生长"（前 35%），
+        // 之后保持并整体淡出；裂纹中心有一团暗色冲击坑，外圈尘环向外推。
+        ctx.save();
+        ctx.translate(fx.x, fx.y);
+        const grow = Math.min(1, k / 0.35);
+        const fadeC = k < 0.5 ? 1 : 1 - (k - 0.5) / 0.5;
+        // 暗色冲击坑（正常混合，压暗地面，让裂纹和亮边更突出）
+        ctx.globalAlpha = fadeC * 0.28;
+        ctx.fillStyle = '#10121c';
+        ctx.beginPath();
+        ctx.arc(0, 0, fx.radius * 0.5 * (0.6 + grow * 0.4), 0, TAU);
+        ctx.fill();
+        // 裂纹：暗底线 + 武器色亮芯（加色）
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const pass of [0, 1]) {
+          if (pass === 1) ctx.globalCompositeOperation = MOBILE ? 'source-over' : 'lighter';
+          ctx.globalAlpha = fadeC * (pass === 0 ? 0.7 : 0.85);
+          ctx.strokeStyle = pass === 0 ? '#0b0d16' : fx.color;
+          ctx.lineWidth = pass === 0 ? 4.2 : 1.8;
+          ctx.beginPath();
+          for (const pts of fx.lines) {
+            ctx.moveTo(0, 0);
+            const upto = pts.length * grow;
+            for (let i = 0; i < pts.length; i++) {
+              if (i >= upto) break;
+              const frac = Math.min(1, upto - i);
+              const px = i === 0 ? 0 : pts[i - 1][0];
+              const py = i === 0 ? 0 : pts[i - 1][1];
+              ctx.lineTo(px + (pts[i][0] - px) * frac, py + (pts[i][1] - py) * frac);
+            }
+          }
+          ctx.stroke();
+        }
+        // 尘环
+        ctx.globalAlpha = fadeC * 0.35;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2 * fadeC + 0.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, fx.radius * (0.3 + grow * 0.75), 0, TAU);
         ctx.stroke();
         ctx.restore();
         break;
@@ -3612,7 +4266,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(fx.x, fx.y);
         ctx.rotate(k * Math.PI * 1.7);
-        this._bladeArc(ctx, fx.range * (0.78 + k * 0.14), -0.35, Math.PI * 0.7, fade);
+        this._bladeArc(ctx, fx.range * (0.78 + k * 0.14), -0.35, Math.PI * 0.7, fade, 0, fx.color);
         ctx.restore();
         break;
       }
@@ -3842,6 +4496,26 @@ export class Renderer {
         break;
       }
 
+      case FX_TYPE.FLAME: {
+        // 第二百零一轮：喷射雾 —— 粒子沿扇形向外飘，越远越大越淡；火=暖色加色，冰=冷色实色
+        const ice = fx.mode === 'ice';
+        ctx.save();
+        ctx.globalCompositeOperation = (ice || MOBILE) ? 'source-over' : 'lighter';
+        for (const p of fx.ps) {
+          const a = fx.angle + p.da;
+          const dist = 14 + (fx.range - 14) * p.sp * (0.3 + 0.7 * k);
+          const px = fx.x + Math.cos(a) * dist, py = fx.y + Math.sin(a) * dist;
+          const sz = p.sz * (0.55 + k * 1.1);
+          ctx.globalAlpha = (ice ? 0.7 : 0.85) * fade;
+          ctx.fillStyle = ice
+            ? (k < 0.3 ? '#ffffff' : k < 0.65 ? '#c4f1ff' : '#7fd4f6')
+            : (k < 0.3 ? '#fff2b0' : k < 0.65 ? '#ffb03a' : '#ff5a1f');
+          ctx.beginPath(); ctx.arc(px, py, sz, 0, TAU); ctx.fill();
+        }
+        ctx.restore();
+        break;
+      }
+
       case FX_TYPE.HIT: {
         // 第九轮升级：加色发光 + 中心白闪，让"打中了"更明显。
         //
@@ -3904,21 +4578,33 @@ export class Renderer {
   _drawDamageText(ctx, fx) {
     const k = clamp(fx.t / fx.life, 0, 1);
     const alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
-    const y = fx.y + fx.vy * fx.t;
-    const scale = fx.isCrit ? 1 + (1 - k) * 0.35 : 1;
+    // A2：抛物线（横向减速、纵向受重力），数字向两侧散开不再叠成一团
+    const drag = 1 - Math.min(1, fx.t / fx.life) * 0.55;
+    const x = fx.x + (fx.vx ?? 0) * fx.t * drag;
+    const y = fx.y + fx.vy * fx.t + 150 * fx.t * fx.t;
+    // 弹出：前 0.1s 从 1.5 倍回落到 1；暴击整体更大并轻微晃动
+    const pop = k < 0.14 ? 1 + (1 - k / 0.14) * 0.5 : 1;
+    const mag = fx.mag ?? 1;
+    const scale = pop * mag * (fx.isCrit ? 1.25 : 1);
+    const px = fx.isCrit ? 20 : 14;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.translate(fx.x, y);
+    ctx.translate(x, y);
+    if (fx.isCrit) ctx.rotate(Math.sin(fx.t * 40) * 0.06 * (1 - k));
     ctx.scale(scale, scale);
-    ctx.font = fx.isCrit
-      ? '800 19px "PingFang SC", "Microsoft YaHei", sans-serif'
-      : '700 14px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.font = `${fx.isCrit ? 900 : 800} ${px}px "PingFang SC", "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+    ctx.lineJoin = 'round';
+    // 粗深色描边 + 彩色外发光，任何地面上都清晰
+    ctx.lineWidth = fx.isCrit ? 5 : 4;
+    ctx.strokeStyle = 'rgba(10,12,28,0.88)';
     ctx.strokeText(fx.text, 0, 0);
+    if (fx.isCrit) {
+      ctx.shadowColor = fx.color;
+      ctx.shadowBlur = 10;
+    }
     ctx.fillStyle = fx.color;
     ctx.fillText(fx.text, 0, 0);
     ctx.restore();
@@ -4003,6 +4689,25 @@ export class Renderer {
         }
       }
       ctx.restore();
+    }
+
+    // 第二百零二轮：中 Boss 血条 —— 窄一点（Boss 条的 70%），排在 Boss 条下面（没有 Boss 时顶到 Boss 条的位置）
+    {
+      const mids = world.enemies.items.filter((e) => e.midboss && !e.dead);
+      if (mids.length > 0) {
+        const mw = Math.min(400, W - 120);
+        const mx = (W - mw) / 2;
+        const top = 62 + (bosses.length > 0 ? bosses.length * 26 + 4 : 0)
+          + (world.flandreFight ? 18 : world.vergilFight ? 12 : 0);
+        ctx.save();
+        for (let i = 0; i < mids.length; i++) {
+          this._drawFancyBossBar(ctx, mids[i], {
+            x: mx, y: top + i * 26, w: mw, theme: 'boss',
+            t: Date.now() / 1000, ticks: [1 / 3, 2 / 3],
+          });
+        }
+        ctx.restore();
+      }
     }
 
     // 小地图
@@ -4159,7 +4864,7 @@ export class Renderer {
     ctx.lineJoin = 'round';
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    const barText = `${boss.def.bossName}  ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`;
+    const barText = `${boss.def.bossName ?? boss.def.name}  ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`;
     ctx.strokeText(barText, x + w / 2, y + h / 2 + 0.5);
     ctx.fillStyle = rage ? gothic.rageText : gothic.text;
     ctx.fillText(barText, x + w / 2, y + h / 2 + 0.5);

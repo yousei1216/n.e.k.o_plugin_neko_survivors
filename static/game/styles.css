@@ -1964,3 +1964,126 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .neko-bubble-slot > .neko-line {
   background: linear-gradient(180deg, rgba(255, 255, 255, .82), rgba(240, 249, 255, .72));
 }
+
+/* ============================================================
+   第二百轮 B：界面美化（HUD 属性 / 升级卡 / 商店价签）
+   ============================================================ */
+
+/* ---- B5 左下角属性：每项一个彩色图标 + 更大的字 + 半透明底 ---- */
+.hud-stats { font-size: 13px; gap: 6px 8px; }
+.hud-stats .hud-stat {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  background: rgba(10, 18, 36, .55);
+  border: 1px solid rgba(180, 210, 255, .18);
+}
+.hud-stats .hud-stat::before {
+  content: '●'; font-size: 11px; line-height: 1;
+  color: var(--ic, #9ad);
+  text-shadow: 0 0 6px var(--ic, #9ad);
+}
+.hud-stats .hud-stat[data-k="damage"]      { --ic: #ff7a7a; }
+.hud-stats .hud-stat[data-k="damage"]::before      { content: '⚔'; }
+.hud-stats .hud-stat[data-k="attackSpeed"] { --ic: #ffd23a; }
+.hud-stats .hud-stat[data-k="attackSpeed"]::before { content: '⚡'; }
+.hud-stats .hud-stat[data-k="critChance"]  { --ic: #ff9be0; }
+.hud-stats .hud-stat[data-k="critChance"]::before  { content: '✦'; }
+.hud-stats .hud-stat[data-k="armor"]       { --ic: #7cc6ff; }
+.hud-stats .hud-stat[data-k="armor"]::before       { content: '◈'; }
+.hud-stats .hud-stat[data-k="moveSpeed"]   { --ic: #7ef0b0; }
+.hud-stats .hud-stat[data-k="moveSpeed"]::before   { content: '➤'; }
+
+/* ---- B6 升级卡：居中、稀有度光晕、大图标、悬停浮起 ---- */
+.levelup-grid {
+  grid-template-columns: repeat(3, minmax(220px, 260px));
+  justify-content: center;
+  gap: 18px;
+  padding: 6px 0 4px;
+}
+@media (max-width: 860px) {
+  .levelup-grid { grid-template-columns: 1fr; }
+}
+.upgrade-card {
+  --rc: #9ad;
+  padding: 16px 16px 14px;
+  border-radius: 14px;
+  min-height: 178px;
+  background:
+    radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--rc) 14%, transparent), transparent 60%),
+    #fff;
+  animation: up-card-in .32s cubic-bezier(.2, .9, .3, 1.2) backwards;
+}
+.upgrade-card:nth-child(2) { animation-delay: .06s; }
+.upgrade-card:nth-child(3) { animation-delay: .12s; }
+@keyframes up-card-in {
+  from { opacity: 0; transform: translateY(18px) scale(.94); }
+  to   { opacity: 1; transform: none; }
+}
+.upgrade-card:hover {
+  transform: translateY(-6px) scale(1.03);
+  border-color: var(--rc);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rc) 60%, transparent),
+              0 12px 28px color-mix(in srgb, var(--rc) 35%, transparent);
+}
+.upgrade-card .avatar {
+  width: 54px; height: 54px; flex: 0 0 54px; border-radius: 14px;
+  border-width: 2px;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--rc) 45%, transparent);
+}
+.upgrade-card .avatar .up-icon { width: 32px; height: 32px; filter: drop-shadow(0 0 4px currentColor); }
+.upgrade-card .card-name { font-size: 17px; }
+.upgrade-card .card-desc { font-size: 12.5px; margin-top: 4px; }
+.upgrade-card .card-stats .stat-line { font-size: 12.5px; font-weight: 700; }
+.upgrade-card.card--rare::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.55) 50%, transparent 60%);
+  background-size: 250% 100%;
+  animation: up-shine 3.2s ease-in-out infinite;
+}
+@keyframes up-shine {
+  0%   { background-position: 120% 0; opacity: 0; }
+  30%  { opacity: 1; }
+  60%, 100% { background-position: -80% 0; opacity: 0; }
+}
+
+/* ---- B8 商店：价签按"买得起 / 买不起 / 已售"着色，去掉文字糊影 ---- */
+.price-tag.ok  { background: rgba(255, 200, 87, .22); color: #a86a00; border: 1px solid rgba(255, 180, 40, .5); }
+.price-tag.no  { background: rgba(255, 95, 109, .14); color: #d23a4b; border: 1px solid rgba(255, 95, 109, .4); }
+.price-tag.sold { background: rgba(120, 130, 150, .18); color: #8a93a6; border: 1px solid rgba(120, 130, 150, .3); }
+.shop-screen .card .stat-line .v,
+.shop-screen .card .stat-line span:last-child { text-shadow: none; }
+.shop-screen .card .stat-line { font-size: 12px; line-height: 1.45; }
+.shop-screen .card { padding: 12px 14px; }
+.shop-screen .card.cant-afford:not(.sold) { opacity: .62; }
+
+/* ---- B7 标题页：标题呼吸光 + 猫耳轻摆 + 开始按钮扫光；选角：大头像 ---- */
+.title-head h1 { animation: title-breathe 3.6s ease-in-out infinite; }
+@keyframes title-breathe {
+  0%, 100% { filter: drop-shadow(0 4px 10px rgba(63, 157, 248, .35)); }
+  50%      { filter: drop-shadow(0 6px 18px rgba(216, 115, 239, .6)); }
+}
+.title-head .ear.left  { transform-origin: 80% 100%; animation: ear-l 4.2s ease-in-out infinite; }
+.title-head .ear.right { transform-origin: 20% 100%; animation: ear-r 4.2s ease-in-out infinite .4s; }
+@keyframes ear-l { 0%, 86%, 100% { transform: rotate(0); } 90% { transform: rotate(-9deg); } 95% { transform: rotate(3deg); } }
+@keyframes ear-r { 0%, 86%, 100% { transform: rotate(0); } 90% { transform: rotate(9deg); } 95% { transform: rotate(-3deg); } }
+.title-panel .btn.primary { position: relative; overflow: hidden; }
+.title-panel .btn.primary::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 40%; left: -60%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+  animation: btn-sweep 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes btn-sweep { 0%, 55% { left: -60%; } 100% { left: 130%; } }
+.title-panel { box-shadow: 0 18px 60px rgba(60, 120, 220, .28), 0 0 0 1px rgba(255,255,255,.6) inset; }
+
+/* 选角卡：头像放大 + 选中时头像光环 */
+.screen:not(.shop-screen) .char-grid:not(.levelup-grid) > .card[data-char] .avatar,
+.screen:not(.shop-screen) .char-grid:not(.levelup-grid) > .card[data-char] .avatar.up-icon {
+  width: 60px; height: 60px; flex: 0 0 60px; border-radius: 14px;
+}
+.char-grid > .card[data-char] .card-head { gap: 12px; }
+.char-grid > .card[data-char].selected .avatar {
+  box-shadow: 0 0 0 2px rgba(255,123,172,.6), 0 0 16px rgba(255,123,172,.55);
+}
+.char-grid > .card[data-char]:hover .avatar { transform: scale(1.06); transition: transform .12s ease; }

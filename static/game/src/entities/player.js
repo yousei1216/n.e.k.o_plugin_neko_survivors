@@ -866,6 +866,10 @@ export class Player extends Entity {
       // 第一百七十一轮：P2 的减速键 = 小键盘 0（input 桩带 p2SkillSlow）
       if (input.isDown('ShiftLeft') || input.isDown('ShiftRight') || input.p2SkillSlow?.()) speed *= 0.5;
     }
+    // 第二百零二轮：危险地形的地面减速（毒池 ×0.5 / 厚雪 ×0.62）。芙兰战锁速不吃（那一战本就不在这些地图上）。
+    if (this.groundSpeedMul != null && this.groundSpeedMul !== 1 && !(this.flandreSpeed && this.flandreSpeed !== 1)) {
+      speed *= this.groundSpeedMul;
+    }
     // 202 轮：把本帧的实际移速记下来，四重存在的分身直接取它（"移速和玩家一致"）。
     // 只是个只读快照，不参与任何玩家自己的计算。
     this.curSpeed = speed;
@@ -879,12 +883,26 @@ export class Player extends Entity {
     }
     this.vx = axis.x * speed;
     this.vy = axis.y * speed;
+    // 第二百零二轮：冰面滑行 —— 速度不直接跟手，而是以 ~0.6s 的时间常数追目标速度（松开方向键也会往前滑，转向要刹一下）。
+    // 离开冰面时 _slideVx 直接并回当前速度，不会留下"幽灵惯性"。
+    if (this.onIce && !this._backflip) {
+      const k = 1 - Math.exp(-dt * 1.7);
+      this._slideVx = (this._slideVx ?? this.vx) + (this.vx - (this._slideVx ?? this.vx)) * k;
+      this._slideVy = (this._slideVy ?? this.vy) + (this.vy - (this._slideVy ?? this.vy)) * k;
+      this.vx = this._slideVx;
+      this.vy = this._slideVy;
+    } else {
+      this._slideVx = this.vx;
+      this._slideVy = this.vy;
+    }
     if (this._backflip) {
       // 后空翻速度覆盖玩家输入轴（放在轴赋值之后，权重最高）
       this.vx = this._backflip.vx;
       this.vy = this._backflip.vy;
     }
     this.isMoving = axis.x !== 0 || axis.y !== 0 || !!this._backflip;
+    // 滑行中即使没按键也要有"在动"的脚步，否则站姿 + 位移很怪
+    if (this.onIce && Math.hypot(this.vx, this.vy) > 40) this.isMoving = true;
 
     if (this.isMoving) {
       this.walkPhase += dt * 11;
@@ -896,6 +914,11 @@ export class Player extends Entity {
     this._terrainPrevY = this.y;
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    // 第二百零二轮：传送带把人往前推（独立位移，不进速度 → 不影响滑行 / 角色速度统计）
+    if (this.hazPushX || this.hazPushY) {
+      this.x += this.hazPushX * dt;
+      this.y += this.hazPushY * dt;
+    }
     // 世界边界
     const half = world.halfSize - this.radius;
     this.x = clamp(this.x, -half, half);
@@ -913,6 +936,8 @@ export class Player extends Entity {
         // 手感上是黏住不动，而不是顺着墙滑走。
         this.vx *= 0.2;
         this.vy *= 0.2;
+        this._slideVx = this.vx;   // 撞墙也要吃掉滑行速度，否则贴墙"黏"着往墙里滑
+        this._slideVy = this.vy;
       }
     }
 

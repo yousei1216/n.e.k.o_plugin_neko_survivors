@@ -243,6 +243,86 @@ export const ENEMIES = [
     desc: '精英敌人。三连吐酸，压制力很强。',
   },
 
+  // ---------- 中 Boss（第二百零二轮）----------
+  // 用户："比精英怪强比 boss 弱，3 个回合刷一个，一些擅长远程，一些擅长近战；
+  //        打过了的奖励我在想，想好了告诉你，打不过就正常过这回合。"
+  // 轮换顺序（world._midBossIdFor）：露娜(3) → 哈基(6) → 霰(9) → 夜刃(12) → 循环。
+  // 全部 elite:true + midboss:true：血量走普通怪曲线（≈精英 3 倍底血），伤害走精英乘区，
+  // 抗性/真伤档/击退折算同精英；不掷变异/怪菌；脸画在立绘里（noCanvasEyes）。
+  // =========================================================
+  // 第二百零二轮：新小怪 6 种（补"蜂群 / 抛射 / 预警狙击 / 破盾 / 召唤 / 闪现"六个空缺）。
+  // 全部是猫娘计划世界观里的猫/机械猫；脸画在立绘里（noCanvasEyes）。
+  // =========================================================
+  {
+    id: 'bee_cat', name: '蜜蜂猫', hp: 5, speed: 140, damage: 2, radius: 11,
+    color: '#ffd23f', shape: 'circle', behavior: 'swarm', xp: 1, materials: 1,
+    swarmCount: 4, noCanvasEyes: true,
+    desc: '成群出现（一次 4 只），像蜂群一样乱飘着扑上来，单只很脆，范围武器的好靶子。',
+  },
+  {
+    id: 'mortar_cat', name: '迫击炮猫', hp: 22, speed: 120, damage: 3, radius: 17,
+    color: '#8fae72', shape: 'circle', behavior: 'mortar', xp: 4, materials: 4,
+    attackCooldown: 3.4, attackRange: 430, explosionDamage: 10, explosionRadius: 78, mortarDelay: 1.25,
+    noCanvasEyes: true,
+    desc: '远远地往你脚下抛炮弹：地上先出现橙色圈，约 1 秒后落地爆炸，走位出圈就没事。',
+  },
+  {
+    id: 'sniper_cat', name: '狙击猫', hp: 18, speed: 120, damage: 3, radius: 17,
+    color: '#9fb1cf', shape: 'square', behavior: 'sniper', xp: 5, materials: 5,
+    attackCooldown: 3.8, attackRange: 520, projectileDamage: 12, aimTime: 1.1,
+    noCanvasEyes: true,
+    desc: '站得很远，先拉出一条红色瞄准线（最后 0.3 秒锁定不再转向），然后一发高速激光，别站在线上。',
+  },
+  {
+    id: 'shield_cat', name: '盾卫猫', hp: 26, speed: 120, damage: 6, radius: 18,
+    color: '#6f9bf0', shape: 'circle', behavior: 'shield', armor: 2, xp: 5, materials: 5,
+    shieldRatio: 1.1, noCanvasEyes: true,
+    desc: '举着大盾缓缓压上来，要先打碎一层比血量还厚的护盾；盾一碎就发怒加速冲你。',
+  },
+  {
+    id: 'summoner_cat', name: '召唤猫', hp: 36, speed: 120, damage: 3, radius: 18,
+    color: '#7a4fd0', shape: 'circle', behavior: 'summoner', xp: 6, materials: 5,
+    attackRange: 330, summonCount: 2, summonCooldown: 6, summonMax: 4, summonId: 'mouse',
+    noCanvasEyes: true,
+    desc: '躲在后面画魔法阵，每 6 秒召唤两只机械鼠（场上最多 4 只）。优先点掉它。',
+  },
+  {
+    id: 'blink_cat', name: '瞬影猫', hp: 24, speed: 130, damage: 8, radius: 16,
+    color: '#3b3f8f', shape: 'circle', behavior: 'blink', xp: 4, materials: 4,
+    blinkCooldown: 3.0, noCanvasEyes: true,
+    desc: '会闪现：身形变淡、脚下出现青色圈，约半秒后出现在那里，再扑向你。',
+  },
+  {
+    id: 'mid_witch', name: '星屑魔女·露娜', hp: 520, speed: 120, damage: 9, radius: 36,
+    color: '#9a6df0', shape: 'star', behavior: 'midRanged', armor: 6, xp: 30, materials: 30,
+    elite: true, midboss: true, bossName: '星屑魔女·露娜', noCanvasEyes: true,
+    attackRange: 340, signature: 'luna',
+    desc: '中 Boss（远程）。九向扇形弹先压你的走位，血少了会追加星屑螺旋与留缺口的圆环。',
+  },
+  {
+    id: 'mid_bear', name: '暴走锤熊·哈基', hp: 640, speed: 120, damage: 14, radius: 42,
+    color: '#c9854a', shape: 'circle', behavior: 'midMelee', armor: 10, xp: 30, materials: 30,
+    elite: true, midboss: true, bossName: '暴走锤熊·哈基', noCanvasEyes: true,
+    chaseSpeedMul: 1.0, chargeSpeed: 400, chargeWindup: 0.95, chargeDuration: 0.5,
+    chargeCooldown: 3.2, chargeTrigger: 420, landing: 'slam',
+    desc: '中 Boss（近战）。红圈亮起后锁定方向猛冲，落地砸出一圈冲击弹；血越少砸得越密。',
+  },
+  {
+    id: 'mid_mech', name: '机魂炮猫·霰', hp: 560, speed: 120, damage: 9, radius: 40,
+    color: '#8e9dbd', shape: 'hex', behavior: 'midRanged', armor: 14, xp: 30, materials: 30,
+    elite: true, midboss: true, bossName: '机魂炮猫·霰', noCanvasEyes: true,
+    attackRange: 380, signature: 'barrage',
+    desc: '中 Boss（远程）。从四面推来一整面弹墙，墙上只留一道缺口；二阶段起追加高速狙击弹。',
+  },
+  {
+    id: 'mid_panther', name: '影爪豹·夜刃', hp: 480, speed: 150, damage: 12, radius: 36,
+    color: '#6a58d6', shape: 'circle', behavior: 'midMelee', armor: 8, xp: 30, materials: 30,
+    elite: true, midboss: true, bossName: '影爪豹·夜刃', noCanvasEyes: true,
+    chaseSpeedMul: 1.1, chargeSpeed: 470, chargeWindup: 0.6, chargeDuration: 0.36,
+    chargeRepeats: 2, chargeCooldown: 2.8, chargeTrigger: 380, landing: 'fan',
+    desc: '中 Boss（近战）。连续冲刺（血少了冲得更多），收招时甩出一把扇形飞刃。',
+  },
+
   // ---------- 宝箱怪 ----------
   // 用户要求："宝箱怪物会努力远离玩家但是本身有一定的光效方便玩家看到他，
   //            然后击杀宝箱怪物随机获得一个道具在回合结算的时候给予玩家。"
@@ -640,7 +720,9 @@ export const getEnemy = (id) => ENEMY_MAP[id];
  */
 export const MELEE_BEHAVIORS = new Set([
   'chase', 'zigzag', 'orbit', 'charger', 'splitter', 'exploder', 'flee',
-  'chaseShooter',
+  'chaseShooter', 'midMelee',
+  // 第二百零二轮：蜂群 / 盾卫 / 闪现 都是贴脸型
+  'swarm', 'shield', 'blink',
 ]);
 
 /** 这个敌人算不算近战（用于噩梦移速的 +15% 档） */
@@ -664,7 +746,9 @@ export function isMeleeEnemy(def) {
  * 不能混进常规刷怪池，否则每波都会满地宝箱怪。
  */
 export const getNormalEnemies = () => ENEMIES.filter((e) => !e.elite && !e.boss && !e.treasure);
-export const getEliteEnemies = () => ENEMIES.filter((e) => e.elite);
+// 第二百零二轮：中 Boss 带 elite:true（吃精英的真伤档/抗性/击退折算），但不进精英刷怪池
+export const getEliteEnemies = () => ENEMIES.filter((e) => e.elite && !e.midboss);
+export const getMidBossEnemies = () => ENEMIES.filter((e) => e.midboss);
 export const getBossEnemies = () => ENEMIES.filter((e) => e.boss);
 /** 宝箱怪单独一类 */
 export const getTreasureEnemies = () => ENEMIES.filter((e) => e.treasure);

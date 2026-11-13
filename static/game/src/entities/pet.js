@@ -73,7 +73,9 @@ export const PET_VACUUM_MIN_PICKUPS = 6;
  * 以后调整 T1 武器数值时宠物会自动跟着变。
  */
 export function whiteWeaponBaseline() {
-  const t1 = WEAPONS.filter((w) => w.tier === 1 && w.kind !== 'turret');
+  // 第二百零一轮：新系列（精准/火/冰）的 T1 数值定位不同，不参与宠物基准
+  const t1 = WEAPONS.filter((w) => w.tier === 1 && w.kind !== 'turret'
+    && w.id !== 'whisker_bow' && w.id !== 'ember_wand' && w.id !== 'frost_wand');
   if (t1.length === 0) return { damage: 6, cooldown: 0.8 };
   let dmg = 0, cd = 0;
   for (const w of t1) { dmg += (w.damage ?? 5); cd += (w.cooldown ?? 0.8); }

@@ -22,6 +22,8 @@ import { ELITE_DAMAGE_MUL, BOSS_DAMAGE_MUL } from '../data/waves.js';
 import { audio } from '../systems/audio.js';
 // 第一百三十一轮：Boss 过载减伤（0.5s 掉血 ≥10% maxHp → 一层 50% 乘算减伤）
 import { OverloadGuard } from '../systems/overload.js';
+// 第二百零一轮：火焰/冰冻状态（点燃传染、减速、冻结、冻伤）
+import { tickStatus, statusSpeedMul } from '../systems/status.js';
 
 /**
  * 第九十二轮：标准 Boss 弹幕的七彩结晶环配色（与芙兰符卡的 RAINBOW 同组）。
@@ -139,6 +141,7 @@ export class Enemy extends Entity {
     this.shape = def.shape ?? 'circle';
     this.behavior = def.behavior ?? 'chase';
     this.elite = !!def.elite;
+    this.midboss = !!def.midboss;   // 第二百零二轮：中 Boss（elite 的子集：更肉、有招牌）
     // 第一百五十三轮：行为异常（"怪菌"）—— 波次刷怪时由 world._rollQuirk
     // 掷骰写入：null=正常 | 'melee'=套近战AI | 'ranged'=套远程AI |
     // 'idle'=摸鱼挂机 | 'flee'=摸鱼被打后学宝箱怪逃跑。update 的行为
@@ -315,7 +318,7 @@ export class Enemy extends Entity {
 
   takeDamage(amount, opts = {}) {
     // 幽灵闪避
-    if (this.def.dodge && this.rng.next() < this.def.dodge) {
+    if (!opts.dot && this.def.dodge && this.rng.next() < this.def.dodge) {
       return { dodged: true, dealt: 0 };
     }
 
@@ -363,6 +366,8 @@ export class Enemy extends Entity {
     if ((this.debuffTakenPct ?? 0) > 0) {
       dmg *= 1 + this.debuffTakenPct / 100;
     }
+    // 第二百零一轮：冻结中受击 ×1.2（碎冰）；持续伤害不吃
+    if (!opts.dot && this.st && this.st.frozenT > 0) dmg *= 1.2;
     // ---- 奶妈怪给的固定减伤（第十二轮）----
     //
     // 用户要的是"30% 固定减伤"。这里刻意用**乘算的独立一层**，
@@ -379,8 +384,24 @@ export class Enemy extends Entity {
       dmg = Math.max(1, dmg * (1 - red));
     }
 
+    // ---- 第二百零二轮：盾卫猫的护盾 —— 先吃满护盾再扣血（所有来源，含持续伤害）----
+    if (this.def.shieldRatio) {
+      if (this.shieldMax === undefined) this.shieldMax = this.shieldHp = this.maxHp * this.def.shieldRatio;
+      if (this.shieldHp > 0) {
+        if (dmg < this.shieldHp) {
+          this.shieldHp -= dmg;
+          this.shieldFlash = 0.15;
+          return { killed: false, dealt: dmg, gated: blocked, overloaded: false };
+        }
+        dmg -= this.shieldHp;
+        this.shieldHp = 0;
+        this.shieldBroken = true;
+        this.shieldFlash = 0.4;
+        this.world?.fx?.nova?.(this.x, this.y, 80, '#6f9bf0');
+      }
+    }
     this.hp -= dmg;
-    this.hurtFlash = 0.12;
+    if (!opts.dot) this.hurtFlash = 0.12;
 
     // ---- 第一百五十三轮：摸鱼怪被打醒 ----
     // 用户："摸鱼（直接挂机不动，挨打的时候50%概率恢复正常ai，50%概率
@@ -402,9 +423,9 @@ export class Enemy extends Entity {
     // hurtFlash 只有 0.12 秒，是给"整只怪刷白"用的，快到几乎看不见；
     // 而 >< 这种表情需要 **0.5 秒**玩家才能看清"她哎呀了一下"。
     // 所以单独一个计时器，不共用。
-    this.hurtExpr = 0.5;
+    if (!opts.dot) this.hurtExpr = 0.5;
     // 宝箱怪被打了就立刻进入逃跑状态（用户要求："或者受到攻击时主动远离玩家"）
-    if (this.def.behavior === 'flee') {
+    if (this.def.behavior === 'flee' && !opts.dot) {
       this.alert(3.5);
       // 第十四轮 ⑦：挨打加速。用户要求"之后可以再次触发该效果"——
       // 所以每次命中都**重置**两个计时器（而不是只在 boost 未激活时才触发）。
@@ -424,7 +445,7 @@ export class Enemy extends Entity {
 
   applyKnockback(fromX, fromY, force) {
     const a = angleTo(fromX, fromY, this.x, this.y);
-    const mass = this.boss ? 8 : this.elite ? 3 : (this.def.radius ?? 12) / 12;
+    const mass = this.boss ? 8 : this.midboss ? 5 : this.elite ? 3 : (this.def.radius ?? 12) / 12;
     // 第三十七轮：精英吃到的击退再 -50% ——
     // 用户原话："猫王战锤的击退太强力了，站着不动没有任何怪可以靠近，
     // 让精英怪吃到的击退-50%，让精英近战怪有接近可能。小怪无法接近
@@ -460,6 +481,8 @@ export class Enemy extends Entity {
     if (this.hurtFlash > 0) this.hurtFlash -= dt;
     if (this.hurtExpr > 0) this.hurtExpr -= dt;
     if (this.stun > 0) this.stun -= dt;
+    // 第二百零一轮：状态推进（懒创建，没吃过状态的怪直接跳过）
+    if (this.st) tickStatus(this, dt, world);
 
     // ---- 第十四轮 ⑦：宝箱怪挨打 buff 的两段计时 ----
     // 先走加速段；加速归零的那一帧**才开始**减速段的 5 秒。
@@ -517,7 +540,8 @@ export class Enemy extends Entity {
     // 僵直中：不动、不攻击，但仍要处理击退位移，
     // 否则被锤飞的敌人会瞬间定在原地，手感很怪。
     // （第三十八轮：击退位移自带边界/墙壁约束，晕着的怪也不会被锤出图。）
-    if (this.stun > 0) {
+    // 第二百零一轮：冻结 = 僵直的同款处理（不动不攻击，仍吃击退）
+    if (this.stun > 0 || (this.st && this.st.frozenT > 0)) {
       this._applyKnockback(dt, world);
       return;
     }
@@ -555,6 +579,16 @@ export class Enemy extends Entity {
       // 第九轮新增：近战 + 远程混合（压上来的同时放弹幕，不能靠风筝躲）
       case 'chaseShooter': this._chaseShooter(dt, player, aimDist, aimX, aimY, world); break;
       case 'charger':   this._charger(dt, player, aimDist, aimX, aimY); break;
+      // 第二百零二轮：中 Boss
+      case 'midRanged': this._midRanged(dt, player, aimDist, aimX, aimY, world); break;
+      case 'midMelee':  this._midMelee(dt, player, aimDist, aimX, aimY, world); break;
+      // 第二百零二轮：新小怪
+      case 'swarm':     this._swarm(dt, player, aimDist, aimX, aimY); break;
+      case 'mortar':    this._mortar(dt, player, aimDist, aimX, aimY, world); break;
+      case 'sniper':    this._sniper(dt, player, aimDist, aimX, aimY, world); break;
+      case 'shield':    this._shieldCat(dt, player, aimDist, aimX, aimY); break;
+      case 'summoner':  this._summoner(dt, player, aimDist, aimX, aimY, world); break;
+      case 'blink':     this._blink(dt, player, aimDist, aimX, aimY, world); break;
       case 'exploder':  this._exploder(dt, player, aimDist, aimX, aimY, world); break;
       case 'splitter':  this._chase(dt, player, aimDist, aimX, aimY); break;
       case 'boss':      this._boss(dt, player, distToPlayer, toPlayerX, toPlayerY, world); break;
@@ -751,7 +785,9 @@ export class Enemy extends Entity {
     // 第一百零八轮：晴岚移速乘区同样乘在这里（this.world 由
     // spawnEnemyById 注入）。
     let spd = (speedOverride ?? this.speed) * this.curseSpeedMul * mag
-      * (this.world?.weather?.moveMul ?? 1);
+      * (this.world?.weather?.moveMul ?? 1)
+      * (this.st ? statusSpeedMul(this) : 1)
+      * (this.groundSpeedMul ?? 1);
 
     // ---- 第十九轮末：绝对上限夹持已整个移除 ----
     //
@@ -1132,6 +1168,82 @@ export class Enemy extends Entity {
     }
   }
 
+  /** 中 Boss 的阶段：>66% / >33% / 其余（和 Boss 的三阶段同口径，只是自己折算） */
+  _midPhase() {
+    const p = this.hpPercent;
+    return p > 0.66 ? 1 : p > 0.33 ? 2 : 3;
+  }
+
+  /**
+   * 第二百零二轮：远程中 Boss —— 保持中距离走位（同 _shooter），火力全部来自招牌
+   * （def.signature，见 boss-signatures.js）。本体不放普通弹，避免和招牌叠成一团。
+   */
+  _midRanged(dt, player, d, dx, dy, world) {
+    const range = (this.def.attackRange ?? 340) * Math.min(this.rangeScale, 1.6);
+    const nx = dx / d, ny = dy / d;
+    if (d > range * 0.85) this._move(dt, nx, ny);
+    else if (d < range * 0.55) this._move(dt, -nx, -ny);
+    else this._move(dt, -ny * 0.5, nx * 0.5);
+    if (this.def.signature) runBossSignature(this.def.signature, this, dt, player, world, this._midPhase());
+  }
+
+  /**
+   * 第二百零二轮：近战中 Boss —— 追人，进入 chargeTrigger 后"红圈蓄力 → 锁向冲刺"，
+   * 冲完按 def.landing 收招（slam=一圈冲击弹，fan=扇形飞刃）。chargeRepeats 追加连冲次数
+   * （3 阶段再 +1）。方向在蓄力开始那刻锁死（track=false，同近战 Boss），横移即可躲开。
+   */
+  _midMelee(dt, player, d, dx, dy, world) {
+    const def = this.def;
+    const nx = dx / d, ny = dy / d;
+    const phase = this._midPhase();
+    const windup = (def.chargeWindup ?? 0.8) * (phase >= 3 ? 0.8 : 1);
+    if (this.state === 'idle') {
+      this._move(dt, nx, ny, this.speed * (def.chaseSpeedMul ?? 1));
+      this.chargeTimer = (this.chargeTimer ?? 2.0) - dt;
+      if (this.chargeTimer <= 0 && d < (def.chargeTrigger ?? 380)) {
+        this._burstLeft = (def.chargeRepeats ?? 0) + (phase >= 3 && def.chargeRepeats ? 1 : 0);
+        this._beginCharge(nx, ny, windup);
+      }
+      return;
+    }
+    const prev = this.state;
+    this._runChargeStates(dt, nx, ny, windup, false);
+    if (prev === 'charge' && this.state === 'recover') {
+      if (this._burstLeft > 0) {
+        this._burstLeft--;
+        this._beginCharge(nx, ny, 0.3);                // 连冲：短蓄力直接再来
+      } else {
+        this._midLanding(world, phase);
+      }
+    } else if (prev === 'recover' && this.state === 'idle') {
+      this.chargeTimer = (def.chargeCooldown ?? 3) * (phase >= 3 ? 0.8 : 1);
+    }
+  }
+
+  /** 近战中 Boss 的收招：slam=冲击环 / fan=扇形飞刃（弹伤口径同 _firePattern） */
+  _midLanding(world, phase) {
+    const def = this.def;
+    const dmg = (def.projectileDamage ?? (def.damage ?? 3) * 0.6) * this.dmgScale
+      * (1 + this.buffDamagePct / 100) * this.curseDamageMul;
+    const shoot = (a, sp, shape, color, r) => {
+      if ((world.enemyBullets?.items?.length ?? 0) >= 260) return;
+      world.spawnEnemyBullet({ trueTier: this.trueTier, x: this.x, y: this.y, angle: a, speed: sp,
+        damage: dmg, radius: r, hitRadius: r * 0.6, color, range: 700, shape });
+    };
+    if (def.landing === 'slam') {
+      world.fx.nova(this.x, this.y, 150, '#ffd9a0');
+      world.camera.shake(9, 0.3);
+      const n = phase >= 3 ? 20 : 14;
+      for (let i = 0; i < n; i++) shoot((i / n) * TAU, 170, 'orb', '#ffb35a', 7.5);
+      if (phase >= 2) for (let i = 0; i < n; i++) shoot(((i + 0.5) / n) * TAU, 110, 'orb', '#ff8f6a', 7.5);
+    } else if (def.landing === 'fan') {
+      const a = Math.atan2(this.chargeDirY ?? 0, this.chargeDirX ?? 1);
+      const n = phase >= 2 ? 7 : 5, spread = 0.9;
+      for (let i = 0; i < n; i++) shoot(a - spread / 2 + spread * (i / (n - 1)), 260, 'blade', '#d9d4ff', 7);
+      world.fx.nova(this.x, this.y, 90, '#d9d4ff');
+    }
+  }
+
   _charger(dt, player, d, dx, dy) {
     const windup = this.def.chargeWindup ?? 0.7;
     if (this.state === 'idle') {
@@ -1211,6 +1323,148 @@ export class Enemy extends Entity {
     } else {
       this.stateTimer -= dt;
       if (this.stateTimer <= 0) this.state = 'idle';
+    }
+  }
+
+  // =========================================================
+  // 第二百零二轮：新小怪行为
+  // =========================================================
+
+  /** 敌方射速总乘区（难度 × 全局 buff × 天气 × 特殊波），和 _shooter 同口径 */
+  _fireRateFor(world) {
+    return (world?.difficulty?.enemyFireRate ?? 1) * ENEMY_FIRE_RATE_BUFF
+      * (world?.weather?.enemyFireMul ?? 1)
+      * (world?.specialWave === 'slack' ? 0.5 : 1)
+      * (world?.specialWave === 'payday' ? 1.2 : 1);
+  }
+
+  /** 远程站位：远了靠近、近了后退、合适就慢速侧移 */
+  _keepRange(dt, nx, ny, d, range) {
+    if (d > range * 0.9) this._move(dt, nx, ny);
+    else if (d < range * 0.6) this._move(dt, -nx, -ny);
+    else this._move(dt, -ny * 0.4, nx * 0.4);
+  }
+
+  /** 蜜蜂猫：高频左右乱飘着扑上来 */
+  _swarm(dt, player, d, dx, dy) {
+    this.wobblePhase += dt * 11;
+    const nx = dx / d, ny = dy / d;
+    const wob = Math.sin(this.wobblePhase) * 1.1;
+    this._move(dt, nx - ny * wob, ny + nx * wob);
+  }
+
+  /** 迫击炮猫：保持远距离，往玩家脚下放"落点圈"，world 负责倒计时 + 爆炸 */
+  _mortar(dt, player, d, dx, dy, world) {
+    const def = this.def;
+    const range = (def.attackRange ?? 430) * Math.min(this.rangeScale, 1.5);
+    this._keepRange(dt, dx / d, dy / d, d, range);
+    this.attackCooldown -= dt;
+    if (this.attackCooldown <= 0 && d < range * 1.1) {
+      this.attackCooldown = (def.attackCooldown ?? 3.4) / this._fireRateFor(world) * this.curseCooldownMul;
+      const dmg = (def.explosionDamage ?? 10) * this.dmgScale
+        * (1 + this.buffDamagePct / 100) * this.curseDamageMul;
+      world.spawnMortarShell({
+        x: player.x, y: player.y, r: def.explosionRadius ?? 78,
+        t: def.mortarDelay ?? 1.25, dmg, trueBonus: this.trueBonusFor(world),
+        color: this.color,
+      });
+      audio.play('shoot2');
+      world.fx?.nova?.(this.x, this.y, 40, '#ffb03a');
+    }
+  }
+
+  /** 狙击猫：拉红线瞄准（最后 0.3s 锁定）→ 一发高速激光 */
+  _sniper(dt, player, d, dx, dy, world) {
+    const def = this.def;
+    const range = (def.attackRange ?? 520) * Math.min(this.rangeScale, 1.4);
+    if (this.state === 'aim') {
+      this.stateTimer -= dt;
+      if (this.stateTimer > 0.3) this.aimAngle = Math.atan2(dy, dx);
+      if (this.stateTimer <= 0) {
+        const damage = (def.projectileDamage ?? 12) * this.dmgScale
+          * (1 + this.buffDamagePct / 100) * this.curseDamageMul;
+        world.spawnEnemyBullet({ trueTier: this.trueTier,
+          x: this.x, y: this.y, angle: this.aimAngle,
+          speed: 1400, damage, radius: 6, color: '#ff3d5a',
+          range: 1000, laser: true, laserLength: 140,
+        });
+        audio.play('shoot2');
+        world.fx?.nova?.(this.x, this.y, 60, '#ff3d5a');
+        this.state = 'idle';
+        this.attackCooldown = (def.attackCooldown ?? 3.8) / this._fireRateFor(world) * this.curseCooldownMul;
+      }
+      return;   // 瞄准时站定
+    }
+    this._keepRange(dt, dx / d, dy / d, d, range);
+    this.attackCooldown -= dt;
+    if (this.attackCooldown <= 0 && d < range) {
+      this.state = 'aim';
+      this.aimTotal = def.aimTime ?? 1.1;
+      this.stateTimer = this.aimTotal;
+      this.aimAngle = Math.atan2(dy, dx);
+    }
+  }
+
+  /** 盾卫猫：举盾慢推；盾碎后发怒加速 */
+  _shieldCat(dt, player, d, dx, dy) {
+    if (this.shieldFlash > 0) this.shieldFlash -= dt;
+    const mul = this.shieldBroken ? 1.3 : 0.9;
+    this._move(dt, dx / d, dy / d, this.speed * mul);
+  }
+
+  /** 召唤猫：远距离站桩，周期召唤机械鼠（存活上限 summonMax） */
+  _summoner(dt, player, d, dx, dy, world) {
+    const def = this.def;
+    const range = (def.attackRange ?? 330) * Math.min(this.rangeScale, 1.4);
+    this._keepRange(dt, dx / d, dy / d, d, range);
+    if (this.summonFlash > 0) this.summonFlash -= dt;
+    this.summonTimer -= dt;
+    if (this.summonTimer > 0) return;
+    this.summonTimer = (def.summonCooldown ?? 6) * (world?.specialWave === 'slack' ? 1.5 : 1);
+    this.minions = (this.minions ?? []).filter((m) => !m.dead);
+    const n = Math.min(def.summonCount ?? 2, (def.summonMax ?? 4) - this.minions.length);
+    for (let i = 0; i < n; i++) {
+      const a = this.rng.next() * TAU;
+      const m = world.spawnEnemyById(def.summonId ?? 'mouse', this.x + Math.cos(a) * 48, this.y + Math.sin(a) * 48);
+      if (m) this.minions.push(m);
+    }
+    if (n > 0) {
+      this.summonFlash = 0.6;
+      world.fx?.nova?.(this.x, this.y, 80, '#b78bff');
+    }
+  }
+
+  /** 瞬影猫：远了就闪现到玩家身边（先出青圈预警 0.55s），落地后愣 0.45s 再追 */
+  _blink(dt, player, d, dx, dy, world) {
+    const def = this.def;
+    if (this.state === 'blinkOut') {
+      this.stateTimer -= dt;
+      if (this.stateTimer <= 0) {
+        world.fx?.nova?.(this.x, this.y, 50, '#59f0ff');
+        this.x = this.blinkX; this.y = this.blinkY;
+        world.fx?.nova?.(this.x, this.y, 60, '#59f0ff');
+        this.state = 'blinkIn';
+        this.stateTimer = 0.45;
+      }
+      return;
+    }
+    if (this.state === 'blinkIn') {
+      this.stateTimer -= dt;
+      if (this.stateTimer <= 0) {
+        this.state = 'idle';
+        this.blinkTimer = (def.blinkCooldown ?? 3) * (0.8 + this.rng.next() * 0.4);
+      }
+      return;
+    }
+    this._move(dt, dx / d, dy / d);
+    this.blinkTimer = (this.blinkTimer ?? (def.blinkCooldown ?? 3) * 0.7) - dt;
+    if (this.blinkTimer <= 0 && d > 200) {
+      const a = this.rng.next() * TAU;
+      this.blinkX = player.x + Math.cos(a) * 115;
+      this.blinkY = player.y + Math.sin(a) * 115;
+      this.state = 'blinkOut';
+      this.blinkTotal = 0.55;
+      this.stateTimer = this.blinkTotal;
     }
   }
 

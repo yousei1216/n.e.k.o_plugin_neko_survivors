@@ -28,6 +28,9 @@ export const ARCH_LABEL = {
   damage: '通用输出',
   luck:   '幸运经济',
   speed:  '机动',
+  precision: '精准',
+  fire:   '元素·火焰',
+  ice:    '元素·冰冻',
 };
 
 /** 商店里「本命流派」商品的权重倍率（用户要求 120%） */
@@ -73,6 +76,10 @@ export const WEAPON_ARCH = {
   cardboard_turret: 'turret',
   cat_ear_turret: 'turret',
   meow_fortress: 'turret',
+  // 第二百零一轮：新系列
+  whisker_bow: 'precision', paw_crossbow: 'precision', pad_sniper: 'precision', meow_laser_rifle: 'precision',
+  ember_wand: 'fire', cat_torch: 'fire', flamethrower: 'fire', inferno_cannon: 'fire',
+  frost_wand: 'ice', icicle_gun: 'ice', frost_sprayer: 'ice', absolute_zero: 'ice',
 };
 
 /**
@@ -152,7 +159,7 @@ export const CHARACTER_ARCH = {
   luna: ['homing', 'chain'],
   shiro: ['quake', 'turret'],
   nana: ['chain', 'luck'],
-  kuro: ['crit', 'ranged'],
+  kuro: ['crit', 'precision'],
   // 第十一轮新增的悠怡洛丽塔。初始武器是咸鱼盾（quake），
   // 第二流派选 tank —— 人设是"温婉柔弱但很会照顾人"，
   // 数值上也刻意做成了偏续航、输出吃亏，所以本命给生存而不是输出线。

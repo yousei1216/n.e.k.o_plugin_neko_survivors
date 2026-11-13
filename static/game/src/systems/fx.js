@@ -37,6 +37,10 @@ export const FX_TYPE = {
   IMPACT: 'impact',       // 近战命中：放射碎片 + 白闪（打击感的核心）
   SHOCKWAVE: 'shockwave', // 冲击波：比 nova 更"钝"的压缩环，配重击
   SHARD: 'shard',         // 碎片：带旋转和重力的碎屑
+  // ---- 第二百轮 A1 新增 ----
+  MUZZLE: 'muzzle',       // 枪口闪光：开火瞬间的锥形火光 + 白核
+  FLAME: 'flame',         // 第二百零一轮：喷射雾（火焰 / 冰霜喷射器的扇形粒子）
+  CRACKS: 'cracks',       // 地裂：重击落点放射状裂纹 + 尘环（铁锤/战锤）
 };
 
 export class FXSystem {
@@ -81,6 +85,7 @@ export class FXSystem {
   clear() { this.items.length = 0; }
 
   update(dt) {
+    if (this._swCool > 0) this._swCool -= dt;
     const arr = this.items;
     for (let i = arr.length - 1; i >= 0; i--) {
       const fx = arr[i];
@@ -194,6 +199,52 @@ export class FXSystem {
     }
   }
 
+  // ---- 第二百零一轮：状态特效（点燃火星 / 冰晶雾 / 冰爆）----
+  // 复用 SPARKLE（带初速的小圆点）：火星向上飘、冰晶缓缓下沉。
+  emberOn(x, y, r, count = 1) {
+    for (let i = 0; i < count; i++) {
+      this._push({
+        type: FX_TYPE.SPARKLE,
+        x: x + (Math.random() - 0.5) * r * 1.4, y: y + (Math.random() - 0.2) * r * 0.8,
+        vx: (Math.random() - 0.5) * 18, vy: -34 - Math.random() * 34,
+        color: Math.random() < 0.4 ? '#ffd166' : '#ff6a2a', t: 0, life: 0.5, size: 2 + Math.random() * 2.2,
+      });
+    }
+  }
+
+  frostOn(x, y, r) {
+    this._push({
+      type: FX_TYPE.SPARKLE,
+      x: x + (Math.random() - 0.5) * r * 1.6, y: y + (Math.random() - 0.5) * r,
+      vx: (Math.random() - 0.5) * 12, vy: 10 + Math.random() * 16,
+      color: Math.random() < 0.5 ? '#e6f7ff' : '#8fd9f0', t: 0, life: 0.6, size: 1.6 + Math.random() * 2,
+    });
+  }
+
+  /** 冻结 / 解冻的冰爆：一圈淡蓝碎片 + 白环 */
+  iceBurst(x, y, r, small = false) {
+    this.shards(x, y, r * 0.9, '#bfeaff', small ? 4 : 7, { player: true });
+    this.ring(x, y, r * (small ? 1.1 : 1.4), '#dff6ff', 0.3, { player: true });
+  }
+
+  /** 第二百零一轮：喷射雾。一次开火 = 一条特效（内含若干预生成的粒子），渲染端按 t 推进 */
+  flame(x, y, angle, range, arcDeg, mode = 'fire', extra = null) {
+    const n = MOBILE ? 4 : 8;
+    const ps = [];
+    const arc = arcDeg * Math.PI / 180;
+    for (let i = 0; i < n; i++) {
+      ps.push({
+        da: (Math.random() - 0.5) * arc * 0.85,
+        sp: 0.5 + Math.random() * 0.5,
+        sz: 5 + Math.random() * 6,
+      });
+    }
+    this._push({
+      type: FX_TYPE.FLAME, x, y, angle, range, mode, ps,
+      t: 0, life: 0.3, ...extra,
+    });
+  }
+
   hit(x, y, color, extra = null) {
     this._push({
       type: FX_TYPE.HIT, x, y,
@@ -225,7 +276,12 @@ export class FXSystem {
       color, t: 0, life: 0.13 + p * 0.09, ...extra,
     });
     // 重击额外给一圈冲击波
-    if (p > 0.6) this.shockwave(x, y, 30 + p * 60, color, 0.34, extra);
+    // 第二百轮 A1：AOE 一下砸中十几只时，每个命中各放一圈加色冲击波会叠成一团白。
+    // 加 0.12s 冷却，同一时刻只保留一圈。
+    if (p > 0.6 && !(this._swCool > 0)) {
+      this._swCool = 0.12;
+      this.shockwave(x, y, 30 + p * 60, color, 0.34, extra);
+    }
   }
 
   /** 冲击波：一圈又粗又钝的压缩环，配重击/爆炸 */
@@ -266,16 +322,67 @@ export class FXSystem {
     }
   }
 
+  // 第二百轮 A2：伤害数字可读性。
+  // 旧版：同一位置反复命中时数字原地竖直上飘，互相叠成一团看不清。
+  // 现在：① 每个数字轮流占 5 个横向槽位 + 随机抖动，向两侧抛物线散开；
+  //       ② 字号随数值对数增长（小伤害小字、大伤害大字，暴击再放大）；
+  //       ③ 出现瞬间"弹出"放大再回落；④ 文字类提示（MISS/格挡/+N）不放大。
+  /** 枪口闪光（第二百轮 A1）：开火瞬间在枪口喷一团锥形火光 */
+  muzzle(x, y, angle, color = '#ffffff', size = 1, extra = null) {
+    this._push({
+      type: FX_TYPE.MUZZLE, x, y, angle, size,
+      color, t: 0, life: 0.1, ...extra,
+    });
+  }
+
+  /**
+   * 地裂（第二百轮 A1）：重击落点的放射状裂纹 + 一圈向外推的尘环。
+   * 裂纹的随机形状在创建时一次生成（渲染每帧不能重新随机，会抖）。
+   */
+  cracks(x, y, radius, color = '#ffffff', extra = null) {
+    const n = 9 + Math.floor(Math.random() * 3);
+    const lines = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + (Math.random() - 0.5) * 0.35;
+      const len = radius * (0.55 + Math.random() * 0.5);
+      // 每条裂纹 3 段折线，段间有侧向抖动
+      const pts = [];
+      let px = 0, py = 0;
+      for (let s = 1; s <= 3; s++) {
+        const aa = a + (Math.random() - 0.5) * 0.5;
+        const d = len / 3;
+        px += Math.cos(aa) * d; py += Math.sin(aa) * d;
+        pts.push([px, py]);
+      }
+      lines.push(pts);
+    }
+    this._push({
+      type: FX_TYPE.CRACKS, x, y, radius, lines,
+      color, t: 0, life: 0.55, ...extra,
+    });
+    // 尘：沿落点外圈甩几粒碎屑，比单纯圆环更有"砸地"的体积感
+    this.shards(x, y, radius * 0.55, color, 5, extra);
+  }
+
   damageText(x, y, value, isCrit = false, color = null) {
+    const isNum = typeof value === 'number';
+    const n = isNum ? Math.max(0, Math.round(value)) : 0;
+    this._dtSlot = ((this._dtSlot ?? 0) + 1) % 5;
+    const slot = this._dtSlot - 2;                       // -2..2
+    const vx = slot * 16 + (Math.random() - 0.5) * 14;   // 向两侧散开
+    // 数值越大字越大：n=10→1.0，n=100→1.25，n=1000→1.5（封顶）
+    const mag = isNum ? Math.min(1.5, 0.75 + Math.log10(n + 10) * 0.25) : 1;
     this._push({
       type: FX_TYPE.DAMAGE_TEXT,
-      x: x + (Math.random() - 0.5) * 14,
+      x: x + (Math.random() - 0.5) * 8,
       y: y - 8,
-      vy: -46 - Math.random() * 20,
-      text: typeof value === 'number' ? String(Math.round(value)) : String(value),
+      vx,
+      vy: -78 - Math.random() * 26,
+      mag,
+      text: isNum ? String(n) : String(value),
       isCrit,
       color: color ?? (isCrit ? '#ffc857' : '#ffffff'),
-      t: 0, life: 0.72,
+      t: 0, life: isCrit ? 0.9 : 0.72,
     });
   }
 

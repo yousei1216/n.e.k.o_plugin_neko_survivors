@@ -120,6 +120,14 @@ export function isBossWave1(wave1based) {
   return endlessBossCount(wave1based) > 0;
 }
 
+/**
+ * 第二百零二轮：中 Boss 波 —— 每 3 波一只（3/6/9/12/15/18…），Boss 波（10/20/无尽 Boss 波）让位。
+ * 用户："比精英怪强比 boss 弱，3 个回合刷一个的样子"。打不过就正常过本波（不挂住波次）。
+ */
+export function isMidBossWave1(wave1based) {
+  return wave1based >= 3 && wave1based % 3 === 0 && !isBossWave1(wave1based);
+}
+
 export const WAVE_DURATION = 30;         // 第 1 波的基准时长
 export const WAVE_DURATION_MAX = 60;     // 普通波的上限（用户要求）
 export const BOSS_WAVE_DURATION = 90;    // Boss 关时长（用户要求 90s）
@@ -287,6 +295,23 @@ export const ENDLESS_DAMAGE_GROWTH_PER_WAVE = 0.06 * (0.12 / 0.075);  // 0.096
  */
 export const ELITE_DAMAGE_MUL = 0.7864;
 export const BOSS_DAMAGE_MUL = 0.3257;
+
+// 第二百零二轮：新小怪按波次并入刷怪池 [id, 起始波(1起), 结束波, 权重]（Boss 波不加）
+const NEW_MOB_WAVES = [
+  ['bee_cat', 5, 19, 5],
+  ['shield_cat', 7, 19, 5],
+  ['mortar_cat', 8, 19, 5],
+  ['blink_cat', 8, 19, 5],
+  ['sniper_cat', 11, 19, 5],
+  ['summoner_cat', 12, 19, 4],
+];
+for (const [id, from, to, weight] of NEW_MOB_WAVES) {
+  for (let w = from; w <= to; w++) {
+    const cfg = WAVES[w - 1];
+    if (!cfg || cfg.isBoss) continue;
+    cfg.spawns.push({ id, weight });
+  }
+}
 
 /**
  * 敌人弹幕**射程**的每波成长率（第三十轮新增）。
@@ -660,7 +685,7 @@ export const SPECIAL_WAVE_CHANCE = 0.2;
  */
 export const SPECIAL_WAVE_POOLS = {
   charge: { label: '全是冲锋敌人！', ids: ['charger'] },
-  bullet: { label: '全是弹幕敌人！', ids: ['spitter', 'chaos_egg', 'spiral_cat', 'blade_cat'] },
+  bullet: { label: '全是弹幕敌人！', ids: ['spitter', 'chaos_egg', 'spiral_cat', 'blade_cat', 'mortar_cat', 'sniper_cat'] },
   tank: { label: '全是肉盾敌人！', ids: ['tank', 'crab', 'elite_crab', 'splitter'] },
   // ---- 第一百五十六轮：新四类（不改刷怪构成，只挂波次模组）----
   // 用户原话：

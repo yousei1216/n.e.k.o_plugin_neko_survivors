@@ -12,16 +12,18 @@ import { Bullet, EnemyBullet } from '../entities/bullet.js';
 import { Pickup, PICKUP_TYPE } from '../entities/pickup.js';
 import { TurretManager } from '../entities/turret.js';
 import { FXSystem } from './fx.js';
-import { getEnemy, getNormalEnemies, getEliteEnemies, getTreasureEnemies } from '../data/enemies.js';
+import { getEnemy, getNormalEnemies, getEliteEnemies, getTreasureEnemies, getMidBossEnemies } from '../data/enemies.js';
 import { Chest, rollChestReward, chestColors } from '../entities/chest.js';
 import { ITEMS } from '../data/items.js';
 import { getWaveConfig, getWaveDuration, waveScaling, spawnRateMul, bossAddProgress, WAVE_COUNT,
   SPECIAL_WAVE_FROM, SPECIAL_WAVE_COOLDOWN, SPECIAL_WAVE_CHANCE, SPECIAL_WAVE_POOLS,
-  ENEMY_ALIVE_CAP } from '../data/waves.js';
+  ENEMY_ALIVE_CAP, isMidBossWave1 } from '../data/waves.js';
 import { getDifficulty, DEFAULT_DIFFICULTY, WAVE11_HP_BUFF, WAVE11_HP_BUFF_FROM, WAVE11_HP_BUFF_ALL } from '../data/difficulty.js';
 import { angleTo, clamp, dist, TAU } from '../core/math.js';
 import { effectiveLuck } from '../core/stats.js';
 import { expandTerrain, blockedAt, resolveTerrain, findFreeSpot } from '../data/terrain.js';
+import { expandHazards, hazardAt, HAZARD_KINDS, iceBlobRadius } from '../data/hazards.js';
+import { applyWeaponStatus, applySlow, applyFrostbite } from './status.js';
 
 export const WORLD_SIZE = 2400;
 
@@ -71,6 +73,9 @@ export class World {
     this.bullets = new EntityList();
     this.enemyBullets = new EntityList();
     this.pickups = new EntityList();
+    // 第二百零一轮：冰面（冰霜喷射器冻结的地面）：踩上去的敌人减速 + 冻伤
+    this.iceZones = [];
+    this.mortarShells = [];   // 第二百零二轮：迫击炮猫的落点圈 {x,y,r,t,max,dmg,trueBonus,color}
     this.fx = new FXSystem();
     this.grid = new SpatialGrid(72);
     // 炮台（挂机流派）：不放进 EntityList，因为要按"最早放置"顺序替换
@@ -138,6 +143,8 @@ export class World {
     this.onPickup = null;
     this.onPlayerHit = null;
     this.onBossKilled = null;
+    this.onMidBossKilled = null;  // 第二百零二轮：(enemy) 中 Boss 被击杀（奖励由用户另行决定，目前只做提示）
+    this.onMidBossWarn = null;    // (def) 中 Boss 预警出现
     this.onBossPhase = null;   // (boss, newPhase)
     this.onBossGated = null;   // (boss, gatePhase) 撞到 33%/66% 卡点时回调
     this.onPetHeal = null;     // (pet, amount)
@@ -282,6 +289,7 @@ export class World {
     // 严格大于永远为假 → 后半局与整个无尽模式的精英静默消失。
     this.elitesTotal = this.elitesToSpawn;
     this.bossSpawned = false;
+    this.midBossQueued = false;   // 第二百零二轮：本波的中 Boss 是否已排队
     this.spawnTimer = 0.4;
     // 新波开始：上一波的残余警告清干净（波次结算不该有跨波预告）
     this.spawnWarnings.length = 0;
@@ -608,6 +616,81 @@ export class World {
   setTerrain(bgId) {
     this.terrainBackgroundId = bgId ?? null;
     this.terrain = bgId ? expandTerrain(bgId, WORLD_SIZE) : { rects: [], circles: [] };
+    // 第二百零二轮：危险地形（毒池 / 熔岩 / 厚雪 / 冰面 / 传送带），没有就是 null
+    this.hazards = bgId ? expandHazards(bgId, WORLD_SIZE) : null;
+  }
+
+  /**
+   * 第二百零二轮：危险地形每帧结算（用户："毒池…进去中毒减速，持续掉血还走不动；火山岩浆踩上去掉血更多不减速；
+   * 雪比较厚的地方减速玩家和敌人，冰块地区会滑行"）。
+   * 玩家：写 groundSpeedMul / onIce / hazPush（player.update 读），并按 0.5s 一跳结算中毒 / 灼烧（固定百分比真伤）。
+   * 敌人：写 groundSpeedMul（enemy._move 本来就乘），熔岩按 0.5s 一跳烧血，传送带直接平移。
+   */
+  updateHazards(dt) {
+    const hz = this.hazards;
+    const K = HAZARD_KINDS;
+    if (!hz) {
+      if (this._hzActive) {
+        this._hzActive = false;
+        for (const p of this.players()) { p.groundSpeedMul = 1; p.onIce = false; p.hazPushX = 0; p.hazPushY = 0; p.hazardKind = null; p.poisonT = 0; }
+      }
+      return;
+    }
+    this._hzActive = true;
+    const half = this.halfSize;
+    // ---- 玩家 ----
+    for (const p of this.players()) {
+      if (p.dead) { p.groundSpeedMul = 1; p.onIce = false; p.hazPushX = 0; p.hazPushY = 0; p.hazardKind = null; continue; }
+      const z = hazardAt(hz, p.x, p.y, p.radius * 0.35);
+      const k = z?.k ?? null;
+      p.hazardKind = k;
+      const deepP = k === 'poison' && z.deep;
+      p.groundSpeedMul = k === 'poison' ? (deepP ? K.poisonDeep.pSlow : K.poison.pSlow) : k === 'snow' ? (z.thick ? K.snow.pSlow : K.snowThin.pSlow) : 1;
+      p.onIce = k === 'ice';
+      p.hazPushX = k === 'belt' ? z.dx * K.belt.push : 0;
+      p.hazPushY = k === 'belt' ? z.dy * K.belt.push : 0;
+      if (k === 'poison') { p.poisonT = deepP ? K.poisonDeep.linger : K.poison.linger; p._poisonDeep = deepP; }
+      else if (p.poisonT > 0) p.poisonT -= dt;
+      const lava = k === 'lava';
+      if (lava || p.poisonT > 0) {
+        const hk = lava ? K.lava : p._poisonDeep ? K.poisonDeep : K.poison;
+        p._hzTick = (p._hzTick ?? 0) + dt;
+        if (p._hzTick >= hk.pTick) {
+          p._hzTick -= hk.pTick;
+          // 百分比最大生命 + 保底：开局只有 ~12 血时 3.5% 才 0.4 点，不设保底熔岩和毒池就没区别了
+          p.takeDamage(0, p.x, p.y, { fixedDamage: Math.max(hk.pMin, p.maxHp * hk.pPct), ignoreIFrames: true, noMiss: true });
+          this.fx.hit?.(p.x, p.y, lava ? '#ff8a3a' : p._poisonDeep ? '#b060e8' : '#7fae4a', {});
+        }
+      } else {
+        p._hzTick = 0;
+      }
+    }
+    // ---- 敌人 ----
+    for (const e of this.enemies.items) {
+      if (e.dead || e.isChest) { continue; }
+      const z = hazardAt(hz, e.x, e.y, e.radius * 0.35);
+      if (!z) {
+        if (e.groundSpeedMul !== 1) e.groundSpeedMul = 1;
+        continue;
+      }
+      const tough = e.boss || e.midboss || e.elite;            // 大块头受地面影响减半
+      const eff = (m) => (tough ? 1 - (1 - m) * 0.5 : m);
+      e.groundSpeedMul = z.k === 'poison' ? eff(z.deep ? K.poisonDeep.eSlow : K.poison.eSlow) : z.k === 'snow' ? eff(z.thick ? K.snow.eSlow : K.snowThin.eSlow) : 1;
+      if (z.k === 'lava') {
+        const pct = e.boss || e.midboss ? 0 : e.elite ? 0.02 : K.lava.ePctPerSec;
+        if (pct > 0) {
+          e._hzBurn = (e._hzBurn ?? 0) + dt;
+          if (e._hzBurn >= 0.5) {
+            e._hzBurn -= 0.5;
+            this.dealDotDamage(this.nearestPlayerTo(e.x, e.y), null, e, Math.max(1, e.maxHp * pct * 0.5), '#ff8a3a');
+          }
+        }
+      } else if (z.k === 'belt') {
+        const f = (e.boss || e.midboss ? 0.5 : 1) * K.belt.push * dt;
+        e.x = clamp(e.x + z.dx * f, -half + e.radius, half - e.radius);
+        e.y = clamp(e.y + z.dy * f, -half + e.radius, half - e.radius);
+      }
+    }
   }
 
   /** 当前位置是否被地形挡住 */
@@ -635,6 +718,19 @@ export class World {
         y: clamp(player.y + Math.sin(a) * d, -half, half),
       };
     };
+    // 第二百零二轮：别把怪直接刷进熔岩 / 毒池里（刷在里面等于白送，也看着怪）。最多重抽 6 次
+    if (this.hazards) {
+      const base = pick;
+      return findFreeSpot(this.terrain, () => {
+        let c = base();
+        for (let i = 0; i < 6; i++) {
+          const z = hazardAt(this.hazards, c.x, c.y, 20);
+          if (!z || (z.k !== 'lava' && z.k !== 'poison')) break;
+          c = base();
+        }
+        return c;
+      }, 26, 24);
+    }
     // 敌人体积按常见半径留一点余量，免得贴着墙边刷出来还是卡住
     return findFreeSpot(this.terrain, pick, 26, 24);
   }
@@ -644,7 +740,7 @@ export class World {
     if (!def) return null;
     // 第一百六十三轮：移动端同屏普通怪上限（用户："限制移动端同屏最大
     // 怪物数量（比如超过 50 个就不刷了）"）。boss 与剧情召唤不受限。
-    if (MOBILE && !def.boss && this.enemies.items.length >= MOBILE_TUNE.MAX_ENEMIES) {
+    if (MOBILE && !def.boss && !def.midboss && this.enemies.items.length >= MOBILE_TUNE.MAX_ENEMIES) {
       return null;
     }
     const e = new Enemy(def, x, y, this.waveScaling ?? { hp: 1, damage: 1, speed: 1, xp: 1, materials: 1 }, this.rng);
@@ -804,6 +900,26 @@ export class World {
     return null;
   }
 
+  /** 第二百零二轮：本波（0 起算）的中 Boss id；非中 Boss 波返回 null。按波次轮换，重试本波不变 */
+  _midBossIdFor(waveIndex) {
+    if (!isMidBossWave1(waveIndex + 1)) return null;
+    const list = getMidBossEnemies();
+    if (!list.length) return null;
+    return list[((waveIndex + 1) / 3 - 1) % list.length].id;
+  }
+
+  /** 中 Boss 预警：圈更大更久（2.2s），落地后不掷变异/怪菌 */
+  _queueMidBoss(player, id) {
+    const pos = this._spawnPosition(player, 520, 720);
+    if (!pos) return false;
+    this.spawnWarnings.push({ x: pos.x, y: pos.y, t: 2.2, entryId: id, elite: true, midboss: true });
+    const def = getEnemy(id);
+    if (typeof this.onMidBossWarn === 'function') {
+      try { this.onMidBossWarn(def); } catch (err) { console.error('[world] onMidBossWarn 回调异常（已隔离）:', err); }
+    }
+    return true;
+  }
+
   /** 精英也走预告（圈更大更久，给玩家足够的逃离窗口） */
   _queueSpawnElite(player) {
     const def = this.rng.pick(getEliteEnemies());
@@ -826,9 +942,10 @@ export class World {
       this.spawnWarnings.splice(i, 1);
       // 落地瞬间的变异掷骰（原 _spawnOne 的逻辑原样搬来）
       const mutChance = this.endless ? 0.20 : 0.10;
-      const mutate = this.currentWave >= 5 && this.rng.next() < mutChance;
+      const mutate = !w.midboss && this.currentWave >= 5 && this.rng.next() < mutChance;
       const e = this.spawnEnemyById(w.entryId, w.x, w.y, mutate);
-      if (e && !e.mutant) this._rollQuirk(e);
+      if (e && !e.mutant && !w.midboss) this._rollQuirk(e);
+      if (e && e.def.swarmCount) this._spawnSwarmMates(e);
       spawnedAny = spawnedAny || !!e;
     }
     return spawnedAny;
@@ -849,6 +966,7 @@ export class World {
     // 行为异常在变异**之后**结算（用户："变异怪不吃这概率，先结算变异怪
     // 后结算这个"）
     if (e && !e.mutant) this._rollQuirk(e);
+    if (e && e.def.swarmCount) this._spawnSwarmMates(e);
     return e;
   }
 
@@ -862,10 +980,13 @@ export class World {
    * 坏掉机制（奶妈追着你砍、自爆怪不炸都算 bug 不是"异常"）。
    */
   _rollQuirk(e) {
-    if (!e || e.boss) return;
+    if (!e || e.boss || e.midboss) return;
     const b = e.def?.behavior;
     if (b === 'flee' || b === 'healer' || b === 'exploder' || b === 'boss'
       || b === 'meleeBoss' || e.isChest) return;
+    // 第二百零二轮：新小怪的行为就是身份，不掷怪菌
+    if (b === 'swarm' || b === 'mortar' || b === 'sniper' || b === 'shield'
+      || b === 'summoner' || b === 'blink') return;
     if (!(this.rng.next() < 0.20)) return;
     if (e.melee) {
       // 近战怪：随机套远程 AI，或摸鱼
@@ -940,6 +1061,14 @@ export class World {
     // 之后 —— 预算刷完了，最后一批警告还得落地），先记 dt 再结算。
     this._lastDt = dt;
     this._settleSpawnWarnings();
+    // 第二百零二轮：中 Boss —— 波内 30% 时间处排队（预警 2.2s 后落地）。
+    // 不占刷怪预算、不挂住波次；没排上（无空位）下一帧再试。
+    if (!this.midBossQueued && !this.waveConfig?.boss && !this.waveConfig?.bosses
+      && waveElapsed >= this.waveDuration * 0.3) {
+      const mid = this._midBossIdFor(this.currentWave);
+      if (mid) this.midBossQueued = this._queueMidBoss(player, mid);
+      else this.midBossQueued = true;
+    }
     if (this.isSpawnFinished) return;
 
     this.spawnTimer -= dt;
@@ -1146,6 +1275,9 @@ export class World {
     player.damageDealt += dealt;
     if (weapon) weapon.damageDealt += dealt;
 
+    // 第二百零一轮：火焰 / 冰冻系列 —— 命中后按武器定义挂状态（点燃 / 减速 / 冻伤 / 寒意）
+    if (!res.killed && weapon?.def && !opts.noStatus) applyWeaponStatus(this, player, weapon, target);
+
     // 击退
     // 第一百零八轮：台风天全场免疫击退（台风自己的推挤不走这里）
     if (opts.knockback && !target.boss && !(this.weather?.noKnockback)) {
@@ -1246,6 +1378,26 @@ export class World {
   }
 
   /**
+   * 第二百零一轮：持续伤害（点燃 / 冻伤）。
+   * 与 dealDamage 的区别：不暴击、不闪避、不击退、不触发各种命中钩子，
+   * 但能击杀（掉落照常）并计入玩家 / 武器的伤害统计。
+   * 伤害数字小号彩色，普通怪只抽样显示避免刷屏。
+   */
+  dealDotDamage(player, weapon, target, dmg, color = '#ff9a3d') {
+    if (!target || target.dead || !(dmg > 0)) return 0;
+    const res = target.takeDamage(dmg, { dot: true });
+    if (res.dodged || res.blocked) return 0;
+    const dealt = res.dealt ?? 0;
+    if (player) player.damageDealt += dealt;
+    if (weapon) weapon.damageDealt += dealt;
+    if (dealt >= 1 && (target.boss || target.elite || Math.random() < 0.45)) {
+      this.fx.damageText(target.x + (Math.random() - 0.5) * 10, target.y - target.radius * 0.6, dealt, false, color);
+    }
+    if (res.killed) this._onKill(player, target, weapon);
+    return dealt;
+  }
+
+  /**
    * 宠物造成的伤害。
    *
    * 故意和玩家伤害分开：
@@ -1308,6 +1460,16 @@ export class World {
           console.error('[world] onBossKilled 回调异常（已隔离）:', e);
         }
       }
+    } else if (enemy.midboss) {
+      // 第二百零二轮：中 Boss 死亡 —— 比精英大、比 Boss 小的爆炸 + 白闪环
+      this.fx.explosion(enemy.x, enemy.y, 130, enemy.color);
+      this.fx.nova(enemy.x, enemy.y, 170, '#ffffff');
+      this.camera.shake(14, 0.5);
+      if (typeof this.onMidBossKilled === 'function') {
+        try { this.onMidBossKilled(enemy); } catch (err) {
+          console.error('[world] onMidBossKilled 回调异常（已隔离）:', err);
+        }
+      }
     } else if (enemy.elite) {
       this.fx.explosion(enemy.x, enemy.y, 80, enemy.color);
       this.camera.shake(8, 0.3);
@@ -1318,7 +1480,14 @@ export class World {
       this.camera.shake(7, 0.25);
       this._resolveTreasure(player, enemy);
     } else {
-      this.fx.sparkle(enemy.x, enemy.y, enemy.color, 4);
+      // 第二百轮 C：普通怪死亡 —— 原来只有 4 粒火花，击杀没有"碎掉"的反馈。
+      // 现在：怪物本色碎片向外迸散 + 一圈很小的白闪环；碎片数随同屏敌人数
+      // 递减（大量清场时每只少放几片，避免挤爆特效池）。
+      const crowd = this.enemies?.items?.length ?? 0;
+      this.fx.shards(enemy.x, enemy.y, 12 + (enemy.radius ?? 12) * 0.5, enemy.color,
+        crowd > 60 ? 3 : 6);
+      this.fx.sparkle(enemy.x, enemy.y, '#ffffff', crowd > 60 ? 2 : 4);
+      if (crowd <= 60) this.fx.hit(enemy.x, enemy.y, enemy.color);
     }
 
     // 分裂
@@ -1387,7 +1556,7 @@ export class World {
       )) * (this.specialWave === 'egg' ? 2 : 1);
       // 双份概率：前期有帮助，中后期收回
       const dbl = w < 10 ? 0.4 : 0.2;
-      const count = enemy.boss ? 14 : enemy.elite ? 6 : (this.rng.next() < dbl ? 2 : 1);
+      const count = enemy.boss ? 14 : enemy.midboss ? 10 : enemy.elite ? 6 : (this.rng.next() < dbl ? 2 : 1);
       for (let i = 0; i < count; i++) {
         const a = this.rng.next() * TAU;
         const d = this.rng.range(4, 30);
@@ -1543,6 +1712,11 @@ export class World {
       this._updateTreasureSpawning(dt, player);
     }
 
+    // ---- 冰面（在敌人更新之前施加减速，当帧就生效）----
+    this.updateIceZones(dt);
+    this.updateMortarShells(dt);
+    this.updateHazards(dt);
+
     // ---- 敌人 ----
     // 第一百七十轮：仇恨 = 距离最近的活玩家（倒地的不算），谁近打谁
     // 第一百八十二轮：天彗龙眩晕 —— enemyFrozen 时敌人个体 dt=0（原地
@@ -1611,6 +1785,87 @@ export class World {
     this.pickups.sweep();
   }
 
+  /** 第二百零一轮：在喷射扇形里随机冻出一块冰面（附近已有就刷新而不是叠加） */
+  spawnIceZone(player, weapon, facing, range, half) {
+    const iz = weapon.def.iceZone;
+    if (!iz) return;
+    const ang = facing + (Math.random() - 0.5) * 2 * half * 0.7;
+    const d = range * (0.35 + Math.random() * 0.6);
+    const x = player.x + Math.cos(ang) * d;
+    const y = player.y + Math.sin(ang) * d;
+    const mul = weapon.computeStatusMul ? weapon.computeStatusMul(player) : 1;
+    for (const z of this.iceZones) {
+      const dx = z.x - x, dy = z.y - y;
+      if (dx * dx + dy * dy < (iz.r * 0.9) * (iz.r * 0.9)) {
+        z.life = Math.max(z.life, iz.life);
+        z.max = Math.max(z.max, iz.life);
+        z.mul = mul;
+        return;
+      }
+    }
+    if (this.iceZones.length >= 28) this.iceZones.shift();
+    this.iceZones.push({
+      x, y, r: iz.r, life: iz.life, max: iz.life, slow: iz.slow, dps: iz.dps, mul,
+      src: { player, weapon }, tick: 0, seed: Math.random() * 6.28,
+    });
+  }
+
+  /** 第二百零二轮：迫击炮猫放一个落点圈 */
+  spawnMortarShell(cfg) {
+    if (this.mortarShells.length >= 40) this.mortarShells.shift();
+    this.mortarShells.push({ ...cfg, max: cfg.t });
+  }
+
+  updateMortarShells(dt) {
+    const arr = this.mortarShells;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const s = arr[i];
+      s.t -= dt;
+      if (s.t > 0) continue;
+      arr.splice(i, 1);
+      for (const p of this.players()) {
+        if (dist(p.x, p.y, s.x, s.y) < s.r + p.radius) {
+          p.takeDamage(s.dmg, s.x, s.y, { trueBonus: s.trueBonus });
+        }
+      }
+      this.fx?.explosion?.(s.x, s.y, s.r, s.color ?? '#ffb03a');
+      this.camera?.shake?.(5, 0.18);
+    }
+  }
+
+  /** 第二百零二轮：蜂群成组刷出（swarmCount 只，围着落点） */
+  _spawnSwarmMates(e) {
+    const n = (e?.def?.swarmCount ?? 0) - 1;
+    if (n <= 0) return;
+    for (let i = 0; i < n; i++) {
+      const a = this.rng.next() * TAU;
+      const r = 14 + this.rng.next() * 18;
+      this.spawnEnemyById(e.def.id, e.x + Math.cos(a) * r, e.y + Math.sin(a) * r);
+    }
+  }
+
+  updateIceZones(dt) {
+    const zs = this.iceZones;
+    for (let i = zs.length - 1; i >= 0; i--) {
+      const z = zs[i];
+      z.life -= dt;
+      if (z.life <= 0) { zs.splice(i, 1); continue; }
+      z.tick -= dt;
+      if (z.tick > 0) continue;
+      z.tick = 0.15;
+      const near = this.grid.query(z.x, z.y, z.r * 1.6 + 40, []);
+      for (const e of near) {
+        if (!e.isEnemy || e.dead) continue;
+        const dx = e.x - z.x, dy = e.y - z.y;
+        // 第二百零三轮：冰板是不规则形状（与 renderer._drawIceZones 同源的 iceBlobRadius）
+        const rr = iceBlobRadius(z.seed, z.r, Math.atan2(dy, dx)) + e.radius * 0.6;
+        if (dx * dx + dy * dy > rr * rr) continue;
+        applySlow(e, z.slow, 0.45);
+        applyFrostbite(e, z.dps * z.mul, 0.8, z.src);
+      }
+    }
+  }
+
   /** 波次结束时清场：把残余敌人清掉（Brotato 的做法） */
   endWaveCleanup(player, opts = {}) {
     let cleaned = 0;
@@ -1633,6 +1888,8 @@ export class World {
         e.dead = true;
         continue;
       }
+      // 中 Boss：没打掉就无声退场（无折算材料、无奖励，"打不过就正常过这回合"）
+      if (e.midboss) { e.dead = true; continue; }
       // 宝箱：不折算成材料，直接消失（没打掉就没奖励，这是合理的代价）
       if (e.isChest) { e.dead = true; continue; }
       e.dead = true;
@@ -1646,6 +1903,8 @@ export class World {
     this.enemyBullets.clear();
     // 炮台随波次清空：每波重新布阵，避免跨波无限累积
     this.turrets.clear();
+    this.iceZones.length = 0;
+    this.mortarShells.length = 0;
     this.lastCleanupBonus = bonus;
     return cleaned;
   }
@@ -1655,6 +1914,8 @@ export class World {
     this.bullets.clear();
     this.enemyBullets.clear();
     this.turrets.clear();
+    this.iceZones.length = 0;
+    this.mortarShells.length = 0;
     this.pickups.clear();
     this.fx.clear();
     this.grid.clear();

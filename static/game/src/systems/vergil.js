@@ -83,6 +83,13 @@ export class VergilFight {
       { hp: 1, bossHp: 1, damage: 1, speed: 1, xp: 1, materials: 1, bulletRange: 1 },
       main.world.rng ?? main.rng);
     this.boss.speed = 0;
+    // 第二百零三轮：多人血量加成 —— 用户："新流派加入之后特殊boss更脆皮了，让她们也享受多人玩家血量加成吧。就是大排档椅子维吉尔和芙兰的血量享受人数加成。"
+    // 口径同普通 Boss（world.spawnEnemy）：每多一个玩家 +45%（2P ×1.45，4P ×2.35）。阶段门槛 / 符卡分段全部按实例 hpMax 算。
+    this.hpMax = VERGIL_MAX_HP;
+    {
+      const k = (main.world.players?.().length ?? 1) - 1;
+      if (k > 0) { this.hpMax = Math.round(VERGIL_MAX_HP * (1 + 0.45 * k)); this.boss.maxHp = this.hpMax; this.boss.hp = this.hpMax; }
+    }
     this.boss.flandreHidden = true;              // 渲染层隐身（演出层自绘椅子）
     // 焊死普通 Boss 的阶段推进机器 + 清掉登场无敌（同芙兰，见 flandre.js）——
     // 不清的话玩家全程打不动他（义眼实机抓到的"免疫"）。
@@ -398,8 +405,8 @@ export class VergilFight {
     }
 
     // ---- 阶段切换（血量门槛，切阶段清屏 + 短缓冲）----
-    if (this.phase === 1 && this.boss.hp <= VERGIL_MAX_HP * 0.66) this._enterPhase(2);
-    else if (this.phase === 2 && this.boss.hp <= VERGIL_MAX_HP * 0.33) this._enterPhase(3);
+    if (this.phase === 1 && this.boss.hp <= this.hpMax * 0.66) this._enterPhase(2);
+    else if (this.phase === 2 && this.boss.hp <= this.hpMax * 0.33) this._enterPhase(3);
 
     // ---- 第一百六十轮：常驻锁血（替代 154 轮的 P3 专属里程碑）----
     // 每累计受到 2000 伤害 → 无敌 **累加** 0.5s（P3 每段 0.8s）。

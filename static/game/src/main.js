@@ -1345,6 +1345,16 @@ export class Game {
       if (hitAny) this.world.camera?.shake?.(4, 0.15);
     };
 
+    // 第二百零二轮：中 Boss —— 预警提示 + 击杀提示。奖励由用户之后另行决定，这里**不发奖励**。
+    this.world.onMidBossWarn = (def) => {
+      audio.play('bossSpawn');
+      this.ui?.toast(`⚠ 中 Boss 来袭：${def?.bossName ?? def?.name ?? ''}`, 'bad', 3500);
+    };
+    this.world.onMidBossKilled = (mid) => {
+      audio.play('bossKill');
+      this.ui?.toast(`击败中 Boss：${mid.def?.bossName ?? mid.def?.name ?? ''}`, 'good', 3500);
+    };
+
     this.world.onBossKilled = (boss) => {
       audio.play('bossKill');
       this._nekoComment(EVENT.BOSS_KILL, this._nekoContext({ bossName: boss.def?.name }));

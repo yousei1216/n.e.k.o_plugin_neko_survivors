@@ -222,7 +222,7 @@ export class UI {
       // HUD 上的属性也能悬浮看详情（同样的说明文案）。
       // 第十六轮：把角色的幸运倍率传进去，否则萌妹看到的说明是错的
       // （写着"按 80% 计入"，实际是 96%）。
-      return `<span class="hud-stat has-tip" data-tip="${escAttr(describeStat(k, s, p.stats.luckEffectMul ?? 1))}">`
+      return `<span class="hud-stat has-tip" data-k="${k}" data-tip="${escAttr(describeStat(k, s, p.stats.luckEffectMul ?? 1))}">`
         + `${def.short} <b>${fmtStat(k, s[k])}</b></span>`;
     }).join('');
     this._bindTips(this.el.stats);
@@ -684,8 +684,8 @@ export class UI {
         : `<div class="card-rarity" style="background:${rc}22;border-color:${rc};color:${rc}">`
           + `${rn} · 效果 ×${u.mult}</div>`;
       return `
-        <div class="card${isPlain ? '' : ' card--rare'}" data-up="${u.id}"
-             style="${isPlain ? '' : `border-color:${rc};box-shadow:0 0 0 1px ${rc}55,0 0 18px ${rc}33`}">
+        <div class="card upgrade-card${isPlain ? '' : ' card--rare'}" data-up="${u.id}"
+             style="--rc:${rc};${isPlain ? '' : `border-color:${rc};box-shadow:0 0 0 1px ${rc}55,0 0 18px ${rc}33`}">
           <div class="card-head">
             <div class="avatar" style="background:${u.color}22;border-color:${rc};color:${u.color}">${
               // 第一百六十轮：升级选项图标 —— 用户："各个选项还是字呢，你能做
@@ -714,7 +714,7 @@ export class UI {
         <h2>升级！ Lv.${level}</h2>
         <div class="sub">选一个强化。<b style="color:#ffd166">E</b> 自动选一次 ·
           <b style="color:#ffd166">Q</b> 本局升级全自动（下一局自动关闭）</div>
-        <div class="char-grid">${options.map(cardHtml).join('')}</div>
+        <div class="char-grid levelup-grid">${options.map(cardHtml).join('')}</div>
       </div>
     `);
 
@@ -942,7 +942,7 @@ export class UI {
             <div class="card-desc">${o.data.desc}</div>
             <div class="card-stats">${effectHtml}</div>
             <div class="shop-foot" style="margin-top:10px">
-              <span class="price-tag" style="position:static">${o.price} 材料</span>
+              <span class="price-tag ${o.sold ? 'sold' : afford ? 'ok' : 'no'}" style="position:static">${o.price} 材料</span>
               ${afford || o.sold ? '' : '<span class="hint" style="color:var(--red)">材料不足</span>'}
             </div>
             <div style="display:flex;gap:6px;margin-top:8px">

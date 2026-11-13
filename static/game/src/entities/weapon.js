@@ -19,7 +19,7 @@ import { angleTo, TAU, clamp } from '../core/math.js';
  */
 const AIMED_BEHAVIORS = new Set([
   'sweep', 'thrust', 'shot', 'spread', 'homing', 'bounce', 'chain', 'beam',
-  'quake', 'flurry',
+  'quake', 'flurry', 'flame',
 ]);
 
 /**
@@ -140,6 +140,20 @@ export class WeaponInstance {
     }
 
     return out;
+  }
+
+  /**
+   * 第二百零一轮：状态伤害（点燃 / 冻伤）倍率。
+   * 用户：「让持续伤害和火焰系列武器都吃元素伤害加成」。
+   * 无论武器 kind 是什么，状态 DoT 一律吃 等级成长 + 全局伤害 + 元素伤害（+ 角色最终乘区）。
+   */
+  computeStatusMul(player) {
+    const s = player.stats.values;
+    let m = this.levelDamageMul * (1 + (s.damage + s.elemDamage) / 100);
+    if (player.mulFor) m *= player.mulFor('elemDamage') * player.mulFor('damage');
+    if ((player.dealtFinalMul ?? 1) !== 1) m *= player.dealtFinalMul;
+    if (player.cloneDmgScale != null) m *= player.cloneDmgScale;
+    return m;
   }
 
   /** 实际冷却（秒） */
@@ -267,6 +281,14 @@ export class WeaponInstance {
         }
         rescueDownedAllies(player, world, player.x, player.y, range);   // 第一百七十五轮：近战救援
         world.fx.slash(player.x, player.y, facing, range, def.arc ?? 120, def.color, { player: true });
+        // 第二百零一轮：带点燃的挥砍（火把）沿刀弧洒火星
+        if (def.ignite) {
+          for (let i = 0; i < 4; i++) {
+            const ma = facing + (Math.random() - 0.5) * (def.arc ?? 120) * Math.PI / 180;
+            const pr = range * (0.5 + Math.random() * 0.5);
+            world.fx.emberOn(player.x + Math.cos(ma) * pr, player.y + Math.sin(ma) * pr, 10, 1);
+          }
+        }
         break;
       }
 
@@ -305,11 +327,13 @@ export class WeaponInstance {
           // 无敌时间变成了无限并且不攻击了"（贴脸近战无限刷新僵直把 Boss
           // 整个卡死）。小怪照旧吃晕；Boss 的硬直节奏只属于它自己的
           // 冲刺 recover，不归武器管。
-          if (def.stun && !e.boss) e.stun = Math.max(e.stun ?? 0, def.stun);
+          if (def.stun && !e.boss && !e.midboss) e.stun = Math.max(e.stun ?? 0, def.stun);
           if (def.armorShred) e.armorShred = Math.max(e.armorShred ?? 0, def.armorShred);
         }
         world.fx.explosion(cx, cy, range * 0.8, def.color, { player: true });
-        world.fx.ring(cx, cy, range, def.color, 0.4, { player: true });
+        // 第二百轮 A1：重击落点加地裂，外圈冲击波取代旧的虚线环
+        world.fx.cracks(cx, cy, range * 0.85, def.color, { player: true });
+        world.fx.shockwave(cx, cy, range * 0.8, def.color, 0.38, { player: true });
         rescueDownedAllies(player, world, cx, cy, range);   // 第一百七十五轮：近战救援
         world.camera?.shake(6, 0.22);
         break;
@@ -373,6 +397,7 @@ export class WeaponInstance {
           color: def.color, owner: this, kind: def.kind,
           behavior: 'shot',
         });
+        world.fx.muzzle(player.x + Math.cos(facing) * 14, player.y + Math.sin(facing) * 14, facing, def.color, 0.9, { player: true });
         break;
       }
 
@@ -393,6 +418,7 @@ export class WeaponInstance {
             behavior: 'shot',
           });
         }
+        world.fx.muzzle(player.x + Math.cos(facing) * 14, player.y + Math.sin(facing) * 14, facing, def.color, 1.2, { player: true });
         break;
       }
 
@@ -408,6 +434,7 @@ export class WeaponInstance {
           behavior: 'homing', homing: def.homing ?? 3,
           explosionRadius: def.explosionRadius ?? 0,
         });
+        world.fx.muzzle(player.x + Math.cos(facing) * 14, player.y + Math.sin(facing) * 14, facing, def.color, 0.8, { player: true });
         break;
       }
 
@@ -437,6 +464,22 @@ export class WeaponInstance {
           world.dealDamage(player, this, e, dmg, { knockback: 20, fromX: player.x, fromY: player.y, pierceArmor: true });
         }
         world.fx.beam(player.x, player.y, ex, ey, def.width ?? 12, def.color, { player: true });
+        break;
+      }
+
+      // ---------------- 第二百零一轮：喷射（火焰 / 冰霜喷射器）----------------
+      // 短冷却的扇形连续判定：每次开火对扇形内所有敌人结算一次小伤害 + 状态，
+      // 视觉由 fx.flame 的喷雾粒子承担；冰霜喷射器额外在地面留下冰面。
+      case 'flame': {
+        const facing = this._aim(player, target);
+        this.attackAngle = facing;
+        const half = ((def.arc ?? 50) / 2) * Math.PI / 180;
+        const hits = world.queryArc(player.x, player.y, facing, half, range);
+        for (const e of hits) {
+          world.dealDamage(player, this, e, dmg, { knockback: def.knockback ?? 6, fromX: player.x, fromY: player.y });
+        }
+        world.fx.flame(player.x, player.y, facing, range, def.arc ?? 50, def.fx === 'ice' ? 'ice' : 'fire', { player: true });
+        if (def.iceZone) world.spawnIceZone(player, this, facing, range, half);
         break;
       }
 
@@ -555,5 +598,5 @@ export const BEHAVIOR_LABEL = {
   spread: '散射', homing: '追踪', bounce: '弹跳', beam: '光束',
   chain: '连锁', nova: '爆发', aura: '光环', orbit: '环绕',
   // 第二轮新增的流派（之前漏了标签，属性面板会显示 undefined）
-  quake: '震地', flurry: '连击', deploy: '炮台',
+  quake: '震地', flurry: '连击', deploy: '炮台', flame: '喷射',
 };
