@@ -460,6 +460,8 @@ export class Game {
       // （同芙兰直通按钮的约定，ui.showTitle 对 falsy 整个不渲染按钮）。
       // 测试入口保留 ?vergil=1 直达；_enterVergilLab 本体保留不删。
       onVergilLab: null,
+      // 第二百零九轮：旧区的落幕直通测试按钮（用户："做一个直接打他的测试按钮给我试试"）
+      onSoul5Test: () => this._startSoul5({ test: true }),
       // 第六十五轮的 onSeCheck（音效自检）随标题页按钮一并下线（第一百二十二轮）
       audioEnabled: audio.enabled,
     });
@@ -1994,7 +1996,7 @@ export class Game {
         this.player.addWeapon('meow_cannon');
         this.player.addWeapon('meow_cannon');
         this.player.addWeapon('meow_cannon');
-        this.player.charMul = { ...this.player.charMul, damage: 6 };
+        this.player.charMul = { ...this.player.charMul, damage: 10 };
         for (const id of ['sharp_fang', 'sharp_fang', 'sharp_fang', 'blood_pact',
           'cat_taffy', 'warm_milk', 'warm_milk', 'warm_milk']) {
           this.player.addItem(id);

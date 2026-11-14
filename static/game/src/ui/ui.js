@@ -420,7 +420,7 @@ export class UI {
   }
 
   // ---------------- 标题页 ----------------
-  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest }) {
+  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest, onSoul5Test }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -472,6 +472,7 @@ export class UI {
         ${onHalloweenTest ? '<button class="btn small" data-act="halloween-test" style="border-color:#ff9f43;color:#ff9f43">🎃 直接挑战万圣节双猫！</button>' : ''}
             <!-- 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮，用户要看效果） -->
             ${onVergilLab ? '<button class="btn small" data-act="vergil-lab" style="border-color:#59f2ff;color:#59f2ff">⚔ 挑战：大排档椅子·维吉尔</button>' : ''}
+            ${onSoul5Test ? '<button class="btn small" data-act="soul5-test" style="border-color:#b46bff;color:#b46bff">🗡 直接挑战：旧区的落幕</button>' : ''}
             <button class="btn small danger" data-act="exit">关闭游戏</button>
             <!-- 第一百二十二轮：音效自检按钮下线（用户："把音效自检按钮
                  隐藏或者去掉"—— 诊断使命完成，audio.seSelfTest 保留在
@@ -518,6 +519,9 @@ export class UI {
     // 第一百四十轮：椅子维吉尔刀光实验室
     const vgLab = root.querySelector('[data-act="vergil-lab"]');
     if (vgLab) vgLab.onclick = onVergilLab;
+    // 第二百零九轮：旧区的落幕测试入口
+    const s5Test = root.querySelector('[data-act="soul5-test"]');
+    if (s5Test) s5Test.onclick = onSoul5Test;
     // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');
     if (cont) cont.onclick = onContinue;
