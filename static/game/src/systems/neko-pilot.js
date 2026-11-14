@@ -689,10 +689,14 @@ export class NekoPilot {
         const band = (p.y >= arena.cy ? 1 : -1) * arena.hh * 0.55;
         tx = Math.max(arena.cx - arena.hw * 0.2, Math.min(arena.cx + arena.hw * 0.2, p.x));
         ty = arena.cy + band;
-        // 不做任何位移躲避 —— 三种躲法 A/B 实测（10 个种子，30 秒）：
-        //   纯口袋待命 5.5 次 ＜ 口袋+逃避向量 7.0 次 ＜ 口袋+_safeStep 预测跳步 7.6~9.7 次。
-        // 这张卡是以场地中心为轴的切线"风车"弹线，一动就容易横穿弹线；站在口袋里让弹线从旁边掠过最稳。
-        // （旧行为：站在场地正中心不动 = 17.0 次，所以"全死"。）
+        // 第二百零六轮（用户："芙兰boss战期间，ai猫娘不会走位而是发呆等死，之后的蕾米战和
+        // 双猫万圣节是可以正常走位的，让芙兰boss战ai猫娘也走位"）：
+        // 旧版这里不做任何位移躲避（当年 A/B 测过：这张切线风车卡站口袋 5.5 次被击中 < 乱动 7.6~9.7 次），
+        // 但玩家实测 AI 还是站着吃弹到死。现在保留口袋当**默认待命点**（站位本身是好的），
+        // 有弹逼近时交给 _safeStep 预测式找缝 —— 和万圣节 / 蕾米战同一套躲避。
+        const ss = this._safeStep(g, p, tx, ty, arena);
+        tx = ss.x; ty = ss.y;
+        this._dodgeNow = !!ss.danger;
       } else {
         // boss 不在场（演出阶段）：守在场地中心附近待命，绝不乱跑出框
         tx = arena.cx; ty = arena.cy;

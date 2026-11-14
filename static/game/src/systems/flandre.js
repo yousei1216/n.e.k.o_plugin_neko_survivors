@@ -1328,7 +1328,14 @@ export class FlandreFight {
       }
       const lost = (this.phaseStartHp - (this.boss?.hp ?? 0))
         + (this.cloneDamage ?? 0);   // 第六十三轮：Four of a Kind 期间伤害记在分身账上
-      const beaten = lost >= (this.hpMax || FLANDRE_MAX_HP) * CARD_HP_FRAC;
+      // 第二百零六轮（用户："芙兰最后没进EP模式的4张符卡战斗的最后一张符卡会因为锁血导致
+      // 最后一张卡无论如何都需要打30秒，让芙兰也可以吃高伤害导致第四张卡被正常击破。"）：
+      // "打掉本卡 20%"和"血量地板"其实是同一个数 —— 第四张卡起点 0.4、地板 0.2，
+      // 能打掉的空间正好等于门槛；护甲/取整吃掉最后一点，lost 就永远差 1 而卡满 30 秒。
+      // 现在"打到地板"本身就算击破，并留 1 点容差。
+      const cardFloor = this._hpFloor();
+      const atFloor = !!this.boss && this.boss.hp <= cardFloor + 0.5;
+      const beaten = atFloor || lost >= (this.hpMax || FLANDRE_MAX_HP) * CARD_HP_FRAC - 1;
       const timeUp = this.spell && this.spell.t >= this.spell.dur;
       if ((beaten || timeUp) && this.lockLeft <= 0) {
         if (beaten) this.cardsDone++;
@@ -1338,8 +1345,7 @@ export class FlandreFight {
           // 的血到了30秒，芙兰扣掉剩下没扣的10%开下一张卡。然后EP还是
           // 永久锁20%血持续70秒。" 扣到本卡地板（起点 −20% 总血），下一
           // 张卡的 20% 从分段线重新起算 —— 伤害进度永不因超时白打。
-          const floor = this._hpFloor();
-          if (this.boss && this.boss.hp > floor) this.boss.hp = floor;
+          if (this.boss && this.boss.hp > cardFloor) this.boss.hp = cardFloor;
         }
         // 第七十二轮：fault = "收符卡失败"的嘲讽音 —— 只在普通 4 卡
         // **超时收失败**时播（用户："普通芙兰的4个卡可以打死可以播这个，
