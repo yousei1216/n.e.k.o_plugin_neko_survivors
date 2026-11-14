@@ -511,9 +511,11 @@ export class Soul5Fight {
         const marks = [0.12, 0.29, 0.46, 0.63, 0.8];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(240, 250, 1);
+          const big = a.hit === 5;
+          this._hitInArc(big ? 265 : 240, big ? 260 : 250, big ? 1.15 : 1);
           if (a.hit === 1) this._se('sfx_sword.ogg', 0.6);   // ogg 自带 5 段，只播一次
-          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, t: 0, dur: 0.34, r: 240, dir: a.hit % 2 ? 1 : -1 });
+          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, t: 0, dur: big ? 0.45 : 0.34, r: big ? 265 : 240, big, dir: a.hit % 2 ? 1 : -1 });
+          if (big) this.whiteFlash = Math.max(this.whiteFlash, 0.25);
         }
         break;
       }
@@ -1193,35 +1195,56 @@ export class Soul5Fight {
         ctx.beginPath(); ctx.arc(len + Math.cos(a) * 8, Math.sin(a) * 8, 1.6, 0, TAU_); ctx.fill();
       }
     } else if (s.kind === 'wide' || s.kind === 'spin') {
-      // 火焰大横斩 / 大风车：扇形 + 亮边 + 沿弧火星
+      // 火焰大横斩 / 大风车：从角色到弧线的整片扇形（剑身扫过的面都有光）+ 亮边 + 火星
       const dir = s.dir ?? 1;
       const r = s.r;
+      const half = s.big ? Math.PI / 2 : 0.8;         // 最后一击 = 半圆
       const a0 = -1.1 + k * 2.2;
       ctx.translate(s.x, s.y);
       ctx.rotate(dir > 0 ? a0 : Math.PI - a0);
       ctx.globalCompositeOperation = 'lighter';
-      const A0 = -0.78, A1 = 0.78;
-      // 刀光带：粗弧 + 亮边（像挥过去的一道火痕，不是地上的一块扇形）
+      // 扇形柔光：从角色身前往外铺满，弱化"只有一条弧"的廉价感
+      const g2 = ctx.createRadialGradient(0, 0, 14, 0, 0, r);
+      g2.addColorStop(0, 'rgba(255,120,30,0)');
+      g2.addColorStop(0.5, 'rgba(255,115,25,0.1)');
+      g2.addColorStop(0.88, 'rgba(255,180,70,0.26)');
+      g2.addColorStop(1, 'rgba(255,225,140,0.42)');
+      ctx.fillStyle = g2;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, -half, half); ctx.closePath(); ctx.fill();
+
+      // 刀光带
       for (const [w, col] of [
-        [r * 0.34, 'rgba(255,60,8,0.20)'],
-        [r * 0.20, 'rgba(255,110,20,0.40)'],
-        [r * 0.09, 'rgba(255,175,60,0.65)'],
-        [r * 0.035, 'rgba(255,245,200,0.85)'],
+        [r * 0.34, 'rgba(255,60,8,0.2)'],
+        [r * 0.2, 'rgba(255,110,20,0.42)'],
+        [r * 0.09, 'rgba(255,175,60,0.68)'],
+        [r * 0.035, 'rgba(255,245,200,0.9)'],
       ]) {
         ctx.strokeStyle = col; ctx.lineWidth = w * (0.92 + 0.08 * Math.sin(this.t * 21));
-        ctx.beginPath(); ctx.arc(0, 0, r * 0.78, A0, A1); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.78, -half, half); ctx.stroke();
       }
       ctx.strokeStyle = `rgba(255,252,225,${0.95 * fade})`; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(0, 0, r * 0.93, A0 * 0.92, A1 * 0.92); ctx.stroke();
-      // 沿弧线的火星 + 火舌尖刺（像真的火刃扫过）
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.93, -half * 0.95, half * 0.95); ctx.stroke();
+
+      // 剑身本体的亮线：从角色手里一直延伸到刃尖（整把剑都有伤害感）
+      const lead = -half + 2 * half * Math.min(1, k * 1.15);
+      ctx.strokeStyle = `rgba(255,238,190,${0.85 * fade})`;
+      ctx.lineWidth = s.big ? 8 : 5.5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(lead) * r * 0.96, Math.sin(lead) * r * 0.96); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,240,${0.9 * fade})`; ctx.lineWidth = s.big ? 3 : 2;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(lead) * r * 0.96, Math.sin(lead) * r * 0.96); ctx.stroke();
+      // 刃尖光斑
+      ctx.fillStyle = `rgba(255,250,225,${0.9 * fade})`;
+      ctx.beginPath(); ctx.arc(Math.cos(lead) * r * 0.96, Math.sin(lead) * r * 0.96, s.big ? 15 : 9, 0, TAU_); ctx.fill();
+
+      // 沿弧线的火星 + 火舌尖刺
       for (let i = 0; i < 18; i++) {
-        const a = A0 + (i / 17) * (A1 - A0);
+        const a = -half + (i / 17) * (2 * half);
         const rr = r * (0.72 + 0.18 * ((i % 3) / 2) + 0.05 * Math.sin(this.t * 9 + i));
         ctx.fillStyle = `rgba(255,${160 + (i % 3) * 35},60,${0.8 * fade})`;
         ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 1.4 + (i % 3) * 1.3, 0, TAU_); ctx.fill();
       }
       for (let i = 0; i < 11; i++) {
-        const a = A0 + (i / 10) * (A1 - A0);
+        const a = -half + (i / 10) * (2 * half);
         const len = (10 + 9 * Math.sin(this.t * 15 + i * 1.7)) * fade;
         ctx.strokeStyle = `rgba(255,${130 + (i % 3) * 30},40,${0.55 * fade})`;
         ctx.lineWidth = 2.6;
@@ -1229,6 +1252,12 @@ export class Soul5Fight {
         ctx.moveTo(Math.cos(a) * r * 0.94, Math.sin(a) * r * 0.94);
         ctx.lineTo(Math.cos(a) * (r * 0.94 + len), Math.sin(a) * (r * 0.94 + len));
         ctx.stroke();
+      }
+      // 最后一击：外圈半圆闪光
+      if (s.big) {
+        ctx.strokeStyle = `rgba(255,240,190,${0.9 * fade})`;
+        ctx.lineWidth = 6 * fade + 2;
+        ctx.beginPath(); ctx.arc(0, 0, r * (0.95 + 0.08 * k), -half, half); ctx.stroke();
       }
     } else if (s.kind === 'orbit') {
       // 法兰大剑画大圈：整圈火环扫过
@@ -1443,7 +1472,7 @@ export class Soul5Fight {
   _drawWeapon(ctx, gx, gy) {
     const key = this.weapon === 'scythe' ? 'scythe' : this.weapon === 'rkgs' ? 'rkgs' : this.weapon === 'crossbow' ? 'crossbow' : 'farron_gs';
     const img = this.images[key];
-    const H = key === 'scythe' ? 122 : key === 'farron_gs' ? 145 : key === 'rkgs' ? 130 : 100;
+    const H = key === 'scythe' ? 122 : key === 'farron_gs' ? 145 : key === 'rkgs' ? 156 : 100;   // 直剑 +20%
     const W = img && img.complete && img.naturalWidth ? H * (img.naturalWidth / img.naturalHeight) : 16;
     const grip = Soul5Fight.GRIP[key] ?? [0.5, 0.9];
     const pose = this._weaponPose();
