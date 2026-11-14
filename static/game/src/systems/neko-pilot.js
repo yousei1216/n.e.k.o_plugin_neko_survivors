@@ -26,6 +26,8 @@ import { blockedAt } from '../data/terrain.js';
 import { ARENA as VIRGIL_ARENA } from './vergil.js';
 import { ARENA as FLAN_ARENA } from './flandre.js';
 import { ARENA as HALLOWEEN_ARENA } from './halloween.js';
+// 第二百一十七轮：中 Boss 奖励的 AI 评分（与 Q 全自动共用一套）
+import { pickBestBoon } from './midboss-rewards.js';
 
 /** 选卡打分表：属性 id → 权重（噩梦通关的稳健成长序）
  *  luna 基础 10 血 —— 血量/移速/护甲是风筝流的生命线，权重给足。
@@ -353,6 +355,8 @@ export class NekoPilot {
       case 'halloween': this._combat(g, true, p); break; // 第一百八十四轮：万圣节双猫纯演出（躲弹幕游走即可）
       case 'remilia': this._combat(g, true, p); break;   // 第二百零三轮：蕾米终演出同上（双人纯演出，躲弹幕）
         case 'level_up': this._pickUpgrade(g, p); break;
+        // 第二百一十七轮：中 Boss 奖励也由代打自己选（品质优先）
+        case 'midboss_reward': this._pickMidBossReward(g, p); break;
         case 'shop': this._nextWave(g, p); break;
         case 'result': if (!this.entity) this._settle(g); break;
         default: break; // title/char_select/paused 等不动作
@@ -1202,6 +1206,29 @@ export class NekoPilot {
       if (s > bestS) { bestS = s; bestI = i; }
     });
     globalThis.NekoAgent?.doAction?.(`chooseUpgrade(${bestI})`);
+  }
+
+  /**
+   * 第二百一十七轮：中 Boss 奖励选择。
+   * 用户："中boss奖励掉落ai猫娘会自己选吗？包括代打模式。"
+   *
+   * 评分规则在 midboss-rewards.js：品质永远优先（金>紫>蓝>白），
+   * 同品质里按生存/成长稳定性排序。P1 代打自己选；P2~P4 没有奖励
+   *（奖励只发给 P1），entity 模式直接跳过。
+   */
+  _pickMidBossReward(g, ent) {
+    if (this.entity) return;
+    const opts = Array.isArray(g.currentMidBossOptions) ? g.currentMidBossOptions : [];
+    if (opts.length === 0) return;
+    const best = pickBestBoon(opts, ent ?? g.player, g.waveIndex ?? 0);
+    if (!best) return;
+    const i = opts.findIndex((o) => o.id === best.id);
+    if (i < 0) return;
+    // 优先走公开动作（外部可观测）；NekoAgent 不在时直接调用保底，绝不卡住游戏。
+    const r = globalThis.NekoAgent?.doAction?.(`chooseMidBossReward(${i})`);
+    if (!r || r.ok !== true) {
+      try { g._applyMidBossPick(best.id); } catch { /* tick 永不拖垮主循环 */ }
+    }
   }
 
   // ---------------------------------------------------------

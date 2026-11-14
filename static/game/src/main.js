@@ -22,7 +22,7 @@ import { UI } from './ui/ui.js';
 import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
 // 第二百一十六轮：中 Boss 技能能力奖励（白/蓝/紫/金 三选一）
-import { rollMidBossBoons, applyMidBossBoon } from './systems/midboss-rewards.js';
+import { rollMidBossBoons, applyMidBossBoon, pickBestBoon } from './systems/midboss-rewards.js';
 // 第十七轮：CHARACTERS 不再需要 —— 解锁逻辑删掉后，
 // 选人界面直接用 availableCharacters()（现在恒等于全部角色）。
 import { availableCharacters, getCharacter, getSpriteCharacters, CHARACTERS, CHARACTER_MAP } from './data/characters.js';
@@ -1639,6 +1639,12 @@ export class Game {
       this.pendingMidBossRewards = Math.max(0, this.pendingMidBossRewards - 1);
       this.state = STATE.PLAYING;
       return;
+    }
+    // 第二百一十七轮：代打 / Q 全自动不给玩家弹窗 —— AI 立刻自己选。
+    // 这两个开关都不存在时保持三选一界面，让真人玩家自己点。
+    if (this.autoLevelAll || window.NekoAgent?.pilot?.on) {
+      const best = pickBestBoon(options, this.player, this.waveIndex ?? 0);
+      if (best) { this._applyMidBossPick(best.id); return; }
     }
     this.ui.showMidBossReward({
       bossName: this._lastMidBossName,
@@ -3686,6 +3692,16 @@ window.NekoAgent = {
           desc: o?.desc ?? '',
         }));
       }
+      // 第二百一十七轮：中 Boss 奖励界面也暴露给外部 AI（代打走内部评分）
+      if (g.state === 'midboss_reward' && Array.isArray(g.currentMidBossOptions)) {
+        st.midbossOptions = g.currentMidBossOptions.map((o, i) => ({
+          index: i,
+          id: o?.id ?? null,
+          name: o?.name ?? `选项${i}`,
+          desc: o?.desc ?? '',
+          tier: o?.tierName ?? '',
+        }));
+      }
       if (p && Array.isArray(g.world?.enemies?.items)) {
         const near = [];
         for (const e of g.world.enemies.items) {
@@ -3708,6 +3724,7 @@ window.NekoAgent = {
    *   move(x, y)         —— 移动到地图坐标（到位自动停）
    *   stop()             —— 停止移动
    *   chooseUpgrade(i)   —— 升级三选一选第 i 个（0/1/2）
+   *   chooseMidBossReward(i) —— 中 Boss 奖励三选一选第 i 个（第二百一十七轮）
    *   buyShopItem(i)     —— 商店买第 i 个槽位
    */
   doAction(actionStr) {
@@ -3715,7 +3732,7 @@ window.NekoAgent = {
       if (typeof actionStr !== 'string' || !actionStr.trim()) {
         return { ok: false, error: 'actionStr required, e.g. "move(320, 180)"' };
       }
-      const m = actionStr.trim().match(/^(move|stop|chooseUpgrade|buyShopItem)\s*\(\s*(.*?)\s*\)$/i);
+      const m = actionStr.trim().match(/^(move|stop|chooseUpgrade|chooseMidBossReward|buyShopItem)\s*\(\s*(.*?)\s*\)$/i);
       if (!m) return { ok: false, error: `unknown action: ${actionStr.slice(0, 60)}` };
       const name = m[1].toLowerCase();
       const args = m[2] ? m[2].split(',').map((s) => Number(s.trim())) : [];
@@ -3748,6 +3765,20 @@ window.NekoAgent = {
         const picked = opts[i];
         g._applyUpgradePick(picked);
         return { ok: true, action: 'chooseUpgrade', picked: picked?.name ?? picked?.id ?? i };
+      }
+      if (name === 'choosemidbossreward') {
+        // 第二百一十七轮：中 Boss 奖励三选一（代打 / 外部 AI 用）
+        const i = args[0];
+        if (g.state !== 'midboss_reward') {
+          return { ok: false, error: `not in midboss_reward (state=${g.state})` };
+        }
+        const opts = Array.isArray(g.currentMidBossOptions) ? g.currentMidBossOptions : [];
+        if (!Number.isInteger(i) || i < 0 || i >= opts.length) {
+          return { ok: false, error: `index out of range (0..${opts.length - 1})` };
+        }
+        const picked = opts[i];
+        g._applyMidBossPick(picked.id);
+        return { ok: true, action: 'chooseMidBossReward', picked: picked?.name ?? picked?.id ?? i };
       }
       if (name === 'buyshopitem') {
         const i = args[0];

@@ -322,6 +322,46 @@ export const MIDBOSS_BOONS = [
   },
 ];
 
+// ---------------------------------------------------------
+// AI 自动选择（第二百一十七轮）
+//
+// 用户："中boss奖励掉落ai猫娘会自己选吗？包括代打模式。"
+//
+// 品质永远优先（金 > 紫 > 蓝 > 白），同品质内按"对 AI 生存/成长更稳"排序。
+// 代打（NekoPilot）和 Q 全自动升级共用这一个评分，避免两套逻辑选出不同结果。
+// ---------------------------------------------------------
+const TIER_SCORE = { gold: 400, purple: 300, blue: 200, white: 100 };
+
+const EFFECT_SCORE = {
+  // 白色
+  w_xp: 40, w_money: 25, w_item: 45, w_weapon_lv: 50, w_atk: 40, w_hp: 35,
+  // 蓝色
+  b_xp: 30, b_money: 25, b_weapon: 65, b_heal: 45, b_dmg: 50, b_dr: 55,
+  // 紫色
+  p_pet_dmg: 40, p_ms_hit: 30, p_pickup: 30, p_items5: 55, p_atkspd: 50, p_lethal: 70,
+  // 金色
+  g_pet_cd: 30, g_red: 70, g_hitbox: 50, g_elemental: 65, g_legends: 60,
+};
+
+/** 给一个中 Boss 奖励打分（只影响 AI 自动选择，不影响给玩家的选项） */
+export function scoreBoon(option, player, waveIndex = 0) {
+  let s = TIER_SCORE[option?.tier] ?? 0;
+  s += EFFECT_SCORE[option?.id] ?? 0;
+  // 经验类在前期更值钱（后期升级慢、一整条经验的边际收益下降）
+  if ((option?.id === 'w_xp' || option?.id === 'b_xp') && waveIndex < 8) s += 20;
+  return s;
+}
+
+/** AI 从三张卡里挑一张（返回原对象；空数组返回 null） */
+export function pickBestBoon(options, player, waveIndex = 0) {
+  let best = null, bestS = -Infinity;
+  for (const o of options || []) {
+    const s = scoreBoon(o, player, waveIndex);
+    if (s > bestS) { bestS = s; best = o; }
+  }
+  return best;
+}
+
 const BOON_MAP = Object.fromEntries(MIDBOSS_BOONS.map((b) => [b.id, b]));
 
 /** 某些奖励在特定局面下没有意义（例如红品已集齐）→ 不参与抽卡 */
