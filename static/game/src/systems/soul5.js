@@ -95,6 +95,7 @@ export class Soul5Fight {
     this.ringFlash = 0;          // 宠爱戒指闪烁计时
     this.ringHealAcc = 0;
     this.healDur = 0;
+    this._sfx = new Map();   // 武器音效模板（cloneNode 允许重叠）
     this.slam = null;            // 高跳竖劈
     this.dash = null;            // 前冲
 
@@ -251,6 +252,22 @@ export class Soul5Fight {
     this._syncBoss();
   }
 
+  /** 武器音效（assets/soul5/sfx_*.ogg，cloneNode 允许重叠） */
+  _se(name, vol = 0.45) {
+    try {
+      if (typeof Audio === 'undefined') return;
+      let tpl = this._sfx.get(name);
+      if (!tpl) {
+        tpl = new Audio(`assets/soul5/${name}`);
+        tpl.preload = 'auto';
+        this._sfx.set(name, tpl);
+      }
+      const v = tpl.cloneNode();
+      v.volume = vol * (audio.enabled ? 1 : 0);
+      v.play().catch(() => { /* 自动播放被拦就安静 */ });
+    } catch { /* */ }
+  }
+
   _syncBoss() {
     this.boss.x = this.bx;
     this.boss.y = this.by;
@@ -265,7 +282,7 @@ export class Soul5Fight {
     this.bolts.length = 0;
     this.spears.length = 0;
     this.slashes.length = 0;
-    this.spin = null;
+    this.orbit = null;
     this.slam = null;
     this.dash = null;
   }
@@ -420,8 +437,8 @@ export class Soul5Fight {
     const pool = this.phase === 1
       ? ['poke', 'poke', 'poke', 'dung']
       : this.phase === 2
-        ? ['slash', 'slash', 'crystals', 'poke']
-        : ['spin', 'slash', 'crossbow', 'sunlight', 'poke', 'dung'];
+        ? ['flame5', 'flame5', 'crystals', 'poke']
+        : ['orbit', 'flame5', 'crossbow', 'sunlight', 'poke', 'dung'];
     let id = pool[(rnd() * pool.length) | 0];
     if (id === this.lastAct && pool.length > 1 && rnd() < 0.5) id = pool[(rnd() * pool.length) | 0];
     this.lastAct = id;
@@ -432,15 +449,20 @@ export class Soul5Fight {
     this.state = 'act';
     this.stateT = 0;
     const spd = this.spdMul;
+    // 第二百一十二轮：直剑 5 连斩 5.4s / 法兰大风车 4s / 连发弩 3 组三连射 2s（对齐音效）
     this.act = {
       id, t: 0, spd,
-      dur: id === 'poke' ? 0.9 / spd : id === 'dung' ? 1.0 / spd : id === 'slash' ? 1.25 / spd
-        : id === 'crystals' ? 1.2 : id === 'spin' ? 2.7 : id === 'crossbow' ? 1.6 / spd : 1.2,
+      dur: id === 'poke' ? 0.9 / spd : id === 'dung' ? 1.0 / spd
+        : id === 'flame5' ? 5.7 : id === 'orbit' ? 4.6
+        : id === 'crystals' ? 1.2 : id === 'crossbow' ? 2.0 : 1.2,
       fired: 0, hit: 0,
+      plant: null, orbit: null, phaseT: 0,
     };
     if (id === 'crossbow') this.weapon = 'crossbow';
-    else if (id === 'spin' || id === 'slash') this.weapon = this.phase === 3 ? 'farron' : 'rkgs';
+    else if (id === 'orbit') this.weapon = 'farron';
+    else if (id === 'flame5') this.weapon = this.phase === 3 ? 'farron' : 'rkgs';
     else if (id === 'poke' || id === 'dung') this.weapon = 'scythe';
+    this.slashSfxT = 0;
   }
 
   _tickAct(dt) {
@@ -451,12 +473,18 @@ export class Soul5Fight {
 
     switch (a.id) {
       case 'poke': {
-        // 三段快速戳击
+        // 三段快速戳击：用图片底部（刃）朝目标捅
         const marks = [0.22, 0.5, 0.78];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(155, 120, 1);
-          this.slashes.push({ kind: 'stab', x: this.bx + this.face * 55, y: this.by - 30, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.18 });
+          this._hitInArc(155, 130, 1);
+          this._se('sfx_scythe.ogg', 0.32);
+          const p = this._nearestPlayer();
+          const ang = p ? Math.atan2(p.y + (p.hitOY ?? 0) - this.by, p.x - this.bx) : this.aim;
+          this.slashes.push({
+            kind: 'stab', x: this.bx + Math.cos(ang) * 30, y: this.by - 20 + Math.sin(ang) * 30,
+            ang, t: 0, dur: 0.2,
+          });
         }
         break;
       }
@@ -478,13 +506,14 @@ export class Soul5Fight {
         }
         break;
       }
-      case 'slash': {
-        // 连续两段大范围横斩
-        const marks = [0.3, 0.62];
+      case 'flame5': {
+        // 五连火焰斩：5 个伤害点（约 1.05 秒一刀，对齐音效总长 5~6 秒）
+        const marks = [0.12, 0.29, 0.46, 0.63, 0.8];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(240, 220, 1);
-          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.3, r: 240 });
+          this._hitInArc(240, 250, 1);
+          if (a.hit === 1) this._se('sfx_sword.ogg', 0.6);   // ogg 自带 5 段，只播一次
+          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, t: 0, dur: 0.34, r: 240, dir: a.hit % 2 ? 1 : -1 });
         }
         break;
       }
@@ -495,38 +524,56 @@ export class Soul5Fight {
         }
         break;
       }
-      case 'spin': {
-        // 前冲 → 插地 → 左一圈右一圈 → 高跳竖劈
-        if (a.hit === 0 && k >= 0.15) {
-          a.hit = 1;
-          const p = this._nearestPlayer();
-          if (p) {
-            const dx = p.x - this.bx, dy = p.y - this.by, d = Math.hypot(dx, dy) || 1;
-            this.dash = { t: 0, dur: 0.22, vx: (dx / d) * 620, vy: (dy / d) * 620 };
+      case 'orbit': {
+        // 法兰大剑：插地（短剑不动）→ 角色绕大半圈挥大剑 → 左一圈右一圈 → 高跳竖劈
+        // 攻击 3 次（左圈 / 右圈 / 竖劈），总长约 4 秒
+        if (!a.plant && a.t >= 0.18) {
+          a.plant = { x: this.bx, y: this.by };
+          this._se('sfx_farron.ogg', 0.6);   // ogg 自带 3 段攻击，只播一次
+        }
+        if (a.plant) {
+          const t0 = 0.2, seg = 1.75, R = 150;
+          if (a.t >= t0 && a.t < t0 + seg * 2) {
+            const idx = a.t < t0 + seg ? 0 : 1;
+            const u = (a.t - t0 - idx * seg) / seg;
+            const dir = idx === 0 ? 1 : -1;
+            const phi0 = idx === 0 ? -Math.PI / 2 : Math.PI / 2;
+            const phi = phi0 + dir * u * TAU_;
+            this.bx = a.plant.x + Math.cos(phi) * R;
+            this.by = a.plant.y + Math.sin(phi) * R;
+            this._clampToArena();
+            this.orbit = { cx: a.plant.x, cy: a.plant.y, r: R, phi, dir };
+            if (!a[`c${idx}`] && u >= 0.5) {
+              a[`c${idx}`] = true;
+              this.slashes.push({ kind: 'orbit', x: a.plant.x, y: a.plant.y, t: 0, dur: 0.6, r: R + 120, dir });
+              for (const p of this._players()) {
+                if (p.downed) continue;
+                if (Math.hypot(p.x - a.plant.x, p.y - a.plant.y) < R + 140) this._hitPlayer(p);
+              }
+            }
+          } else if (!a.slammed && a.t >= t0 + seg * 2) {
+            a.slammed = true;
+            this.orbit = null;
+            const p = this._nearestPlayer();
+            this.slam = { t: 0, dur: 0.6, x: p?.x ?? this.bx, y: p?.y ?? this.by, hit: 0 };
           }
-        }
-        if (a.hit === 1 && k >= 0.4) {
-          a.hit = 2;
-          this.spin = { t: 0, dur: 1.0, dir: 1, hit: 0 };
-        }
-        if (a.hit === 2 && this.spin && this.spin.t >= this.spin.dur) {
-          a.hit = 3;
-          this.spin = null;
-          const p = this._nearestPlayer();
-          this.slam = { t: 0, dur: 0.55, x: p?.x ?? this.bx, y: p?.y ?? this.by, hit: 0 };
         }
         break;
       }
       case 'crossbow': {
-        // 1.6s 内 9 发瞄准弩箭
-        const shots = 9;
-        const due = Math.floor(k * shots);
-        while (a.fired < due) {
-          a.fired++;
+        // 三组三连射（每组 3 箭、一次音效），一共 9 箭
+        const bursts = [0.15, 0.47, 0.79];
+        for (let b = a.fired; b < bursts.length; b++) {
+          if (k < bursts[b]) break;
+          a.fired = b + 1;
+          this._se('sfx_crossbow.ogg', 0.42);
           const p = this._nearestPlayer();
           if (p) {
-            const ang = Math.atan2(p.y - (this.by - 30), p.x - this.bx) + (rnd() - 0.5) * 0.06;
-            this.bolts.push({ x: this.bx, y: this.by - 30, vx: Math.cos(ang) * 780, vy: Math.sin(ang) * 780, life: 1.6 });
+            const base = Math.atan2(p.y + (p.hitOY ?? 0) - (this.by - 30), p.x - this.bx);
+            for (let i = 0; i < 3; i++) {
+              const ang = base + (i - 1) * 0.07 + (rnd() - 0.5) * 0.03;
+              this.bolts.push({ x: this.bx, y: this.by - 30, vx: Math.cos(ang) * 780, vy: Math.sin(ang) * 780, life: 1.6 });
+            }
           }
         }
         break;
@@ -555,6 +602,7 @@ export class Soul5Fight {
       this.state = 'idle';
       this.stateT = 0;
       this.act = null;
+      this.orbit = null;
       this.attackCd = (this.phase === 3 ? 0.22 : 0.45) / this.spdMul;
     }
   }
@@ -1091,6 +1139,29 @@ export class Soul5Fight {
     // 刀光
     for (const s of this.slashes) this._drawSlash(ctx, s);
 
+    // 法兰大风车：地上插着的短剑 + 轨迹圆
+    if (this.orbit) {
+      const o = this.orbit;
+      ctx.save();
+      ctx.globalAlpha = a * 0.5;
+      ctx.strokeStyle = 'rgba(255,170,80,0.5)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 12]);
+      ctx.beginPath(); ctx.arc(o.cx, o.cy, o.r, 0, TAU_); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      const sImg = this.images.farron_ss;
+      if (sImg && sImg.complete && sImg.naturalWidth) {
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.translate(o.cx, o.cy);
+        ctx.rotate(-0.5);
+        const H2 = 66, W2 = H2 * (sImg.naturalWidth / sImg.naturalHeight) * 0.8;
+        ctx.drawImage(sImg, -W2 * 0.5, -H2 * 0.28, W2, H2);
+        ctx.restore();
+      }
+    }
+
     // Boss（翻滚旋转 / 嘲讽旋转）
     this._drawBoss(ctx);
 
@@ -1158,6 +1229,21 @@ export class Soul5Fight {
         ctx.moveTo(Math.cos(a) * r * 0.94, Math.sin(a) * r * 0.94);
         ctx.lineTo(Math.cos(a) * (r * 0.94 + len), Math.sin(a) * (r * 0.94 + len));
         ctx.stroke();
+      }
+    } else if (s.kind === 'orbit') {
+      // 法兰大剑画大圈：整圈火环扫过
+      ctx.translate(s.x, s.y);
+      ctx.globalCompositeOperation = 'lighter';
+      const start = s.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
+      const sweep = s.dir * Math.PI * 1.7 * Math.min(1, k * 2.2);
+      for (const [w, col] of [[36, 'rgba(255,60,10,0.16)'], [20, 'rgba(255,120,25,0.3)'], [8, 'rgba(255,190,70,0.55)'], [3, 'rgba(255,250,210,0.9)']]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w * (0.85 + 0.15 * fade);
+        ctx.beginPath(); ctx.arc(0, 0, s.r, start, start + sweep, s.dir < 0); ctx.stroke();
+      }
+      for (let i = 0; i < 20; i++) {
+        const a = start + sweep * (i / 19);
+        ctx.fillStyle = `rgba(255,${150 + (i % 3) * 30},50,${0.8 * fade})`;
+        ctx.beginPath(); ctx.arc(Math.cos(a) * s.r, Math.sin(a) * s.r, 2 + (i % 3), 0, TAU_); ctx.fill();
       }
     } else if (s.kind === 'slam') {
       // 高跳竖劈：竖直光柱 + 地面冲击环
@@ -1293,7 +1379,7 @@ export class Soul5Fight {
 
   /** 每种武器的握柄位置（图片归一化坐标）：绕它旋转才是"挥武器"而不是转魔法棒 */
   static GRIP = {
-    scythe: [0.72, 0.06], rkgs: [0.5, 0.96], farron_gs: [0.5, 0.96],
+    scythe: [0.72, 0.03], rkgs: [0.5, 0.02], farron_gs: [0.5, 0.02],
     farron_ss: [0.9, 0.9], crossbow: [0.5, 0.62],
   };
 
@@ -1302,36 +1388,40 @@ export class Soul5Fight {
    * ang = 绕握柄的旋转；tx/ty = 世界坐标位移（突刺的前冲）；ghosts = 残影数量
    */
   _weaponPose() {
-    const face = this.face;
-    const base = face > 0 ? -0.22 : Math.PI + 0.22;
+    // 武器的"剑身/刃"在图片底部（本地 +Y）。让它指向目标：ang = aim - π/2。
+    const p = this._nearestPlayer();
+    const aim = p ? Math.atan2((p.y + (p.hitOY ?? 0)) - (this.by - 80), p.x - this.bx) : (this.face > 0 ? Math.PI / 2 : -Math.PI / 2);
+    this.aim = aim;
+    const base = aim - Math.PI / 2;
     let ang = base, tx = 0, ty = 0, ghosts = 0;
     if (this.state === 'intro') {
-      ang = face > 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+      // 入场附魔：横持在身前
+      ang = this.face > 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    } else if (this.orbit) {
+      // 法兰大风车：大剑指向圆外（短剑在圆心）
+      ang = this.orbit.phi - Math.PI / 2;
+      ghosts = 3;
     } else if (this.state === 'act' && this.act) {
       const a = this.act;
       const k = Math.min(1, a.t / a.dur);
       if (a.id === 'poke') {
-        // 三段突刺：每一段小幅前送 + 手腕前压
         const kk = (k * 3) % 1;
         const lunge = Math.sin(Math.min(1, kk / 0.55) * Math.PI);
-        ang = base - 0.12 + lunge * 0.16;
-        tx = face * (10 + lunge * 30);
-        ty = -4 * lunge;
+        ang = base + 0.12 - lunge * 0.08;
+        tx = Math.cos(aim) * (10 + lunge * 34);
+        ty = Math.sin(aim) * (10 + lunge * 34);
         ghosts = lunge > 0.45 ? 1 : 0;
-      } else if (a.id === 'slash') {
-        // 两段大横斩：起手 → 挥出 → 收刀，每半程一套
-        const half = k < 0.5 ? k / 0.5 : (k - 0.5) / 0.5;
+      } else if (a.id === 'flame5') {
+        // 五连斩：每段起手 → 挥出 → 收刀
+        const kk = (k * 5) % 1;
         let sw;
-        if (half < 0.2) sw = -1.0 * (half / 0.2);                    // 起手（向后抬）
-        else if (half < 0.62) sw = -1.0 + ((half - 0.2) / 0.42) * 2.3;  // 挥出
-        else sw = 1.3 - ((half - 0.62) / 0.38) * 1.5;                // 收刀
+        if (kk < 0.22) sw = -1.0 * (kk / 0.22);
+        else if (kk < 0.62) sw = -1.0 + ((kk - 0.22) / 0.4) * 2.2;
+        else sw = 1.2 - ((kk - 0.62) / 0.38) * 1.4;
         ang = base + sw;
         ghosts = 3;
-      } else if (a.id === 'spin') {
-        ang = base + this.t * 22;
-        ghosts = 3;
       } else if (a.id === 'crossbow') {
-        ang = base - 0.04; tx = face * 6;
+        ang = aim - Math.PI / 2 + Math.PI / 2; tx = Math.cos(aim) * 6; ty = Math.sin(aim) * 6;
       } else {
         ang = base;
       }
@@ -1346,10 +1436,8 @@ export class Soul5Fight {
       ghosts = 2;
     } else if (this.state === 'roll' && this.roll) {
       ang = base + this.roll.ang;
-    } else if (this.state === 'heal') {
-      ang = base + 0.15;
     }
-    return { ang, tx, ty, ghosts };
+    return { ang, tx, ty, ghosts, aim };
   }
 
   _drawWeapon(ctx, gx, gy) {
@@ -1368,7 +1456,6 @@ export class Soul5Fight {
       ctx.globalAlpha = alpha;
       ctx.translate(px, py);
       ctx.rotate(ang);
-      if (this.face < 0) ctx.scale(-1, 1);
       ctx.drawImage(src, -grip[0] * W, -grip[1] * H, W, H);
       ctx.restore();
     };
@@ -1402,7 +1489,6 @@ export class Soul5Fight {
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(pose.ang);
-        if (this.face < 0) ctx.scale(-1, 1);
         ctx.globalCompositeOperation = 'lighter';
         // 整条剑身包一层火光（三层：外焰 / 内焰 / 白心）
         const L = grip[1] * H;
@@ -1428,7 +1514,6 @@ export class Soul5Fight {
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(pose.ang);
-        if (this.face < 0) ctx.scale(-1, 1);
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = `rgba(200,140,255,${0.5 * this.weaponGlow})`;
         ctx.lineWidth = 3;
@@ -1440,15 +1525,14 @@ export class Soul5Fight {
     }
 
     // P3 左手法兰短剑（也绕握柄，随大剑反向摆动）
-    if (this.weapon === 'farron') {
+    if (this.weapon === 'farron' && !this.orbit) {
       const sImg = this.images.farron_ss;
       if (sImg && sImg.complete && sImg.naturalWidth) {
         const H2 = 60, W2 = H2 * (sImg.naturalWidth / sImg.naturalHeight) * 0.8;
         const g2 = Soul5Fight.GRIP.farron_ss;
         ctx.save();
-        ctx.translate(this.bx - this.face * 34, gy + 20);
+        ctx.translate(this.bx - Math.cos(pose.aim) * 34, gy + 20);
         ctx.rotate(pose.ang * -0.55);
-        if (this.face < 0) ctx.scale(-1, 1);
         ctx.drawImage(sImg, -g2[0] * W2, -g2[1] * H2, W2, H2);
         ctx.restore();
       }
