@@ -188,9 +188,9 @@ export class NekoPilot {
     this._lastPush = -999;
     this._events = this._events || [];
     this.startedAt = this.startedAt || Date.now();
-    // 第一百六十八轮：交出瞬间快照血量**比例** —— 代打期间光环回复拉满
-    // 也不能带走：切回来时按比例还原，堵死"切猫娘回满血再切回来 = 不死"
-    // 的漏洞。光环回血只服务于她自己活着。
+    // 第一百六十八轮：交出瞬间快照血量**比例** —— 代打期间的血量变化不能带走：
+    // 切回来时按比例还原，堵死"切猫娘再切回来 = 换血"的漏洞。
+    //（第二百零七轮起代打光环已不再自动回血，这条保险仍然保留。）
     try { if (g?.player) this._hpSnapshot = g.player.hp / Math.max(1, g.player.maxHp); } catch { /* */ }
     this._tgt = null; this._lastX = null; this._lastY = null; this._stuckN = 0;
     try {
@@ -298,7 +298,7 @@ export class NekoPilot {
       } else if (p) { this._lastX = p.x; this._lastY = p.y; }
 
       // ---- 光环调度（第一百七十一轮重构）----
-      // · pilotBuff  全套（锁1+回复）—— 单机默认
+      // · pilotBuff  锁伤 + 移速（**不再自动回血**，207 轮按用户要求去掉）—— 单机默认
       // · pilotLite  磁吸400 + 前3波减伤40% —— 探针 __altbuff
       // · pilotTough 全图磁吸 + 无敌帧2s + 前3波减伤50% —— 探针 __buff3
       // · duo 且无 __buff3：双 0buff（2P 实验基准）；duo 且 __buff3：
@@ -336,12 +336,11 @@ export class NekoPilot {
             ent._pilotMagnet = 99999;   // 全图吸附
             ent._pilotIframe = 2.0;
           } else if (!this.entity) {
+            // 第二百零七轮（用户："把猫娘ai单独游玩模式下的回血buff去掉，回的太快太强力了，
+            // 甚至芙兰boss战她都在源源不断回复"）：
+            // 这里原本每帧直接 +0.4 血（≈12/s，绕过 heal() 的禁疗），芙兰战真伤也能被回满。
+            // 现在只保留 pilotBuff 的锁伤 / 移速，**不再自动回血** —— 回血回到升级 / 道具 / 商店的正常渠道。
             ent.pilotBuff = true; ent.pilotLite = false; ent.pilotTough = false;
-            if (ent.hp > 0) {
-              // ≈12/s —— 刻意压到"围殴+维吉尔真伤连击"能击穿的水位：
-              // 用户要"输了也挺有趣，但不能真的一局都赢不了"，留死亡窗口
-              ent.hp = Math.min(ent.maxHp, ent.hp + 0.4);
-            }
           } else {
             ent.pilotBuff = false; ent.pilotLite = false; ent.pilotTough = false;
           }
@@ -641,8 +640,13 @@ export class NekoPilot {
         //     非 guarding 压到 200~280（ranged 射程 300+，留弹道余量）。
         const guarding = vf?.guarding === true && !ff && !hf;
         const hasMelee = (p.weapons || []).some((w) => w?.def?.kind === 'melee');
-        const inner = guarding ? (hasMelee ? 95 : 260) : (hasMelee ? 70 : 200);
-        const outer = guarding ? (hasMelee ? 150 : 330) : (hasMelee ? 120 : 280);
+        // 第二百零七轮（用户："芙兰boss战的ai优先级的躲避弹幕优先级提高一些，目前她们更倾向
+        // 贴芙兰脸输出导致弹幕几乎躲不掉"）：
+        // 芙兰是站桩弹源，贴脸 = 站在弹幕喷口上。这里把环绕半径整体外推（近战也往外让），
+        // 输出交给武器射程；下面 dodgeW 也同步调高，两件事一起做。
+        const flan = !!ff;
+        const inner = (guarding ? (hasMelee ? 95 : 260) : (hasMelee ? 70 : 200)) + (flan ? (hasMelee ? 55 : 35) : 0);
+        const outer = (guarding ? (hasMelee ? 150 : 330) : (hasMelee ? 120 : 280)) + (flan ? 90 : 0);
         if (d < inner) { tx = p.x + (dx / d) * (inner - 15); ty = p.y + (dy / d) * (inner - 15); }
         else if (d > outer) { tx = b.x + (dx / d) * (outer - 25); ty = b.y + (dy / d) * (outer - 25); }
         else { // 环绕切向移动，不吃直线弹幕
@@ -658,12 +662,21 @@ export class NekoPilot {
         // ---- 万圣节战实测纠偏：fleeX/fleeY 是**权重**（量级≈1），不是像素。旧写法
         // `fleeX * dodgeW * (fleeMag/210)` 只把目标点挪了约 1px，闪避等于没有。
         // 现在按方向 × min(|flee|,1.6) × fleeMag（≈210px）× dodgeW 折算成像素。
-        const dodgeW = lowHp ? 1.1 : 0.8;
+        // 第二百零七轮：芙兰战闪避权重单独调高 —— 弹幕密度比普通 boss 高一个量级，
+// 用户要求"躲避优先级提高一些"，宁可少打两下也别站在弹里。
+        const dodgeW = flan ? (lowHp ? 1.6 : 1.35) : (lowHp ? 1.1 : 0.8);
         const fm = Math.hypot(fleeX, fleeY);
         if (fm > 0.01) {
           const kpx = (Math.min(fm, 1.6) / fm) * fleeMag * dodgeW;
           tx += fleeX * kpx;
           ty += fleeY * kpx;
+        }
+        // 第二百零七轮：芙兰战在"环绕 + 排斥"之后再走一遍预测式找缝（和万圣节/蕾米同一套）。
+        // 有安全缝就钻，没有才回到环绕位 —— 这才是"躲避优先级"真正高于输出。
+        if (flan) {
+          const ss = this._safeStep(g, p, tx, ty, arena);
+          tx = ss.x; ty = ss.y;
+          this._dodgeNow = !!ss.danger;
         }
       } else if (perf) {
         // ---- 第一百八十四轮：万圣节双猫战 —— 她俩没有 hitbox 不可打，
