@@ -26,6 +26,8 @@ import { blockedAt } from '../data/terrain.js';
 import { ARENA as VIRGIL_ARENA } from './vergil.js';
 import { ARENA as FLAN_ARENA } from './flandre.js';
 import { ARENA as HALLOWEEN_ARENA } from './halloween.js';
+// 第二百一十九轮：魂5 战场地与普通中 Boss 的 boss 模式
+import { ARENA as SOUL5_ARENA } from './soul5.js';
 // 第二百一十七轮：中 Boss 奖励的 AI 评分（与 Q 全自动共用一套）
 import { pickBestBoon } from './midboss-rewards.js';
 
@@ -352,6 +354,8 @@ export class NekoPilot {
         case 'playing': this._combat(g, false, p); break;
         case 'vergil': this._combat(g, true, p); break;
         case 'flandre': this._combat(g, true, p); break;   // 芙兰战同款环绕（20 波后挑战）
+      // 第二百一十九轮：魂5 隐藏战 —— 旧版没有这个分支，队友全程罚站挨打
+      case 'soul5': this._combat(g, true, p); break;
       case 'halloween': this._combat(g, true, p); break; // 第一百八十四轮：万圣节双猫纯演出（躲弹幕游走即可）
       case 'remilia': this._combat(g, true, p); break;   // 第二百零三轮：蕾米终演出同上（双人纯演出，躲弹幕）
         case 'level_up': this._pickUpgrade(g, p); break;
@@ -404,6 +408,11 @@ export class NekoPilot {
     this._dodgeNow = false;   // 本次决策是否处于"躲弹中"（置位后跳过走位低通，指令直达）
 
     const world = g.world;
+    // 第二百一十九轮：中 Boss 也走 boss 模式 —— 用户："中boss的战斗ai猫娘
+    // 好战欲不高，让她们尽可能安全的情况下去打打中boss或者简单的把应对
+    // 中boss的ai模式改成应对boss。"
+    const midBoss = (world?.enemies?.items ?? []).find((e) => e && !e.dead && e.midboss) ?? null;
+    const bossMode = vergilMode || !!midBoss;
     const half = world?.halfSize ?? 700;
     const lowHp = p.maxHp > 0 && p.hp / p.maxHp < 0.6;   // 6 成血就开始怂
     const threatR = lowHp ? 430 : 310;      // 残血更怂：警戒圈加大
@@ -418,7 +427,8 @@ export class NekoPilot {
     // "位置排斥 + 最近敌人 1.1 权重" 合成出 ~200px 的逃逸向量，把
     // 环绕目标点顶到斥力平衡点（250+）—— 越想贴身被推得越远，AI
     // 永远悬在武器射程外。boss 战的威胁是**弹幕**，不是他的站桩身体。
-    const bossBody = world?.vergilFight?.boss ?? world?.flandreFight?.boss ?? null;
+    const bossBody = world?.vergilFight?.boss ?? world?.flandreFight?.boss
+      ?? world?.soul5Fight?.boss ?? midBoss;
     if (Array.isArray(enemies)) {
       for (const e of enemies) {
         if (!e || e.dead || e.isChest) continue;
@@ -585,7 +595,7 @@ export class NekoPilot {
     // 不着箱子。现在：附近有**静止宝箱**且自己没被贴脸围死（>90）时，
     // 主动走到攻击距离内（近战贴 58 = 猫爪攻击边缘；远程 150）站桩拆箱。
     // 宝箱怪是会跑的 flee 怪，索敌自然会打，不归这里管。boss 战跳过。
-    if (!vergilMode && nearestD > 90) {
+    if (!bossMode && nearestD > 90) {
       let chest = null, chestD = Infinity;
       if (Array.isArray(enemies)) {
         for (const e of enemies) {
@@ -610,7 +620,7 @@ export class NekoPilot {
     }
 
     let tx, ty;
-    if (vergilMode) {
+    if (bossMode) {
       // ---- 第一百八十三轮：boss 战走位全面修正 ----
       // 用户实测三连："维吉尔战猫娘会出框""芙兰战猫娘不在场地里，整场
       // boss 只有我""21 回合猫娘 ai 直接挂机不动了"。
@@ -624,11 +634,17 @@ export class NekoPilot {
       // 第二百零三轮：蕾米莉亚终演出也是"宽屏纯演出"，与万圣节双猫共用同一块场地（REMILIA_ARENA 与它同尺寸）
       const rf = world?.remiliaFight;
       const perf = hf ?? rf;
+      // 第二百一十九轮：魂5 隐藏战（boss 藏在 world.soul5Fight 里）
+      const s5 = world?.soul5Fight;
       // 199 轮：P1 代打在芙兰战里会用小小猫娘消弹（见 _maybePurge）。队友 AI（entity）不按 —— 消弹是 P1 的技能，冷却共享。
       if (ff && !this.entity) this._maybePurge(world, p, ff);
-      const b = vf?.boss ?? ff?.boss;
-      // 第一百八十四轮：万圣节双猫战用宽屏场地（用户："移动场地可以大点"）
-      const arena = perf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : VIRGIL_ARENA;
+      const b = vf?.boss ?? ff?.boss ?? s5?.boss ?? midBoss;
+      // 第一百八十四轮：万圣节双猫战用宽屏场地（用户："移动场地可以大点"）。
+      // 第二百一十九轮：魂5 用（已按视口 fit 的）SOUL5_ARENA；中 Boss 在
+      // 大地图上，直接用世界边界当"场地"，不额外缩圈。
+      const midFight = !vf && !ff && !perf && !s5 && !!midBoss;
+      const arena = perf ? HALLOWEEN_ARENA : ff ? FLAN_ARENA : s5 ? SOUL5_ARENA
+        : midFight ? { cx: 0, cy: 0, hw: half, hh: half } : VIRGIL_ARENA;
       if (b && !b.dead) {
         const dx = p.x - b.x, dy = p.y + (p.hitOY ?? 0) - b.y;   // 判定点在脸上（hitOY）
         const d = Math.hypot(dx, dy) || 1;
@@ -668,7 +684,11 @@ export class NekoPilot {
         // 现在按方向 × min(|flee|,1.6) × fleeMag（≈210px）× dodgeW 折算成像素。
         // 第二百零七轮：芙兰战闪避权重单独调高 —— 弹幕密度比普通 boss 高一个量级，
 // 用户要求"躲避优先级提高一些"，宁可少打两下也别站在弹里。
-        const dodgeW = flan ? (lowHp ? 1.6 : 1.35) : (lowHp ? 1.1 : 0.8);
+        // 第二百一十九轮：魂5 的弩箭/毒雾/结晶比普通 Boss 密，闪避权重单独提高，
+// 但低于芙兰符卡（那是最密的一档）。
+        const dodgeW = flan ? (lowHp ? 1.6 : 1.35)
+          : s5 ? (lowHp ? 1.5 : 1.2)
+            : (lowHp ? 1.1 : 0.8);
         const fm = Math.hypot(fleeX, fleeY);
         if (fm > 0.01) {
           const kpx = (Math.min(fm, 1.6) / fm) * fleeMag * dodgeW;
@@ -677,7 +697,7 @@ export class NekoPilot {
         }
         // 第二百零七轮：芙兰战在"环绕 + 排斥"之后再走一遍预测式找缝（和万圣节/蕾米同一套）。
         // 有安全缝就钻，没有才回到环绕位 —— 这才是"躲避优先级"真正高于输出。
-        if (flan) {
+        if (flan || s5 || midFight) {
           const ss = this._safeStep(g, p, tx, ty, arena);
           tx = ss.x; ty = ss.y;
           this._dodgeNow = !!ss.danger;
@@ -720,16 +740,18 @@ export class NekoPilot {
       }
       // 目标点 clamp 进 boss 场地（内缩 46 —— 贴空气墙也有走位余量）。
       // 威胁躲避目标同样被 clamp：躲弹幕也不会被挤出场。
+      // 第二百一十九轮：顶部留 84px（立绘从脚底向上约 70px + HUD），
+// 否则 AI 会贴着场地最上沿走，头和半个身子被屏幕切掉。
       const clampToArena = (v) => ({
         x: Math.max(arena.cx - arena.hw + 46, Math.min(arena.cx + arena.hw - 46, v.x)),
-        y: Math.max(arena.cy - arena.hh + 46, Math.min(arena.cy + arena.hh - 46, v.y)),
+        y: Math.max(arena.cy - arena.hh + 84, Math.min(arena.cy + arena.hh - 20, v.y)),
       });
       ({ x: tx, y: ty } = clampToArena({ x: tx, y: ty }));
       this._bossArenaClamp = clampToArena;   // 走位平滑/救援目标也走同一 clamp
     } else {
       this._bossArenaClamp = null;
     }
-    if (!vergilMode && !hasRanged && nearest && nearestD < 200) {
+    if (!bossMode && !hasRanged && nearest && nearestD < 200) {
       // 近战：只对"落单"怪环绕输出（200 内 ≤3 只）；被围殴立刻转逃跑。
       // 环绕半径 70 = 猫爪类武器攻击边缘 —— 打得到怪、碰撞吃不到。
       let crowd = 0;
@@ -754,7 +776,7 @@ export class NekoPilot {
         tx = p.x + fleeX * fleeMag;
         ty = p.y + fleeY * fleeMag;
       }
-    } else if (!vergilMode) {
+    } else if (!bossMode) {
       // ---- 第一百八十四轮（用户："修复之后猫娘ai好像也不打他了"）——
       // 这个分支是**普通波**的"风筝/捡漏/巡逻"移动，boss 战绝不能进：
       // 修掉 boss 排斥后 flee=0 → hasThreat=false → 落进下面的巡逻
@@ -909,7 +931,7 @@ export class NekoPilot {
     // boss —— 风筝姿态保留（威胁排斥照算），但整体站位被慢慢拉进武器
     // 射程，90 秒不再空过。迟滞对有 boss 的波同样跳过（拉力是缓慢位移，
     // 会被 <26px 迟滞吃掉）。
-    if (bossE && !vergilMode) {
+    if (bossE && !bossMode) {
       mix = { x: mix.x * 0.68 + bossE.x * 0.32, y: mix.y * 0.68 + bossE.y * 0.32 };
     }
     // ---- 197 轮：偶发走位失误（只在非救援/非拆箱的常规走位阶段；救援与拆箱在更早处已 return）----
@@ -930,7 +952,7 @@ export class NekoPilot {
         this._stumble = null;
       }
     }
-    if (!vergilMode && !bossE && this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
+    if (!bossMode && !bossE && this._tgt && Math.hypot(mix.x - this._tgt.x, mix.y - this._tgt.y) < 26) return;
     // ---- 第一百八十三轮：最终落点也 clamp 进 boss 场地 ----
     // spawn 警告避让/地形避让都可能把落点推到空气墙外 —— boss 战里一切
     // 目标以场地为界（用户："她疑似还在用原本的地图移动"）。
@@ -997,6 +1019,25 @@ export class NekoPilot {
         if (dx * dx + dy * dy > SCAN * SCAN) continue;
         const sp = b.speed ?? 0;
         th.push(b.x, b.y, b.vx || Math.cos(b.angle ?? 0) * sp, b.vy || Math.sin(b.angle ?? 0) * sp, b.hitRadius ?? b.radius ?? 7);
+      }
+    }
+    // 第二百一十九轮：魂5 的弹幕不走 world.enemyBullets，全部是 Soul5Fight
+    // 自己的数组 —— 旧 _safeStep 完全看不见，队友只能站桩吃弩箭/毒雾。
+    // 这里把它们映射成同一套扁平威胁（x,y,vx,vy,r），预测式找缝就能用。
+    const s5 = world?.soul5Fight;
+    if (s5) {
+      for (const b of s5.bolts ?? []) {
+        th.push(b.x, b.y, b.vx || 0, b.vy || 0, 8);
+      }
+      for (const c of s5.clouds ?? []) {
+        th.push(c.x, c.y, 0, 0, c.r ?? 96);
+      }
+      for (const c of s5.crystals ?? []) {
+        if (c.fired && c.live) th.push(c.x, c.y, c.vx || 0, c.vy || 0, 20);
+      }
+      // 阳光之枪：预警 0.42s 后落点判定，提前把落点当危险区避开
+      for (const sp of s5.spears ?? []) {
+        if (sp.t < (sp.dur ?? 0.42) + 0.25) th.push(sp.tx, sp.ty, 0, 0, 70);
       }
     }
     // 199 轮：芙兰战的激光（莱瓦汀炎剑）也算危险区。此前 _safeStep 只认万圣节的 waves，对芙兰的激光是瞎的。

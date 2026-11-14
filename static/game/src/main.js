@@ -52,6 +52,11 @@ import * as RemiRender from './systems/remilia-render.js';
 import { VergilFight, VERGIL_MAX_HP, ARENA as VARENA } from './systems/vergil.js';
 // 第二百零八轮：隐藏 Boss「旧区的落幕」—— 大排档椅子之后的续战
 import { Soul5Fight, SOUL5_MAX_HP, ARENA as SOUL5_ARENA } from './systems/soul5.js';
+// 第二百一十九轮：特殊 Boss 场地按视口自适应（修维吉尔上/下出框、魂5偏小）
+import { fitArenaToViewport } from './systems/arena-fit.js';
+// 第二百二十轮：扭蛋机（局外）与能力点数永久成长
+import { GACHA_COST, GACHA_POINTS, rollTenPull, totalGachaPoints } from './systems/gacha.js';
+import { META_UPGRADES, metaUpgradeCost, applyMetaUpgrades } from './data/meta-upgrades.js';
 import { NekoPilot } from './systems/neko-pilot.js';
 
 export const STATE = {
@@ -369,7 +374,12 @@ export class Game {
     // 体检修复（第九十二轮）：按字段逐个合并默认值。旧 meta（或手改 meta）
     // 缺字段时，_endRun 的 += / Math.max 会算出 NaN 并写回存档
     // （表现为统计偶尔清零一局）。
-    const DEFAULTS = { unlocked: [], bestWave: 0, totalKills: 0, runs: 0, wins: 0, retries: 0, manualRetries: 0, flandreUnlocked: false };
+    const DEFAULTS = {
+      unlocked: [], bestWave: 0, totalKills: 0, runs: 0, wins: 0, retries: 0, manualRetries: 0,
+      flandreUnlocked: false,
+      // 第二百二十轮：扭蛋机 / 局外成长
+      gachaTickets: 0, gachaPoints: 0, gachaPitySSR: 0, gachaPulls: 0, metaUpgradeLevels: {},
+    };
     try {
       const raw = localStorage.getItem(META_KEY) || localStorage.getItem(LEGACY_META_KEY);
       if (raw) {
@@ -383,6 +393,12 @@ export class Game {
             retries: Number(parsed.retries) || 0,
             manualRetries: Number(parsed.manualRetries) || 0,
             unlocked: Array.isArray(parsed.unlocked) ? parsed.unlocked : [],
+            gachaTickets: Math.max(0, Math.floor(Number(parsed.gachaTickets) || 0)),
+            gachaPoints: Math.max(0, Math.floor(Number(parsed.gachaPoints) || 0)),
+            gachaPitySSR: Math.max(0, Math.min(99, Math.floor(Number(parsed.gachaPitySSR) || 0))),
+            gachaPulls: Math.max(0, Math.floor(Number(parsed.gachaPulls) || 0)),
+            metaUpgradeLevels: parsed.metaUpgradeLevels && typeof parsed.metaUpgradeLevels === 'object'
+              ? parsed.metaUpgradeLevels : {},
           };
         }
       }
@@ -394,6 +410,84 @@ export class Game {
     try {
       localStorage.setItem(META_KEY, JSON.stringify(this.meta));
     } catch (e) { /* 忽略 */ }
+  }
+
+  // =========================================================
+  // 第二百二十轮：扭蛋机 / 能力点数
+  // =========================================================
+
+  /** 发放扭蛋券（跨局永久，存 meta）。n<=0 不发。 */
+  _awardGachaTickets(n, silent = false) {
+    const add = Math.max(0, Math.floor(Number(n) || 0));
+    if (add <= 0) return;
+    this.meta.gachaTickets = (this.meta.gachaTickets | 0) + add;
+    this._saveMeta();
+    if (!silent) {
+      this.ui?.toast?.(`🎟 扭蛋券 +${add}（共 ${this.meta.gachaTickets}）`, 'good', 2600);
+    }
+  }
+
+  /**
+   * 主菜单点击扭蛋机：消耗 10 张券抽一发十连。
+   * 券不足只提示，不打开抽卡界面。
+   */
+  _rollGachaTen() {
+    // 扭蛋机只存在于主菜单；防止外部调试调用在战斗中途顶掉战斗界面。
+    if (this.state !== STATE.TITLE) return;
+    const tickets = this.meta.gachaTickets | 0;
+    if (tickets < GACHA_COST) {
+      audio.play('error');
+      this.ui?.toast?.(`扭蛋券不足：十连需要 ${GACHA_COST} 张，当前 ${tickets} 张`, 'bad', 3200);
+      return;
+    }
+    // 局外抽卡用独立随机流：不污染本局战斗的种子序列。
+    this.gachaRng ??= new RNG(randomSeed());
+
+    this.meta.gachaTickets = tickets - GACHA_COST;
+    const { cards, pityAfter } = rollTenPull(this.gachaRng, this.meta.gachaPitySSR ?? 0);
+    const gained = totalGachaPoints(cards);
+    this.meta.gachaPoints = (this.meta.gachaPoints | 0) + gained;
+    this.meta.gachaPitySSR = pityAfter;
+    this.meta.gachaPulls = (this.meta.gachaPulls | 0) + 10;
+    this._saveMeta();
+
+    audio.play('levelUp');
+    this.ui.showGachaPull({
+      cards,
+      pointsGained: gained,
+      points: this.meta.gachaPoints | 0,
+      tickets: this.meta.gachaTickets | 0,
+      pity: pityAfter,
+      onClose: () => this.showTitle(),
+    });
+  }
+
+  /** 打开"升级能力"界面（局外永久成长；数据表 META_UPGRADES 驱动）。 */
+  _openMetaUpgrades() {
+    this.state = STATE.TITLE;
+    this.ui.showMetaUpgrades({
+      points: this.meta.gachaPoints | 0,
+      upgrades: META_UPGRADES,
+      levels: this.meta.metaUpgradeLevels || {},
+      onBuy: (id) => {
+        const def = META_UPGRADES.find((u) => u.id === id);
+        if (!def) return;
+        const lv = Math.max(0, Math.floor(Number(this.meta.metaUpgradeLevels?.[id]) || 0));
+        if (lv >= (def.maxLevel ?? 1)) return;
+        const cost = metaUpgradeCost(def, lv);
+        if ((this.meta.gachaPoints | 0) < cost) {
+          audio.play('error');
+          this.ui?.toast?.(`能力点数不足：需要 ${cost}`, 'bad', 3000);
+          return;
+        }
+        this.meta.gachaPoints = (this.meta.gachaPoints | 0) - cost;
+        this.meta.metaUpgradeLevels = { ...(this.meta.metaUpgradeLevels || {}), [id]: lv + 1 };
+        this._saveMeta();
+        audio.play('buy');
+        this._openMetaUpgrades();   // 重绘，点数/等级立刻可见
+      },
+      onClose: () => this.showTitle(),
+    });
   }
 
   /**
@@ -471,6 +565,12 @@ export class Game {
       // 第二百一十五轮：旧区的落幕直通测试按钮下线（用户："修复之后直接删除测试按钮吧"）。
       // 调试入口保留 ?soul5=1，_startSoul5({ test: true }) 本体不删。
       // 第六十五轮的 onSeCheck（音效自检）随标题页按钮一并下线（第一百二十二轮）
+      // 第二百二十轮：主菜单右侧扭蛋机 + 局外成长入口
+      gachaTickets: this.meta.gachaTickets | 0,
+      gachaPoints: this.meta.gachaPoints | 0,
+      gachaPity: this.meta.gachaPitySSR | 0,
+      onGacha: () => this._rollGachaTen(),
+      onMetaUpgrades: () => this._openMetaUpgrades(),
       audioEnabled: audio.enabled,
     });
   }
@@ -620,6 +720,8 @@ export class Game {
     for (let s = opts.duo ? 3 : 2; s <= party; s++) {
       this._spawnPartner(characterId, null, s);
     }
+    // 第二百二十轮：局外永久成长（能力点数）对全队生效
+    for (const pl of this.world.players()) applyMetaUpgrades(pl, this.meta);
     this._partySize = party;
     this._duoEnabled = party >= 2 || !!opts.duo;
     // ---- 万圣节战实测纠偏（用户："ai猫娘的倒地系统疑似失效"）：pilot 的救援分支读
@@ -1742,6 +1844,8 @@ export class Game {
     const p = this.player;
     this.waveEnding = true;
     audio.play('waveClear');
+    // 第二百二十轮：每过 1 回合发扭蛋券；无限模式每回合 2 张。
+    this._awardGachaTickets(this.endlessEnabled ? 2 : 1);
     // 第一百八十轮：天彗龙 BGM 保留至回合结束 —— 此刻停，下一场景点回原曲
     this.comet?.onWaveEnd?.();
 
@@ -1927,6 +2031,8 @@ export class Game {
     this._setNoHealAll(true);
     this.world.noSpawn = true;
     audio.stopMusic();                        // 掐掉当前曲，等演出第 3 秒的 Bury the Light
+    // 第二百一十九轮：场地按当前视口收敛并垂直居中（修"上面出框/看不到角色"）
+    fitArenaToViewport(VARENA, this.camera);
     this.vergil = new VergilFight(this, {
       onDone: (outcome) => this._vergilFinish(outcome),
     });
@@ -1971,7 +2077,9 @@ export class Game {
     // 玩家跑出方形场地，视口大半被场外黑幕吞掉（用户："游戏下面是黑色
     // 的，上面看不到"）。
     const minX = VARENA.cx - VARENA.hw, maxX = VARENA.cx + VARENA.hw;
-    const minY = VARENA.cy - VARENA.hh, maxY = VARENA.cy + VARENA.hh;
+    // 第二百一十九轮补：顶部留出立绘高度 + HUD 的余量 —— 只看脚底坐标
+    // 会把角色的头和半个身子送到屏幕外（用户："角色可以上去导致看不到"）。
+    const minY = VARENA.cy - VARENA.hh + 84, maxY = VARENA.cy + VARENA.hh - 14;
     p.x = clamp(p.x, minX, maxX);
     p.y = clamp(p.y, minY, maxY);
     // ---- 第一百八十四轮（1~4P）：全部实体都关在场地里（AI 目标点已由
@@ -2013,6 +2121,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
+      // 第二百二十轮：击败隐藏 Boss +1 扭蛋券
+      this._awardGachaTickets(1);
       this.ui.toast(`次元斩落下！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
       // 阎魔刀：红色至尊（每回合一次的次元斩），走宝箱战利品流程
       // 第一百六十轮：已持有则不再掉第二把 —— 用户："20波打败芙兰之后
@@ -2116,6 +2226,8 @@ export class Game {
     this._setNoHealAll(true);          // 全程禁疗（小小猫娘的 force 治疗除外）
     this.world.noSpawn = true;
     audio.stopMusic();
+    // 第二百一十九轮：按视口收敛 + 垂直居中（顺带把原来偏小的场地放大）
+    fitArenaToViewport(SOUL5_ARENA, this.camera);
     this.soul5 = new Soul5Fight(this, { onDone: (outcome) => this._soul5Finish(outcome) });
     this.world.soul5Fight = this.soul5;
     this.state = STATE.SOUL5;
@@ -2143,7 +2255,8 @@ export class Game {
     this.world.update(dtReal, p, 0);
     // 全员锁进竞技场
     const minX = SOUL5_ARENA.cx - SOUL5_ARENA.hw, maxX = SOUL5_ARENA.cx + SOUL5_ARENA.hw;
-    const minY = SOUL5_ARENA.cy - SOUL5_ARENA.hh, maxY = SOUL5_ARENA.cy + SOUL5_ARENA.hh;
+    // 第二百一十九轮补：顶部留出立绘高度，避免"走到上边只剩脚"
+    const minY = SOUL5_ARENA.cy - SOUL5_ARENA.hh + 84, maxY = SOUL5_ARENA.cy + SOUL5_ARENA.hh - 14;
     p.x = clamp(p.x, minX, maxX); p.y = clamp(p.y, minY, maxY);
     for (const pl of this.world.partners()) { pl.x = clamp(pl.x, minX, maxX); pl.y = clamp(pl.y, minY, maxY); }
     this.camera.x = SOUL5_ARENA.cx;
@@ -2174,6 +2287,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
+      // 第二百二十轮：击败隐藏 Boss +1 扭蛋券
+      this._awardGachaTickets(1);
       this.ui.toast(`旧区的落幕。获得 ${xp} 经验、${mats} 材料`, 'good', 5000);
       // 第二百一十四轮：专属红品「濡湿小镰刀」（同阎魔刀的宝箱战利品流程）
       if (!p.hasItem?.('wet_scythe')) {
@@ -2662,6 +2777,8 @@ export class Game {
       p.gainMaterials(mats);
       audio.play('bossKill');
       if (outcome === 'beat') {
+        // 第二百二十轮：击败隐藏 Boss +1 扭蛋券
+        this._awardGachaTickets(1);
         this.ui.toast(` Extra Phantom 存活成功！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
         // 第一百一十七轮：击败 EP 芙兰 → 永久解锁「直接挑战芙兰！」按钮
         //（localStorage meta，跨会话生效；只奖一次，重复击败无副作用）

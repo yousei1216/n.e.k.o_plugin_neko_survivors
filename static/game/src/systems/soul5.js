@@ -28,7 +28,10 @@ export const HIT_CD = 0.2;               // 受击内置 CD
 export const POISON_FRAC = 0.02;         // 中毒每跳 2% 最大生命（至少 1 点）
 export const POISON_TIME = 5;            // 中毒持续 5 秒
 export const POISON_TICK = 1;            // 每秒一跳
-export const ARENA = { cx: 0, cy: -40, hw: 560, hh: 360 };
+// 第二百一十九轮：1120×720 → 1240×780。用户反馈"正式游玩感觉小了一些"——
+// 旧的场地在 1280×800 里只剩 40px 边距。战斗开始前 fitArenaToViewport
+// 会再按实际视口收敛一次（小窗口自动缩小，不会出框）。
+export const ARENA = { cx: 0, cy: -40, hw: 620, hh: 390 };
 const BGM_FILE = 'assets/soul5/bgm.ogg';
 // 入场：0-3s 黑屏 → 3-6s 场地淡入 → 6-9s 小镰刀附魔（全程无敌）→ 开战
 const INTRO_BLACK_END = 3;

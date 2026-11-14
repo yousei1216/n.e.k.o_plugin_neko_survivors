@@ -118,7 +118,9 @@ export class VergilFight {
     this.castGap = 1.0;              // 不攻击空档 ≤1s（随时在砍人）
     this.ultCd = 0;                  // P3 大招冷却（只在 P3 倒数）
     this.ultCount = 0;
-    this.bx = 0; this.by = -260;     // 椅子锚点（世界坐标）
+    // 第二百一十九轮：-260 → -170。旧坐标在 1280×800 的 HUD 下面露出半个椅子，
+// 用户看到的就是"场景太靠上、椅子被顶栏挡住"。
+    this.bx = 0; this.by = -170;     // 椅子锚点（世界坐标）
     this.chairFacing = Math.PI / 2;  // 朝向：平时不转，只有冲刺斩/大招转向
     // 141 轮改：维吉尔是站桩装逼剑客 —— 删除游荡，平时纹丝不动（只剩
     // 呼吸浮动），位置只随技能位移（冲刺斩瞬移 / 球裂后撤 / 收刀回中央）
@@ -314,7 +316,9 @@ export class VergilFight {
     // 椅子朝远离玩家方向推 90px 且无边界（用户："boss 甚至可以在顶部
     // 彻底消失"）。每帧归位，瞬移/收刀位移同样受约束。
     this.bx = Math.max(ARENA.cx - ARENA.hw + 90, Math.min(ARENA.cx + ARENA.hw - 90, this.bx));
-    this.by = Math.max(ARENA.cy - ARENA.hh + 90, Math.min(ARENA.cy + ARENA.hh - 90, this.by));
+    // 第二百一十九轮：顶部多留 40px —— 椅子立绘从脚底向上约 130px，
+// 原来的 +90 在刚 fit 后的场地上会让头顶被 HUD/屏幕边缘切掉。
+    this.by = Math.max(ARENA.cy - ARENA.hh + 205, Math.min(ARENA.cy + ARENA.hh - 70, this.by));
     this.boss.x = this.bx;
     this.boss.y = this.by;
 

@@ -14,6 +14,9 @@ import { getDifficulty, difficultyList } from '../data/difficulty.js';
 import { getCharSkill } from '../data/char-skills.js';
 import { GAME_VERSION } from '../version.js';
 import { sprites } from '../core/assets.js';
+// 第二百二十轮：扭蛋机界面
+import { GACHA_RARITIES } from '../systems/gacha.js';
+import { metaUpgradeCost } from '../data/meta-upgrades.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。
@@ -420,7 +423,8 @@ export class UI {
   }
 
   // ---------------- 标题页 ----------------
-  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest }) {
+  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest,
+    gachaTickets = 0, gachaPoints = 0, gachaPity = 0, onGacha, onMetaUpgrades }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -488,6 +492,23 @@ export class UI {
             <span class="key"><b>M</b> 静音</span>
           </div>
         </div>
+
+        <!-- 第二百二十轮：主菜单右侧扭蛋机（用户："扭蛋机图片出现在主菜单
+             右侧……不要太大，差不多比菜单小一点就好别太抢眼。扭蛋机下面显示
+             扭蛋券数。"）点击机器抽十连；下面接能力点数与升级入口。 -->
+        <div class="title-gacha">
+          <button class="gacha-machine" data-act="gacha" title="扭蛋机：消耗 10 张扭蛋券抽一次十连">
+            <img src="assets/gacha/machine.png" alt="扭蛋机" draggable="false">
+          </button>
+          <div class="gacha-wallet">
+            <div class="gacha-line"><span>🎟 扭蛋券</span><b data-gacha-tickets>${gachaTickets}</b></div>
+            <div class="gacha-line"><span>✦ 能力点数</span><b data-gacha-points>${gachaPoints}</b></div>
+            <div class="gacha-pity">SSR 保底进度 ${gachaPity}/100</div>
+          </div>
+          <button class="btn small gacha-upg-btn" data-act="meta-upgrades">升级能力</button>
+          <div class="gacha-hint">10 张券抽一次十连</div>
+        </div>
+
         <!-- 版本号 + 种子码：屏幕右下角极暗位（用户："移到屏幕最右下角的
              极暗位置，不要放在视觉中心"）。版本唯一来源 src/version.js -->
         <div class="title-meta">v${GAME_VERSION} · 种子 ${seed}</div>
@@ -518,6 +539,11 @@ export class UI {
     // 第一百四十轮：椅子维吉尔刀光实验室
     const vgLab = root.querySelector('[data-act="vergil-lab"]');
     if (vgLab) vgLab.onclick = onVergilLab;
+    // 第二百二十轮：扭蛋机 / 升级能力
+    const gachaBtn = root.querySelector('[data-act="gacha"]');
+    if (gachaBtn && onGacha) gachaBtn.onclick = onGacha;
+    const metaBtn = root.querySelector('[data-act="meta-upgrades"]');
+    if (metaBtn && onMetaUpgrades) metaBtn.onclick = onMetaUpgrades;
     // 第二百零九轮：旧区的落幕测试入口
         // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');
@@ -529,6 +555,104 @@ export class UI {
     root.querySelectorAll('[data-diff]').forEach((b) => {
       b.onclick = () => onSetDifficulty(b.dataset.diff);
     });
+  }
+
+  // ---------------- 扭蛋机（十连） ----------------
+  // 第二百二十轮：10 张卡券斜着 5 张一行、两行，逐张弹出。
+  // 点数量在动画结束后汇总（点数实际已在 main 里入账，界面只负责表现）。
+  showGachaPull({ cards, pointsGained, points, tickets, pity, onClose }) {
+    const byId = Object.fromEntries(GACHA_RARITIES.map((r) => [r.id, r]));
+    const hasUR = cards.some((c) => c.rarity === 'UR');
+    const hasSSR = cards.some((c) => c.rarity === 'SSR');
+    const top = hasUR ? 'ur' : hasSSR ? 'ssr' : '';
+    // 第二百二十轮补：光爆要跟着**最高品质那张卡**的翻牌时刻走 ——
+    // 固定 0.5s 会让第 10 张才出 SSR 的场次在动画一开始就提前炸光。
+    const topIndex = top
+      ? cards.findIndex((c) => c.rarity === (hasUR ? 'UR' : 'SSR'))
+      : 0;
+    const burstDelay = (0.15 + Math.max(0, topIndex) * 0.13 + 0.28).toFixed(2);
+
+    const cardHtml = (c) => {
+      const r = byId[c.rarity] || byId.N;
+      const tag = c.pityForced ? 'SSR 保底' : c.guaranteed ? 'SR 保底' : '';
+      return `
+        <div class="gacha-card ${String(c.rarity || 'N').toLowerCase()}" style="--i:${c.index ?? 0};--rc:${r.color}">
+          <img src="assets/gacha/card_${c.rarity}.png" alt="${c.rarity}" draggable="false">
+          <span class="gacha-card-tag" style="color:${r.color}">${c.rarity} · +${c.points}</span>
+          ${tag ? `<span class="gacha-card-pity">${tag}</span>` : ''}
+        </div>`;
+    };
+
+    const root = this._mount(`
+      <div class="gacha-screen">
+        ${top ? `<div class="gacha-flash ${top}" style="animation-delay:${burstDelay}s" aria-hidden="true"></div>
+                 <div class="gacha-burst ${top}" style="animation-delay:${burstDelay}s" aria-hidden="true"></div>` : ''}
+        <div class="gacha-heading">十连扭蛋</div>
+        <div class="gacha-sub">${hasUR ? 'UR 降临！彩虹光贯穿了扭蛋机！'
+          : hasSSR ? 'SSR 出现！金光炸开了！'
+            : '扭蛋机咔哒咔哒地转……'}</div>
+        <div class="gacha-cards">${cards.map(cardHtml).join('')}</div>
+        <div class="gacha-summary">
+          <span>本次获得 <b class="gacha-gain">+${pointsGained}</b> 能力点数</span>
+          <span>当前 <b>${points}</b> 点</span>
+          <span>剩余扭蛋券 <b>${tickets}</b></span>
+          <span class="gacha-pity">SSR 保底 ${pity}/100</span>
+        </div>
+        <div class="gacha-actions">
+          <button class="btn primary" data-act="gacha-close">收下</button>
+        </div>
+      </div>
+    `);
+    const close = root.querySelector('[data-act="gacha-close"]');
+    if (close) close.onclick = onClose;
+  }
+
+  // ---------------- 升级能力（局外永久成长） ----------------
+  // 第二百二十轮：数据表驱动。META_UPGRADES 为空时显示"筹备中"空态；
+  // 以后加条目即可自动出现在这里，无需再改 UI。
+  showMetaUpgrades({ points, upgrades, levels, onBuy, onClose }) {
+    const rows = (upgrades || []).map((u) => {
+      const lv = Math.max(0, Math.floor(Number(levels?.[u.id]) || 0));
+      const max = Math.max(1, Number(u.maxLevel ?? 1));
+      const maxed = lv >= max;
+      const cost = metaUpgradeCost(u, lv);
+      const can = !maxed && points >= cost;
+      const desc = typeof u.desc === 'function' ? u.desc(lv) : (u.desc || '');
+      return `
+        <div class="meta-upg-card" style="--rc:${u.color || '#c08bff'}">
+          <div class="meta-upg-head">
+            <span class="meta-upg-glyph">${u.glyph || '✦'}</span>
+            <span class="meta-upg-name">${u.name}</span>
+            <span class="meta-upg-lv">Lv.${lv}/${max}</span>
+          </div>
+          <div class="meta-upg-desc">${desc}</div>
+          <button class="btn small" data-buy="${u.id}" ${can ? '' : 'disabled'}>
+            ${maxed ? '已满级' : `升级 · ${cost} 点`}
+          </button>
+        </div>`;
+    }).join('');
+
+    const root = this._mount(`
+      <div class="screen narrow title-panel meta-upg-screen">
+        <h2>能力强化</h2>
+        <div class="sub">消耗能力点数，永久强化所有猫娘（跨局生效）。</div>
+        <div class="meta-points">能力点数 <b>${points}</b></div>
+        ${rows || `
+          <div class="meta-empty">
+            <div class="meta-empty-icon">✦</div>
+            <div class="meta-empty-title">强化项目筹备中</div>
+            <div class="meta-empty-sub">扭蛋得到的能力点数会一直保留；后续版本会在这里开放永久成长。</div>
+          </div>`}
+        <div class="btn-row">
+          <button class="btn" data-act="meta-close">返回主菜单</button>
+        </div>
+      </div>
+    `);
+    root.querySelectorAll('[data-buy]').forEach((b) => {
+      b.onclick = () => onBuy?.(b.dataset.buy);
+    });
+    const close = root.querySelector('[data-act="meta-close"]');
+    if (close) close.onclick = onClose;
   }
 
   // ---------------- 角色选择 ----------------
