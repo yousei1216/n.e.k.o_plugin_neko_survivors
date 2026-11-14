@@ -2069,6 +2069,17 @@ export class Game {
       p.gainMaterials(mats);
       audio.play('bossKill');
       this.ui.toast(`旧区的落幕。获得 ${xp} 经验、${mats} 材料`, 'good', 5000);
+      // 第二百一十四轮：专属红品「濡湿小镰刀」（同阎魔刀的宝箱战利品流程）
+      if (!p.hasItem?.('wet_scythe')) {
+        this.world.pendingItemRewards.push({
+          id: 'wet_scythe', name: '濡湿小镰刀', price: 88, rare: true, sellValue: 66,
+        });
+        this.ui.toast('他掉落了【濡湿小镰刀】！在商店里决定留下还是卖掉', 'good', 6000);
+      } else {
+        const pity = 120;
+        p.gainMaterials(pity);
+        this.ui.toast(`你已持有濡湿小镰刀，他把湿意化作了 ${pity} 材料送你`, 'good', 5000);
+      }
     } else {
       this.ui.toast('被老 ass 送回了篝火……什么都没有留下', 'bad', 4200);
     }

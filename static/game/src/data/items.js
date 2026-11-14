@@ -63,6 +63,12 @@ export const ITEMS = [
     maxStacks: 1, bossDropOnly: true,
     desc: '次元斩的具现。生命低于 50% 时自动释放一次次元斩：时间变慢，所有怪物陷入慢动作，斩击撕裂全场敌人。每回合限一次。',
   },
+  // 第二百一十四轮：旧区的落幕专属红品（魂5 战利品）
+  {
+    id: 'wet_scythe', name: '濡湿小镰刀', color: '#c06bd8', glyph: '濡', price: 88,
+    maxStacks: 1, bossDropOnly: true,
+    desc: '原来你一直与我同在。现在，你的太阳该落山了喵~。近战武器攻击间隔 -20%；近战命中会击晕敌人 0.1 秒（不可叠加，1 秒冷却）。',
+  },
   // ---------- 生存类 ----------
   {
     id: 'warm_milk', name: '热牛奶', color: '#fff3d6', glyph: '奶', price: 12,

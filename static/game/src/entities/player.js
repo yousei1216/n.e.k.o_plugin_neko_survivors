@@ -786,6 +786,8 @@ export class Player extends Entity {
   update(dt, input, camera, world) {
     this.age += dt;
     this.timeAlive += dt;
+    // 第二百一十四轮：濡湿小镰刀的眩晕内置冷却
+    if ((this._wetScytheCd ?? 0) > 0) this._wetScytheCd -= dt;
 
     // ---- 第一百七十一轮：倒地状态（救援环版）----
     // 不能开火/被敌人选为目标；紫条在 3s 无救援后开始回涨，

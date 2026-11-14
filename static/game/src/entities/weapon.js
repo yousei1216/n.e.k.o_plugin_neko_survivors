@@ -168,7 +168,10 @@ export class WeaponInstance {
     const wxAtk = player.world?.weather?.cooldownDiv ?? 1;
     const asMul = (1 + s.attackSpeed / 100) * charAs * wxAtk;
     const base = (this.def.cooldown ?? 1) * this.levelCooldownMul;
-    return Math.max(0.06, base / Math.max(0.2, asMul));
+    let cd = Math.max(0.06, base / Math.max(0.2, asMul));
+    // 第二百一十四轮：濡湿小镰刀 —— 近战武器攻击间隔 -20%
+    if (this.def.kind === 'melee' && player.hasItem?.('wet_scythe')) cd *= 0.8;
+    return cd;
   }
 
   /** 实际射程 */

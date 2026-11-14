@@ -111,6 +111,8 @@ export const ITEM_ARCH = {
   laevatein: 'damage',
   // 第一百四十一轮：维吉尔的阎魔刀 —— 次元斩清场，归输出流派
   yamato: 'damage',
+  // 第二百一十四轮：旧区战利品 —— 近战攻速 + 眩晕，归横扫近战流派
+  wet_scythe: 'sweep',
   // 第一百三十四轮：Boss 专属掉落红品（8 件）—— round4 要求每件道具
   // 都有流派标签；按效果主轴归档。
   dried_fish: 'damage',        // 全属性 +1：泛用成长，归输出

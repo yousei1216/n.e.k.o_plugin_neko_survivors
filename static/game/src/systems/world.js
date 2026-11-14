@@ -1278,6 +1278,14 @@ export class World {
     // 第二百零一轮：火焰 / 冰冻系列 —— 命中后按武器定义挂状态（点燃 / 减速 / 冻伤 / 寒意）
     if (!res.killed && weapon?.def && !opts.noStatus) applyWeaponStatus(this, player, weapon, target);
 
+    // 第二百一十四轮：濡湿小镰刀 —— 近战命中击晕敌人 0.1 秒（不可叠加，1 秒冷却）
+    if (!res.killed && weapon?.def?.kind === 'melee' && player?.hasItem?.('wet_scythe')
+        && !target.boss && !target.midboss && (player._wetScytheCd ?? 0) <= 0) {
+      target.stun = Math.max(target.stun ?? 0, 0.1);
+      player._wetScytheCd = 1;
+      this.fx?.hit?.(target.x, target.y, '#c07bff', { player: true });
+    }
+
     // 击退
     // 第一百零八轮：台风天全场免疫击退（台风自己的推挤不走这里）
     if (opts.knockback && !target.boss && !(this.weather?.noKnockback)) {
