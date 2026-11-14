@@ -300,6 +300,8 @@ export class Renderer {
     // ---- 第一百四十一轮：维吉尔战场地背景（大排档椅子背景，ARENA 方形内，
     // 世界坐标系 —— 画在游戏背景之上、一切实体之下；透明度随入场演出淡入）----
     if (world.vergilFight) world.vergilFight.renderArena(ctx, camera);
+    // 第二百零八轮：旧区的落幕（薪王场地：背景板 + 地面 + 场外余烬）
+    if (world.soul5Fight) world.soul5Fight.renderArena(ctx, camera);
 
     // ---- 第一百八十四轮：万圣节双猫战背景（世界坐标，实体之下）----
     // 黑屏换场（t<0 全黑 → 变亮）→ 伪横版夜空（深紫渐变+满月+山影，
@@ -342,7 +344,7 @@ export class Renderer {
     // ---- 第二百零二轮：危险地形（地面效果，压在一切实体下面）----
     // 第二百零五轮：特殊战（维吉尔 / 芙兰 / 蕾米 / 万圣节双猫）是独立场地，不再画世界里的危险地形 ——
     // 否则上一张图若是火山 / 毒池，岩浆河与毒沼会直接盖在演出背景上（用户："检查有没有新bug"时发现）。
-    if (world.hazards && !world.halloweenFight && !world.flandreFight && !world.remiliaFight && !world.vergilFight) {
+    if (world.hazards && !world.halloweenFight && !world.flandreFight && !world.remiliaFight && !world.vergilFight && !world.soul5Fight) {
       drawHazards(ctx, world.hazards, camera, performance.now() / 1000, MOBILE);
     }
     // ---- 第二百零一轮：冰面（压在拾取物 / 实体下面）----
@@ -462,6 +464,7 @@ export class Renderer {
 
     // ---- 第一百四十一轮：维吉尔战世界层演出（椅子/追踪月牙/光圈/裂缝）----
     if (world.vergilFight) world.vergilFight.renderWorld(ctx, camera);
+    if (world.soul5Fight) world.soul5Fight.renderWorld(ctx, camera);
 
     // ---- 第一百八十四轮：万圣节双猫立绘（世界坐标，实体之上 —— "把
     // 两个活泼的猫娘直接站在我们的ui界面上攻击玩家"：镜头锁定后世界
@@ -491,6 +494,7 @@ export class Renderer {
 
     // ---- 第一百四十一轮：维吉尔战屏幕层（大招暗幕/红边/白闪/Boss 血条）----
     if (world.vergilFight) world.vergilFight.renderScreen(ctx, W, H);
+    if (world.soul5Fight) world.soul5Fight.renderScreen(ctx, W, H);
     // 第二百零三轮：蕾米战屏幕层（红闪 + 暗角）
     if (world.remiliaFight) RR.drawScreen(ctx, world.remiliaFight, W, H);
 
@@ -4671,6 +4675,15 @@ export class Renderer {
             rage: world.flandreFight.phase === 'extra',
             t: world.flandreFight.t,
             ticks: [0.2, 0.4, 0.6, 0.8],
+          });
+        } else if (world.soul5Fight && boss === world.soul5Fight.boss) {
+          // 第二百零八轮：旧区的落幕 —— 入场演出期间不画血条
+          if (world.soul5Fight.state === 'intro') continue;
+          this._drawFancyBossBar(ctx, boss, {
+            x: bx, y: by, w: bw, theme: 'boss',
+            t: Date.now() / 1000,
+            ticks: [1 / 3, 2 / 3],
+            lock: (world.soul5Fight.invuln && world.soul5Fight.state === 'pause'),
           });
         } else if (world.vergilFight && boss === world.vergilFight.boss) {
           // 第一百四十一轮：维吉尔走普通哥特主题（黑红 + 66%/33% 阶段刻度）。

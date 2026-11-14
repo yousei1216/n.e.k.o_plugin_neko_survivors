@@ -86,7 +86,7 @@ export class WeatherSystem {
   /** Boss 波 / 芙兰战 / 维吉尔战 —— 天气绝对不出现（用户铁律） */
   static blocked(world) {
     const cfg = world.waveConfig;
-    return !!(world.flandreFight || world.vergilFight
+    return !!(world.flandreFight || world.vergilFight || world.soul5Fight
       || cfg?.isBoss || cfg?.boss || (cfg?.bosses?.length ?? 0) > 0);
   }
 

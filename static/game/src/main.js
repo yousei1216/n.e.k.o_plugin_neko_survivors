@@ -48,6 +48,8 @@ import { HalloweenFight, ARENA as HALLOWEEN_ARENA } from './systems/halloween.js
 import { RemiliaFight, REMILIA_ARENA, REMILIA_TOTAL } from './systems/remilia.js';
 import * as RemiRender from './systems/remilia-render.js';
 import { VergilFight, VERGIL_MAX_HP, ARENA as VARENA } from './systems/vergil.js';
+// 第二百零八轮：隐藏 Boss「旧区的落幕」—— 大排档椅子之后的续战
+import { Soul5Fight, SOUL5_MAX_HP, ARENA as SOUL5_ARENA } from './systems/soul5.js';
 import { NekoPilot } from './systems/neko-pilot.js';
 
 export const STATE = {
@@ -65,6 +67,8 @@ export const STATE = {
   REMILIA: 'remilia',
   // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同芙兰骨架）
   VERGIL: 'vergil',
+  // 第二百零八轮：隐藏 Boss「旧区的落幕」—— 打赢大排档椅子后的续战
+  SOUL5: 'soul5',
 };
 
 const SAVE_KEY = 'neko_miao_save_v1';
@@ -923,6 +927,8 @@ export class Game {
       case STATE.FLANDRE: this._updateFlandre(dt); break;
       // 第一百四十一轮：大排档椅子·维吉尔 Boss 战（同款骨架 + 大招全场 timeScale）
       case STATE.VERGIL: this._updateVergil(dt); break;
+      // 第二百零八轮：旧区的落幕（大排档椅子之后的隐藏续战）
+      case STATE.SOUL5: this._updateSoul5(dt); break;
       // 第一百八十四轮：万圣节双猫（巧克力&香草）纯演出生存战
       case STATE.HALLOWEEN: this._updateHalloween(dt); break;
         case STATE.REMILIA: this._updateRemilia(dt); break;
@@ -1919,6 +1925,9 @@ export class Game {
     } else {
       this.ui.toast('被次元斩吞没了……什么都没有留下', 'bad', 4200);
     }
+    // 第二百零八轮（用户："就在第十波隐藏打完大排档椅子继续他的战斗"）：
+    // 打赢大排档椅子 → 不立刻进商店，黑屏续战「旧区的落幕」；打完再进商店。
+    if (outcome === 'beat') { this._startSoul5({ chain: true }); return; }
     // 正常进入第 10 波商店（下一波 = 第 11 波）
     this._openShop();
   }
@@ -1969,6 +1978,119 @@ export class Game {
       this.world.enemyBullets.clear();
     }
     this.vergil = null;
+  }
+
+  // =========================================================
+  // 第二百零八轮：隐藏 Boss「旧区的落幕」（大排档椅子之后的续战）
+  // =========================================================
+  _startSoul5(opts = {}) {
+    if (opts.test) {
+      this.setDifficulty('nightmare');
+      // 调试入口支持 ?soul5=1&party=N（嘲讽 / 救援流程要多人才能测）
+      const party = opts.party >= 2 && opts.party <= 4 ? opts.party : 1;
+      this.startRun('yui', party >= 2 ? { party } : {});
+      if (party >= 2) this._bindPartyPilots(party);
+      try {
+        this.player.addWeapon('meow_cannon');
+        this.player.addWeapon('meow_cannon');
+        this.player.addWeapon('meow_cannon');
+        this.player.charMul = { ...this.player.charMul, damage: 6 };
+        for (const id of ['sharp_fang', 'sharp_fang', 'sharp_fang', 'blood_pact',
+          'cat_taffy', 'warm_milk', 'warm_milk', 'warm_milk']) {
+          this.player.addItem(id);
+        }
+      } catch { /* */ }
+      this.meta.retries = 0;
+    }
+    this._soul5Fought = true;
+    const p = this.player;
+    p.noAttack = true;                 // 入场演出期间不攻击（附魔结束开打）
+    this._setNoHealAll(true);          // 全程禁疗（小小猫娘的 force 治疗除外）
+    this.world.noSpawn = true;
+    audio.stopMusic();
+    this.soul5 = new Soul5Fight(this, { onDone: (outcome) => this._soul5Finish(outcome) });
+    this.world.soul5Fight = this.soul5;
+    this.state = STATE.SOUL5;
+  }
+
+  /** 旧区战每一帧：世界照推（没有慢动作），AI 用真实秒 */
+  _updateSoul5(dtReal) {
+    const fight = this.soul5;
+    const p = this.player;
+    if (!fight || !p) return;
+    if (this.input.pressed('Escape')) { this._pause(); return; }
+    audio.beginFrame();
+    this.ui.updateHud(this);
+    this.weather.update(dtReal, this.world, p);
+    p.update(dtReal, this.input, this.camera, this.world);
+    const p2s = this.world.player2;
+    if (p2s) {
+      const ax2 = this.input.moveAxisP2();
+      if (ax2.x !== 0 || ax2.y !== 0) p2s.agentMoveTarget = null;
+      p2s.update(dtReal, { moveAxis: () => ax2, p2SkillSlow: () => this.input.p2SkillSlow() }, this.camera, this.world);
+    }
+    for (const pl of [this.world.player3, this.world.player4]) {
+      if (pl) pl.update(dtReal, { moveAxis: () => ({ x: 0, y: 0 }) }, this.camera, this.world);
+    }
+    this.world.update(dtReal, p, 0);
+    // 全员锁进竞技场
+    const minX = SOUL5_ARENA.cx - SOUL5_ARENA.hw, maxX = SOUL5_ARENA.cx + SOUL5_ARENA.hw;
+    const minY = SOUL5_ARENA.cy - SOUL5_ARENA.hh, maxY = SOUL5_ARENA.cy + SOUL5_ARENA.hh;
+    p.x = clamp(p.x, minX, maxX); p.y = clamp(p.y, minY, maxY);
+    for (const pl of this.world.partners()) { pl.x = clamp(pl.x, minX, maxX); pl.y = clamp(pl.y, minY, maxY); }
+    this.camera.x = SOUL5_ARENA.cx;
+    this.camera.y = SOUL5_ARENA.cy;
+    fight.update(dtReal);
+    // 全队失去战斗力 → 判负
+    {
+      const team = this.world.players?.() ?? [p];
+      if ((p.dead || team.every((pl) => !pl || pl.dead || pl.downed)) && !fight.over) fight.finish('death');
+    }
+  }
+
+  /** 结算：打赢给 4 倍第 10 波 Boss 的经验/金币；败北什么都不掉，正常进商店 */
+  _soul5Finish(outcome) {
+    this._teardownSoul5();
+    audio.stopMusic();
+    const p = this.player;
+    if (p.dead) {
+      p.dead = false;
+      p.hp = p.stats.get('maxHp');
+      p.invuln = Math.max(p.invuln ?? 0, 1.5);
+    }
+    if (outcome === 'beat') {
+      const def = getEnemy('boss_void_lord');
+      const scaling = this.world.waveScaling ?? { xp: 1, materials: 1 };
+      const xp = Math.round((def?.xp ?? 120) * 4 * (scaling.xp ?? 1));
+      const mats = Math.round((def?.materials ?? 120) * 4 * (scaling.materials ?? 1));
+      p.gainXp(xp);
+      p.gainMaterials(mats);
+      audio.play('bossKill');
+      this.ui.toast(`旧区的落幕。获得 ${xp} 经验、${mats} 材料`, 'good', 5000);
+    } else {
+      this.ui.toast('被老 ass 送回了篝火……什么都没有留下', 'bad', 4200);
+    }
+    this._openShop();
+  }
+
+  /** 旧区战现场复位 */
+  _teardownSoul5() {
+    this._reviveDownedAfterBoss();
+    this._setNoHealAll(false);
+    if (this.world) {
+      this.world.noSpawn = false;
+      this.world.soul5Fight = null;
+      const items = this.world.enemies?.items;
+      if (items) {
+        for (let i = items.length - 1; i >= 0; i--) {
+          if (items[i]?.def?.id === 'soul5') items.splice(i, 1);
+        }
+      }
+      this.world.enemyBullets?.clear?.();
+      for (const pl of (this.world.players?.() ?? [])) if (pl) pl.soul5Poison = null;
+    }
+    this.player.noAttack = false;
+    this.soul5 = null;
   }
 
   /**
@@ -3617,6 +3739,10 @@ try {
   // ?remilia=1：直通蕾米终演出测试局
   if (q.has('remilia')) {
     game._startRemiliaTest();
+  }
+  // ?soul5=1：直通隐藏续战测试局
+  if (q.has('soul5')) {
+    game._startSoul5({ test: true, party });
   }
   if (q.has('halloween')) {
     // ?hwphase=N（0~10）直达第 N 节，逐招截图验收用

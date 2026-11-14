@@ -680,9 +680,10 @@ export class VergilFight {
     // 攻击分散不需要种子。）
     const p = alive.length ? alive[(Math.random() * alive.length) | 0] : this.main.player;
     if (p.dead) return false;
+    // 第二百零八轮（用户："大排档椅子加强一下，三阶段的真伤翻倍"）
     p.takeDamage(0, this.bx, this.by, {
       ignoreIFrames: true,
-      fixedDamage: p.maxHp * HIT_FRAC,
+      fixedDamage: p.maxHp * HIT_FRAC * (this.phase === 3 ? 2 : 1),
       noMiss: true,
     });
     this.hitCd = HIT_CD;
