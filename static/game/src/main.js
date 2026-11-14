@@ -1386,6 +1386,8 @@ export class Game {
       const name = mid.def?.bossName ?? mid.def?.name ?? '';
       this._lastMidBossName = name;
       this.pendingMidBossRewards = (this.pendingMidBossRewards || 0) + 1;
+      // 第二百一十八轮：P2~P4 各拿各的（AI 立刻自选，见下方方法）
+      this._grantPartnerMidBossRewards();
       this.ui?.toast(`击败中 Boss：${name}！三选一奖励准备中…`, 'good', 3500);
     };
 
@@ -1662,6 +1664,37 @@ export class Game {
     this.state = STATE.PLAYING;
     this.ui.clearOverlay();
     this._afterOverlay();
+  }
+
+  /**
+   * 第二百一十八轮：P2~P4 各拿各的中 Boss 奖励。
+   *
+   * 用户："增加p2~p4猫娘各拿各的吧。"
+   *
+   * 队友没有操作者，所以不需要（也不能）弹三选一 —— 每人用自己的幸运
+   * 独立抽 3 张卡，立刻按 pickBestBoon 选最优并生效。P1 仍然走原来的
+   * 手动三选一（或代打/Q 全自动直接选）。
+   *
+   * 应用发生在 onMidBossKilled 回调里（world.update 期间），所以这里
+   * 只碰玩家自己的数据（属性/道具/武器/经验），不动 world 的实体列表，
+   * 不会破坏正在进行的敌人遍历。
+   */
+  _grantPartnerMidBossRewards() {
+    const mates = this.world?.partners?.() ?? [];
+    if (!mates.length) return;
+    const got = [];
+    for (const mate of mates) {
+      if (!mate || mate.dead) continue;
+      const opts = rollMidBossBoons(this.rng, this, 3, mate);
+      if (!opts.length) continue;
+      const best = pickBestBoon(opts, mate, this.waveIndex ?? 0);
+      if (!best) continue;
+      applyMidBossBoon(this, best, mate);
+      got.push(`${mate.char?.name ?? '队友'}【${best.tierName}·${best.name}】`);
+    }
+    if (got.length) {
+      this.ui?.toast(`队友中 Boss 奖励：${got.join('、')}`, 'good', 6000);
+    }
   }
 
   /**

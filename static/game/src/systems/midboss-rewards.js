@@ -379,8 +379,8 @@ function isAvailable(def, player) {
  * @param {number} count 默认 3
  * @returns {Array<object>}
  */
-export function rollMidBossBoons(rng, game, count = 3) {
-  const p = game.player;
+export function rollMidBossBoons(rng, game, count = 3, player = game.player) {
+  const p = player;
   const luckEff = p?.stats?.luckEff ?? 0;
   const out = [];
   const used = new Set();
@@ -408,9 +408,9 @@ export function rollMidBossBoons(rng, game, count = 3) {
 }
 
 /** 应用一个奖励（option 是 rollMidBossBoons 返回的带 apply 的对象） */
-export function applyMidBossBoon(game, option) {
+export function applyMidBossBoon(game, option, player = game.player) {
   const def = option?.id ? (BOON_MAP[option.id] ?? option) : null;
   if (!def || typeof def.apply !== 'function') return false;
-  def.apply(game, game.player);
+  def.apply(game, player ?? game.player);
   return true;
 }
