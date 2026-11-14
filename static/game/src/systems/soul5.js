@@ -435,7 +435,7 @@ export class Soul5Fight {
     this.act = {
       id, t: 0, spd,
       dur: id === 'poke' ? 0.9 / spd : id === 'dung' ? 1.0 / spd : id === 'slash' ? 1.25 / spd
-        : id === 'crystals' ? 1.2 : id === 'spin' ? 2.2 : id === 'crossbow' ? 1.6 / spd : 1.2,
+        : id === 'crystals' ? 1.2 : id === 'spin' ? 2.7 : id === 'crossbow' ? 1.6 / spd : 1.2,
       fired: 0, hit: 0,
     };
     if (id === 'crossbow') this.weapon = 'crossbow';
@@ -455,7 +455,7 @@ export class Soul5Fight {
         const marks = [0.22, 0.5, 0.78];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(150, 120, 1);
+          this._hitInArc(135, 120, 1);
           this.slashes.push({ kind: 'stab', x: this.bx + this.face * 55, y: this.by - 30, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.18 });
         }
         break;
@@ -483,8 +483,8 @@ export class Soul5Fight {
         const marks = [0.3, 0.62];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(230, 220, 1);
-          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.26, r: 220 });
+          this._hitInArc(185, 220, 1);
+          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.26, r: 190 });
         }
         break;
       }
@@ -535,7 +535,7 @@ export class Soul5Fight {
         if (a.hit === 0 && k >= 0.5) {
           a.hit = 1;
           const p = this._nearestPlayer();
-          if (p) this.spears.push({ x: this.bx, y: this.by - 60, tx: p.x, ty: p.y, t: 0, dur: 0.42, ang: Math.atan2(p.y - this.by + 60, p.x - this.bx) });
+          if (p) this.spears.push({ x: this.bx, y: this.by - 60, tx: p.x, ty: p.y, t: 0, dur: 0.42, ang: Math.atan2(p.y - this.by + 60, p.x - this.bx), seed: rnd() * 10 });
         }
         break;
       }
@@ -812,7 +812,7 @@ export class Soul5Fight {
       if (k >= 1) {
         this.spears.splice(i, 1);
         this.whiteFlash = 0.35;
-        this.slashes.push({ kind: 'sunburst', x: s.tx, y: s.ty, t: 0, dur: 0.45, r: 120 });
+        this.slashes.push({ kind: 'sunburst', x: s.tx, y: s.ty, t: 0, dur: 0.5, r: 130, seed: (s.seed ?? 0) });
         for (const p of players) {
           if (p.downed) continue;
           if (Math.hypot(p.x - s.tx, p.y - s.ty) < 120) this._hitPlayer(p);
@@ -829,9 +829,9 @@ export class Soul5Fight {
         sp.hit = stage + 1;
         for (const p of players) {
           if (p.downed) continue;
-          if (Math.hypot(p.x - this.bx, p.y - this.by) < 260) this._hitPlayer(p);
+          if (Math.hypot(p.x - this.bx, p.y - this.by) < 215) this._hitPlayer(p);
         }
-        this.slashes.push({ kind: 'spin', x: this.bx, y: this.by - 20, t: 0, dur: 0.5, r: 250, dir: stage === 0 ? 1 : -1 });
+        this.slashes.push({ kind: 'spin', x: this.bx, y: this.by - 20, t: 0, dur: 0.55, r: 215, dir: stage === 0 ? 1 : -1 });
         this.edgeFlash = 0.4;
       }
     }
@@ -843,10 +843,10 @@ export class Soul5Fight {
         s.hit = 1;
         this.bx = s.x; this.by = s.y;
         this._clampToArena();
-        this.slashes.push({ kind: 'slam', x: s.x, y: s.y, t: 0, dur: 0.45, r: 150 });
+        this.slashes.push({ kind: 'slam', x: s.x, y: s.y, t: 0, dur: 0.45, r: 135 });
         for (const p of players) {
           if (p.downed) continue;
-          if (Math.hypot(p.x - s.x, p.y - s.y) < 150) this._hitPlayer(p, 1.2);
+          if (Math.hypot(p.x - s.x, p.y - s.y) < 135) this._hitPlayer(p, 1.2);
         }
         this.edgeFlash = 0.5;
       }
@@ -982,7 +982,7 @@ export class Soul5Fight {
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.beginPath(); ctx.ellipse(b.x, b.ty + 6, 16, 6, 0, 0, TAU_); ctx.fill();
       if (img && img.complete && img.naturalWidth) {
-        const h = 46, w = h * (img.naturalWidth / img.naturalHeight);
+        const h = 32, w = h * (img.naturalWidth / img.naturalHeight);
         ctx.drawImage(img, b.x - w / 2, b.y - b.z - h, w, h);
       } else {
         ctx.fillStyle = '#6b4a2a';
@@ -990,20 +990,36 @@ export class Soul5Fight {
       }
       ctx.restore();
     }
+    // 灵魂结晶块：蓝色发光结晶（自绘，参考用户给的图片效果）
     for (const c of this.crystals) {
-      const img = this.images.crystal;
       ctx.save();
       ctx.globalAlpha = a;
       ctx.translate(c.x, c.y);
-      ctx.rotate(this.t * 1.2 + c.ang);
-      if (img && img.complete && img.naturalWidth) {
-        const h = 42, w = h * (img.naturalWidth / img.naturalHeight);
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.drawImage(img, -w / 2, -h / 2, w, h);
-      } else {
-        ctx.fillStyle = 'rgba(150,220,255,0.9)';
-        ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(10, 0); ctx.lineTo(0, 16); ctx.lineTo(-10, 0); ctx.closePath(); ctx.fill();
-      }
+      const pulse = 0.75 + 0.25 * Math.sin(this.t * 6 + c.ang);
+      // 外辉光
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 42 * pulse);
+      g.addColorStop(0, 'rgba(160,230,255,0.75)');
+      g.addColorStop(0.5, 'rgba(70,150,255,0.35)');
+      g.addColorStop(1, 'rgba(40,90,220,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, 42 * pulse, 0, TAU_); ctx.fill();
+      // 结晶本体：拉长的六棱
+      ctx.rotate(c.fired ? Math.atan2(c.vy, c.vx) + Math.PI / 2 : this.t * 1.4 + c.ang);
+      const cg = ctx.createLinearGradient(-12, -26, 12, 26);
+      cg.addColorStop(0, 'rgba(235,252,255,0.98)');
+      cg.addColorStop(0.45, 'rgba(110,205,255,0.95)');
+      cg.addColorStop(1, 'rgba(40,110,235,0.9)');
+      ctx.fillStyle = cg;
+      ctx.beginPath();
+      ctx.moveTo(0, -26); ctx.lineTo(10, -8); ctx.lineTo(7, 16); ctx.lineTo(0, 26);
+      ctx.lineTo(-7, 16); ctx.lineTo(-10, -8); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(190,240,255,0.95)'; ctx.lineWidth = 1.6; ctx.stroke();
+      // 内部棱面
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(0, 20); ctx.moveTo(-8, -6); ctx.lineTo(0, 2); ctx.lineTo(8, -6); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(3.2, -2); ctx.lineTo(0, 12); ctx.lineTo(-3.2, -2); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
     for (const b of this.bolts) {
@@ -1017,19 +1033,58 @@ export class Soul5Fight {
       ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(7, -4); ctx.lineTo(7, 4); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
+    // 阳光之枪：金色雷电长枪 + 拖尾（自绘，参考图片的黄色闪电）
     for (const s of this.spears) {
-      const img = this.images.sunlight;
       ctx.save();
-      ctx.translate(s.x, s.y); ctx.rotate(s.ang + Math.PI / 2);
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.ang);
       ctx.globalAlpha = a;
       ctx.globalCompositeOperation = 'lighter';
-      if (img && img.complete && img.naturalWidth) {
-        const h = 150, w = h * (img.naturalWidth / img.naturalHeight);
-        ctx.drawImage(img, -w / 2, -h / 2, w, h);
-      } else {
-        ctx.fillStyle = 'rgba(255,230,120,0.9)';
-        ctx.fillRect(-4, -60, 8, 120);
+      // 拖尾光带
+      const tg = ctx.createLinearGradient(-120, 0, 10, 0);
+      tg.addColorStop(0, 'rgba(255,200,60,0)');
+      tg.addColorStop(0.6, 'rgba(255,220,90,0.35)');
+      tg.addColorStop(1, 'rgba(255,250,190,0.85)');
+      ctx.fillStyle = tg;
+      ctx.beginPath(); ctx.moveTo(-200, -6); ctx.lineTo(10, -2.5); ctx.lineTo(10, 2.5); ctx.lineTo(-200, 6); ctx.closePath(); ctx.fill();
+      // 枪身：锯齿闪电
+      const jag = (seed, len, amp) => {
+        const pts = [];
+        for (let i = 0; i <= 6; i++) {
+          const t = i / 6;
+          pts.push([-len * (1 - t), Math.sin(seed + i * 2.7 + this.t * 20) * amp * (1 - t)]);
+        }
+        return pts;
+      };
+      // 光晕（沿枪身，不是一颗球）
+      const sg = ctx.createLinearGradient(-190, 0, 20, 0);
+      sg.addColorStop(0, 'rgba(255,200,60,0)');
+      sg.addColorStop(0.5, 'rgba(255,210,80,0.22)');
+      sg.addColorStop(1, 'rgba(255,245,180,0.5)');
+      ctx.fillStyle = sg;
+      ctx.beginPath(); ctx.ellipse(-85, 0, 125, 16, 0, 0, TAU_); ctx.fill();
+      for (const [w, col, amp] of [[16, 'rgba(255,190,40,0.28)', 26], [7, 'rgba(255,228,100,0.8)', 17], [2.6, 'rgba(255,255,240,0.98)', 9]]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineJoin = 'miter';
+        ctx.beginPath();
+        const pts = jag(s.seed ?? 1, 230, amp);
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (const q of pts) ctx.lineTo(q[0], q[1]);
+        ctx.stroke();
       }
+      // 分叉闪电
+      for (let b = 0; b < 3; b++) {
+        const by = (b - 1) * 7;
+        const bx0 = -120 + b * 24;
+        ctx.strokeStyle = 'rgba(255,235,130,0.55)'; ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(bx0, by);
+        ctx.lineTo(bx0 - 18, by - 14 - b * 4);
+        ctx.lineTo(bx0 - 30, by - 6 - b * 5);
+        ctx.stroke();
+      }
+      // 枪尖
+      ctx.fillStyle = 'rgba(255,250,210,0.95)';
+      ctx.beginPath(); ctx.moveTo(26, 0); ctx.lineTo(2, -9); ctx.lineTo(2, 9); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
 
@@ -1045,46 +1100,97 @@ export class Soul5Fight {
   }
 
   _drawSlash(ctx, s) {
-    const k = s.t / s.dur;
+    const k = Math.min(1, s.t / s.dur);
     const fade = 1 - k;
     ctx.save();
-    ctx.globalAlpha = fade;
     if (s.kind === 'stab') {
-      ctx.translate(s.x, s.y); ctx.rotate(s.ang);
-      ctx.strokeStyle = 'rgba(190,140,255,0.9)'; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(90, 0); ctx.stroke();
+      // 小镰刀冲刺：紫光长条 + 尖端（用户："小镰刀看不出来他是攻击了"）
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.ang);
+      ctx.globalCompositeOperation = 'lighter';
+      const len = 55 + 75 * k;
+      for (const [w, col] of [[12, 'rgba(150,70,255,0.22)'], [5, 'rgba(195,130,255,0.75)'], [1.8, 'rgba(248,230,255,0.95)']]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w * fade + 1.2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(len, 0); ctx.stroke();
+      }
+      ctx.fillStyle = `rgba(225,190,255,${fade})`;
+      ctx.beginPath(); ctx.arc(len, 0, 3 + 5 * k, 0, TAU_); ctx.fill();
+      // 小火星
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * TAU_ + s.t * 8;
+        ctx.fillStyle = `rgba(210,160,255,${0.6 * fade})`;
+        ctx.beginPath(); ctx.arc(len + Math.cos(a) * 8, Math.sin(a) * 8, 1.6, 0, TAU_); ctx.fill();
+      }
     } else if (s.kind === 'wide' || s.kind === 'spin') {
+      // 火焰大横斩 / 大风车：扇形 + 亮边 + 沿弧火星
       const dir = s.dir ?? 1;
       const r = s.r;
-      const a0 = -0.9 + k * 1.8;
+      const a0 = -1.1 + k * 2.2;
       ctx.translate(s.x, s.y);
       ctx.rotate(dir > 0 ? a0 : Math.PI - a0);
-      ctx.strokeStyle = 'rgba(255,150,60,0.9)';
-      ctx.lineWidth = 14 * fade + 4;
-      ctx.beginPath(); ctx.arc(0, 0, r, -0.5, 0.5); ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,235,160,0.85)';
-      ctx.lineWidth = 5 * fade + 2;
-      ctx.beginPath(); ctx.arc(0, 0, r, -0.45, 0.45); ctx.stroke();
+      ctx.globalCompositeOperation = 'lighter';
+      const A0 = -0.78, A1 = 0.78;
+      // 刀光带：粗弧 + 亮边（像挥过去的一道火痕，不是地上的一块扇形）
+      for (const [w, col] of [[r * 0.30, 'rgba(255,110,30,0.15)'], [r * 0.17, 'rgba(255,165,55,0.28)'], [r * 0.065, 'rgba(255,240,190,0.55)']]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w;
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.8, A0, A1); ctx.stroke();
+      }
+      ctx.strokeStyle = `rgba(255,252,225,${0.9 * fade})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.93, A0 * 0.92, A1 * 0.92); ctx.stroke();
+      // 沿弧线的火星 + 拖尾
+      for (let i = 0; i < 18; i++) {
+        const a = A0 + (i / 17) * (A1 - A0);
+        const rr = r * (0.72 + 0.18 * ((i % 3) / 2) + 0.05 * Math.sin(this.t * 9 + i));
+        ctx.fillStyle = `rgba(255,${160 + (i % 3) * 35},60,${0.8 * fade})`;
+        ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 1.4 + (i % 3) * 1.3, 0, TAU_); ctx.fill();
+      }
     } else if (s.kind === 'slam') {
+      // 高跳竖劈：竖直光柱 + 地面冲击环
       ctx.translate(s.x, s.y);
-      ctx.strokeStyle = 'rgba(255,120,60,0.9)'; ctx.lineWidth = 10 * fade + 3;
-      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.35 + k * 0.75), 0, TAU_); ctx.stroke();
-      ctx.fillStyle = `rgba(255,200,120,${0.25 * fade})`;
-      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.3 + k * 0.7), 0, TAU_); ctx.fill();
+      ctx.globalCompositeOperation = 'lighter';
+      const pg = ctx.createLinearGradient(0, -300, 0, 60);
+      pg.addColorStop(0, 'rgba(255,200,90,0)');
+      pg.addColorStop(0.7, `rgba(255,170,70,${0.35 * fade})`);
+      pg.addColorStop(1, `rgba(255,245,200,${0.75 * fade})`);
+      ctx.fillStyle = pg;
+      ctx.fillRect(-26 * fade - 8, -300, 52 * fade + 16, 360);
+      ctx.strokeStyle = 'rgba(255,160,60,0.9)'; ctx.lineWidth = 9 * fade + 3;
+      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.35 + k * 0.8), 0, TAU_); ctx.stroke();
+      ctx.fillStyle = `rgba(255,210,130,${0.28 * fade})`;
+      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.3 + k * 0.75), 0, TAU_); ctx.fill();
     } else if (s.kind === 'boom') {
       ctx.translate(s.x, s.y);
       ctx.fillStyle = `rgba(120,180,80,${0.4 * fade})`;
       ctx.beginPath(); ctx.arc(0, 0, s.r * (0.5 + k * 0.8), 0, TAU_); ctx.fill();
     } else if (s.kind === 'sunburst') {
+      // 阳光之枪落点：金黄爆闪 + 放射状雷电
       ctx.translate(s.x, s.y);
       ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = `rgba(255,235,150,${0.55 * fade})`;
-      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.3 + k * 0.8), 0, TAU_); ctx.fill();
-      for (let i = 0; i < 8; i++) {
-        const ang = (i / 8) * TAU_;
-        ctx.strokeStyle = `rgba(255,240,170,${0.7 * fade})`; ctx.lineWidth = 5;
-        ctx.beginPath(); ctx.moveTo(Math.cos(ang) * 10, Math.sin(ang) * 10);
-        ctx.lineTo(Math.cos(ang) * s.r * (0.4 + k), Math.sin(ang) * s.r * (0.4 + k)); ctx.stroke();
+      // 爆闪：中心亮核 + 外环（不是一整块白饼）
+      const gg = ctx.createRadialGradient(0, 0, 2, 0, 0, s.r * (0.32 + k * 0.5));
+      gg.addColorStop(0, `rgba(255,255,240,${0.85 * fade})`);
+      gg.addColorStop(0.4, `rgba(255,220,120,${0.4 * fade})`);
+      gg.addColorStop(1, 'rgba(255,180,60,0)');
+      ctx.fillStyle = gg;
+      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.32 + k * 0.5), 0, TAU_); ctx.fill();
+      ctx.strokeStyle = `rgba(255,240,170,${0.8 * fade})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, s.r * (0.35 + k * 0.75), 0, TAU_); ctx.stroke();
+      // 放射状雷电（折线更凶）
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * TAU_ + (s.seed ?? 0);
+        const len = s.r * (0.55 + k * 1.0) * (0.6 + ((i * 37) % 10) / 14);
+        ctx.strokeStyle = i % 3 === 0 ? 'rgba(255,255,235,0.95)' : 'rgba(255,215,80,0.85)';
+        ctx.lineWidth = i % 3 === 0 ? 2.6 : 1.6;
+        ctx.lineJoin = 'miter';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        for (let q = 1; q <= 5; q++) {
+          const rr = (len * q) / 5;
+          const side = (q % 2 ? 1 : -1) * (1 - k) * (10 + q * 3);
+          ctx.lineTo(Math.cos(ang) * rr + Math.sin(ang) * side, Math.sin(ang) * rr - Math.cos(ang) * side);
+        }
+        ctx.stroke();
       }
     }
     ctx.restore();
@@ -1092,13 +1198,15 @@ export class Soul5Fight {
 
   _drawBoss(ctx) {
     const img = this.images.boss;
-    const h = 180;
+    const h = 132;   // 第二百一十轮：整体缩小（用户：魂5 boss 整体太大了）
     const w = img && img.complete && img.naturalWidth ? h * (img.naturalWidth / img.naturalHeight) : 150;
     let rot = 0;
     if (this.state === 'roll' && this.roll) rot = this.roll.ang * (this.face);
     else if (this.state === 'taunt') rot = this.tauntSpin * this.face;
     ctx.save();
-    ctx.translate(this.bx, this.by + this.bob);
+    // 高跳竖劈：立绘先升空再砸下
+    const jump = this.slam ? Math.sin(Math.min(1, this.slam.t / (this.slam.dur * 0.7)) * Math.PI) * 110 : 0;
+    ctx.translate(this.bx, this.by + this.bob - jump);
     // 影
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(0, 26, 52, 16, 0, 0, TAU_); ctx.fill();
@@ -1148,58 +1256,112 @@ export class Soul5Fight {
     }
   }
 
+  /** 按 alpha 染色的武器副本：附魔只让武器像素本身发光（不是一颗紫球） */
+  _tinted(key, color) {
+    const img = this.images[key];
+    if (!img || !img.complete || !img.naturalWidth) return null;
+    this._tints = this._tints || {};
+    const k = `${key}|${color}`;
+    if (this._tints[k]) return this._tints[k];
+    try {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d');
+      x.drawImage(img, 0, 0);
+      x.globalCompositeOperation = 'source-in';
+      x.fillStyle = color;
+      x.fillRect(0, 0, c.width, c.height);
+      this._tints[k] = c;
+      return c;
+    } catch { return null; }
+  }
+
   _drawWeapon(ctx, gx, gy) {
     const key = this.weapon === 'scythe' ? 'scythe' : this.weapon === 'rkgs' ? 'rkgs' : this.weapon === 'crossbow' ? 'crossbow' : 'farron_gs';
     const img = this.images[key];
-    // 动作角度：戳/斩/转
-    let ang = this.face > 0 ? -0.35 : Math.PI + 0.35;
-    let reach = 1;
-    if (this.state === 'act' && this.act) {
-      const k = Math.min(1, this.act.t / this.act.dur);
-      if (this.act.id === 'poke' || this.act.id === 'slash') ang = (this.face > 0 ? -0.9 + k * 1.6 : Math.PI + 0.9 - k * 1.6);
+    // 第二百一十轮：入场附魔阶段**横持**在身前（用户："小镰刀的附魔阶段是横着不是竖着"）
+    let ang;
+    if (this.state === 'intro') {
+      ang = this.face > 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    } else {
+      ang = this.face > 0 ? -0.35 : Math.PI + 0.35;
+      if (this.state === 'act' && this.act) {
+        const k = Math.min(1, this.act.t / this.act.dur);
+        if (this.act.id === 'poke' || this.act.id === 'slash') {
+          ang = (this.face > 0 ? -0.9 + k * 1.7 : Math.PI + 0.9 - k * 1.7);
+        }
+      }
+      if (this.spin) ang += this.t * 22;
+      if (this.state === 'taunt') ang += this.tauntSpin;
+      if (this.state === 'roll' && this.roll) ang += this.roll.ang;
     }
-    if (this.spin) ang += this.t * 22;
-    if (this.state === 'taunt') ang += this.tauntSpin;
-    if (this.state === 'roll' && this.roll) ang += this.roll.ang;
-    if (this.state === 'heal') reach = 0.6;
+    const H = key === 'scythe' ? 122 : key === 'farron_gs' ? 145 : key === 'rkgs' ? 130 : 100;
+    const W = img && img.complete && img.naturalWidth ? H * (img.naturalWidth / img.naturalHeight) : 16;
+    const pulse = 0.6 + 0.25 * Math.sin(this.t * 6);
 
     ctx.save();
     ctx.translate(gx, gy);
     ctx.rotate(ang);
-    ctx.scale(this.face, 1);
+    if (this.face < 0) ctx.scale(-1, 1);
     if (img && img.complete && img.naturalWidth) {
-      const H = key === 'scythe' ? 150 : key === 'farron_gs' ? 190 : key === 'rkgs' ? 175 : 135;
-      const W = H * (img.naturalWidth / img.naturalHeight);
       ctx.drawImage(img, -W * 0.22, -H * 0.5, W, H);
     } else {
       ctx.fillStyle = '#cfd2e0';
-      ctx.fillRect(-6, -80, 12, 160);
+      ctx.fillRect(-6, -H * 0.5, 12, H);
+    }
+
+    // ---- 附魔：同一轮廓染色叠加（紫 = 暗松脂 / 橙 = 卡萨斯火焰） ----
+    if (this.weaponGlow > 0.02) {
+      const col = key === 'scythe' ? '#c07bff' : key === 'rkgs' ? '#ff8a2a' : null;
+      if (col) {
+        const tint = this._tinted(key, col);
+        if (tint) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = Math.min(1, this.weaponGlow * (pulse + 0.35));
+          ctx.drawImage(tint, -W * 0.23, -H * 0.51, W * 1.02, H * 1.02);
+          ctx.globalAlpha = 1;
+        }
+      }
+      // 直剑：整把剑都在烧 —— 亮黄核心 + 沿剑身的火星（参考图）
+      if (key === 'rkgs') {
+        const core = this._tinted('rkgs', '#ffe08a');
+        if (core) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = Math.min(1, this.weaponGlow * (0.62 + 0.2 * Math.sin(this.t * 9)));
+          ctx.drawImage(core, -W * 0.2, -H * 0.47, W * 0.96, H * 0.94);
+          ctx.globalAlpha = 1;
+        }
+        for (let i = 0; i < 10; i++) {
+          const ph = (this.t * 1.7 + i * 0.137) % 1;
+          const y = -H * 0.46 + ph * H * 0.92;
+          const x = Math.sin(this.t * 5 + i * 2.3) * W * 0.3;
+          ctx.fillStyle = `rgba(255,${145 + (i % 3) * 35},45,${0.8 * (1 - ph) * this.weaponGlow})`;
+          ctx.beginPath(); ctx.arc(x, y, 1.4 + (1 - ph) * 3.4, 0, TAU_); ctx.fill();
+        }
+      }
+      // 小镰刀：紫光向外晕开一层
+      if (key === 'scythe') {
+        const halo = this._tinted('scythe', '#e6b8ff');
+        if (halo) {
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = this.weaponGlow * 0.22;
+          ctx.drawImage(halo, -W * 0.32, -H * 0.6, W * 1.2, H * 1.2);
+          ctx.globalAlpha = 1;
+        }
+      }
     }
     ctx.restore();
 
-    // P3 左手法兰短剑
+    // P3 左手法兰短剑（短剑就该小：H 72 → 60，更短）
     if (this.weapon === 'farron') {
       const sImg = this.images.farron_ss;
       ctx.save();
-      ctx.translate(-this.face * 40, gy + 26);
+      ctx.translate(-this.face * 36, gy + 22);
       ctx.rotate(ang * -0.6);
-      ctx.scale(this.face, 1);
+      if (this.face < 0) ctx.scale(-1, 1);
       if (sImg && sImg.complete && sImg.naturalWidth) {
-        const H = 110, W = H * (sImg.naturalWidth / sImg.naturalHeight);
-        ctx.drawImage(sImg, -W * 0.22, -H * 0.5, W, H);
-      }
-      ctx.restore();
-    }
-    // 火焰附魔（环印骑士直剑）
-    if (this.weapon === 'rkgs' && this.weaponGlow > 0.02) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      for (let i = 0; i < 6; i++) {
-        const ph = (this.t * 2 + i * 0.37) % 1;
-        const fx = gx + Math.cos(ang) * (20 + ph * 70) * this.face;
-        const fy = gy + Math.sin(ang) * (20 + ph * 70) - ph * 20;
-        ctx.fillStyle = `rgba(255,${140 + (i % 3) * 30},40,${0.5 * (1 - ph) * this.weaponGlow})`;
-        ctx.beginPath(); ctx.arc(fx, fy, 5 + ph * 7, 0, TAU_); ctx.fill();
+        const H2 = 60, W2 = H2 * (sImg.naturalWidth / sImg.naturalHeight) * 0.8;
+        ctx.drawImage(sImg, -W2 * 0.22, -H2 * 0.5, W2, H2);
       }
       ctx.restore();
     }
