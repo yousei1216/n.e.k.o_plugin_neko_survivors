@@ -23,7 +23,7 @@ import { angleTo, clamp, dist, TAU } from '../core/math.js';
 import { effectiveLuck } from '../core/stats.js';
 import { expandTerrain, blockedAt, resolveTerrain, findFreeSpot } from '../data/terrain.js';
 import { expandHazards, hazardAt, HAZARD_KINDS, iceBlobRadius } from '../data/hazards.js';
-import { applyWeaponStatus, applySlow, applyFrostbite } from './status.js';
+import { applyWeaponStatus, applySlow, applyFrostbite, applyIgnite, applyChill } from './status.js';
 
 export const WORLD_SIZE = 2400;
 
@@ -1284,6 +1284,29 @@ export class World {
       target.stun = Math.max(target.stun ?? 0, 0.1);
       player._wetScytheCd = 1;
       this.fx?.hit?.(target.x, target.y, '#c07bff', { player: true });
+    }
+
+    // 第二百一十六轮：中 Boss 金色「混沌猫爪」——
+    // 攻击有 20% 概率附带随机效果：中毒 / 燃烧 / 冰冻 / 额外命中一次。
+    // noBoon 防止"额外命中"再次触发本段造成递归。
+    if (!res.killed && weapon?.def && !opts.noBoon && player?.boons?.elemental
+        && this.rng.next() < 0.2) {
+      const kind = (this.rng.next() * 4) | 0;
+      if (kind === 0) {
+        applyFrostbite(target, Math.max(2, dealt * 0.3), 4, weapon);
+        this.fx?.damageText?.(target.x, target.y - target.radius - 8, '中毒', false, '#8ce77a');
+      } else if (kind === 1) {
+        applyIgnite(target, Math.max(2, dealt * 0.3), 4, weapon);
+        this.fx?.damageText?.(target.x, target.y - target.radius - 8, '燃烧', false, '#ff9a4a');
+      } else if (kind === 2) {
+        applyChill(target, 100, player, this);
+        this.fx?.damageText?.(target.x, target.y - target.radius - 8, '冰冻', false, '#bfeaff');
+      } else {
+        this.dealDamage(player, weapon, target, dealt * 0.8, {
+          noStatus: true, noBoon: true, knockback: 0,
+        });
+        this.fx?.damageText?.(target.x, target.y - target.radius - 8, '追加命中', false, '#ffd166');
+      }
     }
 
     // 击退

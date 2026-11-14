@@ -76,6 +76,26 @@ export class Player extends Entity {
     //（bullet.js 的弹幕、renderer 的判定点、neko-pilot 的躲避、万圣节战的激光）。
     this.hitR = this.radius * 0.72;
     this.hitOY = -this.radius * 1.35;
+    // 缩骨功的基准值：hitR 会被金色奖励按 0.8^层数 缩小，读档时从基准重算。
+    this._hitRBase = this.hitR;
+
+    // ---- 第二百一十六轮：中 Boss 奖励（技能能力）的裸字段加成 ----
+    // 能进 StatSheet 的奖励（攻击/生命/攻速/射程/拾取范围）直接 addFlat/
+    // addPct，随存档天然保存；这里的字段是 StatSheet 放不下的运行时加成，
+    // 统一收在 boons 里，由 main._serializeRun 原样保存、_restoreRun 校验恢复。
+    this.boons = {
+      xpGain: 1,          // 经验获取乘区
+      matGain: 1,         // 材料（金钱）获取乘区
+      healRecv: 1,        // 受到的治疗乘区
+      petDmg: 1,          // 小小猫娘伤害乘区
+      petCdCut: 0,        // 小小猫娘技能冷却缩短（秒）
+      hitboxStacks: 0,    // 缩骨功层数（0~4）
+      lethal: 0,          // 九条命剩余次数
+      elemental: false,   // 混沌猫爪：攻击 20% 附带随机效果
+      msOnHit: false,     // 受击反弹：挨打后移速 +15%
+      msStacks: 0,        // 受击反弹层数（临时）
+      msT: 0,             // 受击反弹剩余时间（临时）
+    };
     // 第十九轮：200 → 215。噩梦怪提速 + 玩家数值削弱后，满速怪能贴着玩家
     // 跑，第一波就能把角色围殴致死。玩家默认提速 7.5%，重新拉开能逃生的
     // 空间。（同轮末：敌人移速绝对上限 ENEMY_SPEED_CAP 已整个移除 ——
@@ -346,7 +366,8 @@ export class Player extends Entity {
     // 放在 gainXp 入口而不是每个拾取点：经验有三个来源
     // （拾取物 / 宠物代拾 / 波次结算），改入口一处就全覆盖，
     // 改调用点必然漏（这正是幸运那 6 个消费点踩过的坑）。
-    const mul = this.charRt?.xpMul?.() ?? 1;
+    // 第二百一十六轮：中 Boss 蓝色「学习猫」经验 +10%（与角色被动叠乘）
+    const mul = (this.charRt?.xpMul?.() ?? 1) * (this.boons?.xpGain ?? 1);
     const gain = mul === 1 ? amount : amount * mul;
     this.xp += gain;
     let leveled = 0;
@@ -379,12 +400,35 @@ export class Player extends Entity {
 
   /** 本体入账（不带共享，供 gainMaterials 的队友侧调用） */
   _gainMaterialsLocal(amount) {
-    this.materials += amount;
+    // 第二百一十六轮：中 Boss 蓝色「招财猫」材料 +10%
+    this.materials += amount * (this.boons?.matGain ?? 1);
   }
 
   // ---------------------------------------------------------
   // 伤害与治疗
   // ---------------------------------------------------------
+  /**
+   * 第二百一十六轮：中 Boss 紫色「九条命」——
+   * 下一次致命伤害自动回满生命（消耗 1 层）。
+   * 返回 true = 这一下被吞掉并回满。
+   */
+  _tryBoonLethalSave() {
+    if ((this.boons?.lethal ?? 0) <= 0) return false;
+    this.boons.lethal--;
+    this.hp = this.stats.get('maxHp');
+    this.invuln = Math.max(this.invuln, 1.5);
+    this.lethalFlash = 1;
+    this.onBoonLethal?.();
+    return true;
+  }
+
+  /** 挨打后叠「受击反弹」层数（5 秒，可叠加；时间由 update 递减） */
+  _noteBoonHurt() {
+    if (!this.boons?.msOnHit) return;
+    this.boons.msStacks += 1;
+    this.boons.msT = 5;
+  }
+
   /**
    * 受伤。第九十六轮起无敌帧分档：
    *   opts.projectile = true（敌人弹幕）→ 0.6s
@@ -446,6 +490,12 @@ export class Player extends Entity {
         toHpF -= absorbedF;
         if (this.shield <= 0) { this.shield = 0; this._breakShield(); }
       }
+      // 第二百一十六轮：九条命优先于角色锁血（它是玩家本局选出来的奖励，
+      // 先用掉才算"没有白选"）。
+      if (toHpF > 0 && toHpF >= this.hp && this.hp > 0 && this._tryBoonLethalSave?.()) {
+        this.onHurt?.(toHpF, sourceX, sourceY);
+        return toHpF;
+      }
       if (this.charRt && toHpF > 0 && toHpF >= this.hp && this.hp > 0) {
         if (this.charRt.tryLethalSave()) {
           this.damageTaken += Math.max(0, this.hp - 1);
@@ -456,6 +506,7 @@ export class Player extends Entity {
       }
       this.hp -= toHpF;
       this.damageTaken += fixed;
+      if (toHpF > 0) this._noteBoonHurt?.();
       this.hurtFlash = 0.25;
       if (toHpF > 0) this.charRt?.onHurt?.();
       this.onHurt?.(fixed, sourceX, sourceY);
@@ -579,6 +630,13 @@ export class Player extends Entity {
     //
     // 所以判定条件用的是 **toHp**（真正会扣到血上的那部分），
     // 而不是 final。护盾吃掉的伤害不算数。
+    // 第二百一十六轮：中 Boss 紫色「九条命」—— 下一次致命伤自动回满。
+    // 放在角色锁血之前（奖励是玩家的选择，先用掉）。
+    if (toHp > 0 && toHp >= this.hp && this.hp > 0 && this._tryBoonLethalSave?.()) {
+      this.onHurt?.(toHp, sourceX, sourceY);
+      return toHp;
+    }
+
     if (this.charRt && toHp > 0 && toHp >= this.hp && this.hp > 0) {
       // 第一百七十三轮：把伤害来源坐标传给锁血 —— 后空翻要"往受击
       // 完全相反的方向跳"，得知道是哪边打来的
@@ -596,6 +654,8 @@ export class Player extends Entity {
     this.hp -= toHp;
     // 承伤统计：final 已含真伤附加（如实体计入）
     this.damageTaken += final;
+    // 第二百一十六轮：受击反弹 —— 真正掉血才叠层（护盾全挡不算"受到攻击"）
+    if (toHp > 0) this._noteBoonHurt?.();
     // 无敌帧：太短会被多个敌人叠加瞬间秒杀，太长则失去受击反馈。
     // 第四十四轮：0.5 → 0.8（用户原话："那从0.5秒改到0.8秒吧。"）
     // 第九十六轮：分档 —— 弹幕 0.6s，其余 0.8s（见文件头常量注释）。
@@ -679,6 +739,8 @@ export class Player extends Entity {
     if (this.hasItem('cat_taffy') && this.hp < this.stats.get('maxHp') / 2) {
       amount *= 2;
     }
+    // 第二百一十六轮：中 Boss 蓝色「暖呼呼」受到的治疗 +10%
+    if ((this.boons?.healRecv ?? 1) !== 1) amount *= this.boons.healRecv;
     const max = this.stats.get('maxHp');
     const before = this.hp;
     this.hp = Math.min(max, this.hp + amount);
@@ -788,6 +850,14 @@ export class Player extends Entity {
     this.timeAlive += dt;
     // 第二百一十四轮：濡湿小镰刀的眩晕内置冷却
     if ((this._wetScytheCd ?? 0) > 0) this._wetScytheCd -= dt;
+    // 第二百一十六轮：受击反弹层数 5 秒后整组消失
+    if (this.boons?.msT > 0) {
+      this.boons.msT -= dt;
+      if (this.boons.msT <= 0) {
+        this.boons.msT = 0;
+        this.boons.msStacks = 0;
+      }
+    }
 
     // ---- 第一百七十一轮：倒地状态（救援环版）----
     // 不能开火/被敌人选为目标；紫条在 3s 无救援后开始回涨，
@@ -861,6 +931,7 @@ export class Player extends Entity {
     // 第一百零八轮：晴岚 —— 所有人移速 +25%（乘区，天气结束自动归一）
     let speed = this.baseSpeed * speedMul * this.mulFor('moveSpeed')
       * (this.speedBonusMul ?? 1) * (1 + mdMove / 100)
+      * (1 + 0.15 * (this.boons?.msStacks ?? 0))   // 第二百一十六轮：受击反弹
       * (world?.weather?.moveMul ?? 1);
     // 第一百六十六轮：猫娘代打辅助光环「猫娘的敏捷」移速侧 —— +25%
     //（受伤 -70% 在 takeDamage；芙兰战锁速走下面 flandreSpeed，不叠加）

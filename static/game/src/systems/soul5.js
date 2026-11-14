@@ -740,11 +740,11 @@ export class Soul5Fight {
       this._clampToArena();
       if (this.rollCd <= 0) { this.rollCd = 1.2; this.invuln = false; }
     }
-    // 宠爱戒指：一秒闪 2~3 次，一次回 0.5%
+    // 宠爱戒指：一秒闪 2~3 次，一次回 1%（第二百一十五轮：0.5% → 1%）
     this.ringFlash += dt;
     if (this.ringFlash >= 0.4) {
       this.ringFlash -= 0.4;
-      const heal = this.boss.maxHp * 0.005;
+      const heal = this.boss.maxHp * 0.01;
       this.boss.hp = Math.min(this.boss.maxHp, this.boss.hp + heal);
       this.ringHealAcc += heal;
     }
@@ -1077,10 +1077,21 @@ export class Soul5Fight {
       ctx.save();
       ctx.translate(b.x, b.y); ctx.rotate(ang);
       ctx.globalAlpha = a;
-      ctx.strokeStyle = '#d8c8a0'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(10, 0); ctx.stroke();
+      // 第二百一十五轮：弩箭加大（原 26px 细线太小，几乎看不见）
+      // 箭杆 + 铁箭头 + 尾羽，长度 ~52px
+      ctx.strokeStyle = '#e6d6ac'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-24, 0); ctx.lineTo(12, 0); ctx.stroke();
+      ctx.strokeStyle = 'rgba(120,95,60,0.9)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-24, 0); ctx.lineTo(12, 0); ctx.stroke();
+      // 尾羽
+      ctx.fillStyle = '#b8443c';
+      ctx.beginPath(); ctx.moveTo(-24, 0); ctx.lineTo(-32, -6); ctx.lineTo(-22, -1.5); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-24, 0); ctx.lineTo(-32, 6); ctx.lineTo(-22, 1.5); ctx.closePath(); ctx.fill();
+      // 箭头
       ctx.fillStyle = '#fff2c0';
-      ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(7, -4); ctx.lineTo(7, 4); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(9, -7); ctx.lineTo(12, 0); ctx.lineTo(9, 7); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,220,120,0.75)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(12, -5); ctx.lineTo(21, 0); ctx.lineTo(12, 5); ctx.stroke();
       ctx.restore();
     }
     // 阳光之枪：金色雷电长枪 + 拖尾（自绘，参考图片的黄色闪电）
@@ -1409,7 +1420,7 @@ export class Soul5Fight {
   /** 每种武器的握柄位置（图片归一化坐标）：绕它旋转才是"挥武器"而不是转魔法棒 */
   static GRIP = {
     scythe: [0.72, 0.03], rkgs: [0.5, 0.02], farron_gs: [0.5, 0.02],
-    farron_ss: [0.9, 0.9], crossbow: [0.5, 0.62],
+    farron_ss: [0.28, 0.16], crossbow: [0.5, 0.62],
   };
 
   /**
@@ -1450,7 +1461,9 @@ export class Soul5Fight {
         ang = base + sw;
         ghosts = 3;
       } else if (a.id === 'crossbow') {
-        ang = aim - Math.PI / 2 + Math.PI / 2; tx = Math.cos(aim) * 6; ty = Math.sin(aim) * 6;
+        // 第二百一十五轮：弩的射击头在图片的"底部偏左"，不是本地 +Y。
+        // 图片里的枪口方向约 3π/4（左下），减去它才能让弩口真正对着玩家。
+        ang = aim - Math.PI * 0.75; tx = Math.cos(aim) * 6; ty = Math.sin(aim) * 6;
       } else {
         ang = base;
       }
@@ -1553,15 +1566,16 @@ export class Soul5Fight {
       }
     }
 
-    // P3 左手法兰短剑（也绕握柄，随大剑反向摆动）
+    // P3 左手法兰短剑（第二百一十五轮：用局部坐标贴在左手边，不再叠加
+    // 世界坐标 this.bx —— 之前会画到 2×bx 的位置，Boss 一移动短剑就"飞走"）
     if (this.weapon === 'farron' && !this.orbit) {
       const sImg = this.images.farron_ss;
       if (sImg && sImg.complete && sImg.naturalWidth) {
         const H2 = 60, W2 = H2 * (sImg.naturalWidth / sImg.naturalHeight) * 0.8;
         const g2 = Soul5Fight.GRIP.farron_ss;
         ctx.save();
-        ctx.translate(this.bx - Math.cos(pose.aim) * 34, gy + 20);
-        ctx.rotate(pose.ang * -0.55);
+        ctx.translate(-this.face * 34, gy + 16);
+        ctx.rotate(this.face * (0.5 + 0.12 * Math.sin(this.t * 3)));
         ctx.drawImage(sImg, -g2[0] * W2, -g2[1] * H2, W2, H2);
         ctx.restore();
       }

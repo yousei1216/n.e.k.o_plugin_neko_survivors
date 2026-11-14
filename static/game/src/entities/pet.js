@@ -244,7 +244,9 @@ export class Pet extends Entity {
   get damage() {
     const s = this.player?.stats.values;
     if (!s) return this._baseline.damage;
-    return this._baseline.damage * (1 + s.damage / 100);
+    // 第二百一十六轮：中 Boss 紫色「小小猫娘·凶猛」—— 伤害 ×2
+    return this._baseline.damage * (1 + s.damage / 100)
+      * (this.player?.boons?.petDmg ?? 1);
   }
 
   get attackInterval() {
@@ -410,7 +412,8 @@ export class Pet extends Entity {
     if (teamHealed > 0) {
       world.fx?.damageText(player.x, player.y - 52, `全队 +${Math.round(teamHealed)}`, false, '#6ee7b7');
     }
-    this.healCd = PET_HEAL_COOLDOWN;
+    // 第二百一十六轮：中 Boss 金色「小小猫娘·灵巧」技能冷却 -3 秒/层
+    this.healCd = Math.max(3, PET_HEAL_COOLDOWN - (player?.boons?.petCdCut ?? 0));
     this.healsGiven++;
     this.healAnim = 0.7;
     this.emote = 'heart';
@@ -546,7 +549,7 @@ export class Pet extends Entity {
     // 保证"范围拾取发动"这件事在台词和提示上都能被看见。
     this.sayVacuum(world);
 
-    this.vacuumCd = PET_VACUUM_COOLDOWN;
+    this.vacuumCd = Math.max(3, PET_VACUUM_COOLDOWN - (player?.boons?.petCdCut ?? 0));
     this.vacuumsUsed++;
     // 只维护动画计时器；头顶表情由渲染器从计时器推导
     // （见 renderer._drawPet），所以这里不用去写 this.emote。

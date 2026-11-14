@@ -21,6 +21,8 @@ import { PhantomClone } from './entities/phantom.js';
 import { UI } from './ui/ui.js';
 import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
+// 第二百一十六轮：中 Boss 技能能力奖励（白/蓝/紫/金 三选一）
+import { rollMidBossBoons, applyMidBossBoon } from './systems/midboss-rewards.js';
 // 第十七轮：CHARACTERS 不再需要 —— 解锁逻辑删掉后，
 // 选人界面直接用 availableCharacters()（现在恒等于全部角色）。
 import { availableCharacters, getCharacter, getSpriteCharacters, CHARACTERS, CHARACTER_MAP } from './data/characters.js';
@@ -58,6 +60,8 @@ export const STATE = {
   PLAYING: 'playing',
   LEVEL_UP: 'level_up',
   SHOP: 'shop',
+  // 第二百一十六轮：中 Boss 奖励三选一（世界冻结，等玩家点卡）
+  MIDBOSS_REWARD: 'midbossReward',
   PAUSED: 'paused',
   RESULT: 'result',
   // 第四十九轮：隐藏挑战 Boss 芙兰朵露的专属状态（世界活着，波次系统停摆）
@@ -111,6 +115,10 @@ export class Game {
 
     this.pendingLevelUps = 0;
     this.currentUpgradeOptions = [];
+    // 第二百一十六轮：中 Boss 奖励待选次数 + 这一轮抽到的三张卡
+    this.pendingMidBossRewards = 0;
+    this.currentMidBossOptions = [];
+    this._lastMidBossName = '';
 
     this._lastTime = 0;
     this._rafId = null;
@@ -460,8 +468,8 @@ export class Game {
       // （同芙兰直通按钮的约定，ui.showTitle 对 falsy 整个不渲染按钮）。
       // 测试入口保留 ?vergil=1 直达；_enterVergilLab 本体保留不删。
       onVergilLab: null,
-      // 第二百零九轮：旧区的落幕直通测试按钮（用户："做一个直接打他的测试按钮给我试试"）
-      onSoul5Test: () => this._startSoul5({ test: true }),
+      // 第二百一十五轮：旧区的落幕直通测试按钮下线（用户："修复之后直接删除测试按钮吧"）。
+      // 调试入口保留 ?soul5=1，_startSoul5({ test: true }) 本体不删。
       // 第六十五轮的 onSeCheck（音效自检）随标题页按钮一并下线（第一百二十二轮）
       audioEnabled: audio.enabled,
     });
@@ -646,6 +654,9 @@ export class Game {
     this.waveIndex = 0;
     this.waveEnding = false;
     this.pendingLevelUps = 0;
+    // 第二百一十六轮：新局清空中 Boss 奖励待选
+    this.pendingMidBossRewards = 0;
+    this.currentMidBossOptions = [];
     this._bossKillPending = false;
     this._lastHpRatio = 1;
     this._shopDeferred = false;   // 体检修复：新局清掉"商店被升级打断"旗子
@@ -945,6 +956,9 @@ export class Game {
       case STATE.LEVEL_UP:
         // 等待 UI 选择
         break;
+      case STATE.MIDBOSS_REWARD:
+        // 等待 UI 选择（第二百一十六轮）
+        break;
       case STATE.SHOP:
         // 等待 UI 选择；201 轮：货架被界面之外的动作改动时让商店界面跟着重绘
         this.ui.tickShop?.();
@@ -1172,6 +1186,12 @@ export class Game {
       return;
     }
 
+    // 第二百一十六轮：中 Boss 奖励（升级都选完后才能轮到它）
+    if (this.pendingMidBossRewards > 0) {
+      this._showMidBossReward();
+      return;
+    }
+
     // Boss 击杀 → 直接过关。
     // 标记是在 world.update() 内部打的，必须等遍历结束再结算。
     if (this._bossKillPending) {
@@ -1353,14 +1373,20 @@ export class Game {
       if (hitAny) this.world.camera?.shake?.(4, 0.15);
     };
 
-    // 第二百零二轮：中 Boss —— 预警提示 + 击杀提示。奖励由用户之后另行决定，这里**不发奖励**。
+    // 第二百零二轮：中 Boss —— 预警提示 + 击杀提示。
+    // 第二百一十六轮：用户定下奖励 —— 随机掉白/蓝/紫/金技能能力，三选一。
+    // 这里只记待选次数，真正的弹窗等本帧 world.update 走完、在
+    // _updatePlaying 里开（和升级同款时机，避免在敌人遍历中切状态）。
     this.world.onMidBossWarn = (def) => {
       audio.play('bossSpawn');
       this.ui?.toast(`⚠ 中 Boss 来袭：${def?.bossName ?? def?.name ?? ''}`, 'bad', 3500);
     };
     this.world.onMidBossKilled = (mid) => {
       audio.play('bossKill');
-      this.ui?.toast(`击败中 Boss：${mid.def?.bossName ?? mid.def?.name ?? ''}`, 'good', 3500);
+      const name = mid.def?.bossName ?? mid.def?.name ?? '';
+      this._lastMidBossName = name;
+      this.pendingMidBossRewards = (this.pendingMidBossRewards || 0) + 1;
+      this.ui?.toast(`击败中 Boss：${name}！三选一奖励准备中…`, 'good', 3500);
     };
 
     this.world.onBossKilled = (boss) => {
@@ -1596,6 +1622,42 @@ export class Game {
     neko.setEmotion('happy');
   }
 
+  // =========================================================
+  // 中 Boss 奖励（第二百一十六轮）
+  // =========================================================
+  /**
+   * 弹出三选一奖励卡。
+   * 只在本帧 world.update 结束后的 _updatePlaying 里调用 ——
+   * 和升级同一时机，避免在敌人遍历过程中改 state。
+   */
+  _showMidBossReward() {
+    this.state = STATE.MIDBOSS_REWARD;
+    const options = rollMidBossBoons(this.rng, this, 3);
+    this.currentMidBossOptions = options;
+    if (!options.length) {
+      // 理论兜底（所有奖励都不可用）：直接消耗掉，不卡流程
+      this.pendingMidBossRewards = Math.max(0, this.pendingMidBossRewards - 1);
+      this.state = STATE.PLAYING;
+      return;
+    }
+    this.ui.showMidBossReward({
+      bossName: this._lastMidBossName,
+      options,
+      onPick: (id) => this._applyMidBossPick(id),
+    });
+  }
+
+  _applyMidBossPick(id) {
+    const opt = this.currentMidBossOptions.find((o) => o.id === id);
+    if (opt) applyMidBossBoon(this, opt);
+    this.pendingMidBossRewards = Math.max(0, (this.pendingMidBossRewards || 0) - 1);
+    this.currentMidBossOptions = [];
+    audio.play('levelUp');
+    this.state = STATE.PLAYING;
+    this.ui.clearOverlay();
+    this._afterOverlay();
+  }
+
   /**
    * 第四十一轮：自动选择的规则 ——
    * 用户原话："如果有高品质的选项优先选择高品质，如果都是同品质则随机
@@ -1626,6 +1688,11 @@ export class Game {
   _afterOverlay() {
     if (this.player.pendingLevelUps > 0) {
       this._showLevelUp();
+      return;
+    }
+    // 第二百一十六轮：升级全选完后，再补上中 Boss 奖励
+    if (this.pendingMidBossRewards > 0) {
+      this._showMidBossReward();
     }
   }
 
@@ -3208,6 +3275,10 @@ export class Game {
       // 不存的话读档/重试本波会把"暂存的收益"清零。
       xpDebt: p.xpDebt ?? 0,
       materialDebt: p.materialDebt ?? 0,
+      // 第二百一十六轮：中 Boss 奖励的裸字段（经验/材料/治疗/宠物/判定点）
+      // 不在 StatSheet 里，必须单独存；待选次数也一起存，防止击杀后退出丢奖励。
+      boons: { ...(p.boons || {}) },
+      pendingMidBossRewards: this.pendingMidBossRewards || 0,
       // ---- 第一百八十四轮：多人模式进存档（用户："继续游戏应该是不兼容
       // 我们的新多人模式"—— 4P 存档读回来队伍蒸发）。party=人数，mates=
       // 每个队友的完整成长快照（角色/血量/等级/武器/道具/升级/属性修正）。
@@ -3320,6 +3391,33 @@ export class Game {
     p.xpDebt = Number.isFinite(xDebt) && xDebt > 0 ? Math.floor(xDebt) : 0;
     const mDebt = Number(data.materialDebt);
     p.materialDebt = Number.isFinite(mDebt) && mDebt > 0 ? Math.floor(mDebt) : 0;
+
+    // 第二百一十六轮：恢复中 Boss 奖励的裸字段。
+    // 老存档没有 data.boons → 全部按默认值；命中数/层数做整数与非负校验，
+    // 判定点从基准值重算（避免存档里一个脏值把 hitR 变成 0 或负数）。
+    {
+      const bo = data.boons || {};
+      const pos = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+      const nonneg = (v, d) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d);
+      p.boons = {
+        xpGain: pos(bo.xpGain, 1),
+        matGain: pos(bo.matGain, 1),
+        healRecv: pos(bo.healRecv, 1),
+        petDmg: pos(bo.petDmg, 1),
+        petCdCut: nonneg(bo.petCdCut, 0),
+        hitboxStacks: Math.min(4, Math.floor(nonneg(bo.hitboxStacks, 0))),
+        lethal: Math.floor(nonneg(bo.lethal, 0)),
+        elemental: !!bo.elemental,
+        msOnHit: !!bo.msOnHit,
+        msStacks: 0,   // 临时层数不跨存档
+        msT: 0,
+      };
+      p.hitR = (p._hitRBase ?? p.radius * 0.72) * Math.pow(0.8, p.boons.hitboxStacks);
+    }
+    this.pendingMidBossRewards = Math.floor(Number(data.pendingMidBossRewards) >= 0
+      ? Number(data.pendingMidBossRewards) : 0);
+    this.currentMidBossOptions = [];
+
     this.world.pendingItemRewards = Array.isArray(data.pendingItemRewards)
       ? data.pendingItemRewards.filter((r) => r && typeof r.id === 'string')
       : [];

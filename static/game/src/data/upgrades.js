@@ -374,7 +374,11 @@ export function rollUpgrades(rng, taken, count = 3, opts = {}) {
   // 每个选项抽稀有度
   const luck = opts.luck ?? 0;
   const luckEffectMul = opts.luckEffectMul ?? 1;
-  const rarities = picks.map(() => rollRarity(rng, luck, luckEffectMul));
+  // 第二百一十六轮：中 Boss 金奖励「传说馈赠」—— 强制整组传说品质。
+  // forceRarity 只影响稀有度，不动抽取池；普通升级流程不传，行为不变。
+  const rarities = picks.map(() => opts.forceRarity
+    ? atLeast(opts.forceRarity, 'common')
+    : rollRarity(rng, luck, luckEffectMul));
 
   // 保底：这一级该出的最低稀有度，至少落在其中一个选项上
   const floor = guaranteedRarity(opts.level ?? 0);

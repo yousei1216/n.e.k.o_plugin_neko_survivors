@@ -420,7 +420,7 @@ export class UI {
   }
 
   // ---------------- 标题页 ----------------
-  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest, onSoul5Test }) {
+  showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -472,8 +472,7 @@ export class UI {
         ${onHalloweenTest ? '<button class="btn small" data-act="halloween-test" style="border-color:#ff9f43;color:#ff9f43">🎃 直接挑战万圣节双猫！</button>' : ''}
             <!-- 第一百四十轮：椅子维吉尔刀光实验室（临时挑战按钮，用户要看效果） -->
             ${onVergilLab ? '<button class="btn small" data-act="vergil-lab" style="border-color:#59f2ff;color:#59f2ff">⚔ 挑战：大排档椅子·维吉尔</button>' : ''}
-            ${onSoul5Test ? '<button class="btn small" data-act="soul5-test" style="border-color:#b46bff;color:#b46bff">🗡 直接挑战：旧区的落幕</button>' : ''}
-            <button class="btn small danger" data-act="exit">关闭游戏</button>
+                        <button class="btn small danger" data-act="exit">关闭游戏</button>
             <!-- 第一百二十二轮：音效自检按钮下线（用户："把音效自检按钮
                  隐藏或者去掉"—— 诊断使命完成，audio.seSelfTest 保留在
                  audio.js 里以备将来排查，只是不再有入口） -->
@@ -520,9 +519,7 @@ export class UI {
     const vgLab = root.querySelector('[data-act="vergil-lab"]');
     if (vgLab) vgLab.onclick = onVergilLab;
     // 第二百零九轮：旧区的落幕测试入口
-    const s5Test = root.querySelector('[data-act="soul5-test"]');
-    if (s5Test) s5Test.onclick = onSoul5Test;
-    // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
+        // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');
     if (cont) cont.onclick = onContinue;
     root.querySelector('[data-act="audio"]').onclick = onToggleAudio;
@@ -724,6 +721,38 @@ export class UI {
 
     root.querySelectorAll('[data-up]').forEach((card) => {
       card.onclick = () => onPick(card.dataset.up);
+    });
+  }
+
+  // ---------------- 中 Boss 奖励（3 选 1） ----------------
+  // 第二百一十六轮：中 Boss 击杀后随机掉 3 个白/蓝/紫/金技能能力，选 1 个。
+  // 视觉直接复用升级卡的骨架（.card / .card-head / .card-desc），
+  // 只把右上角的稀有度角标换成品质，避免再维护一套 CSS。
+  showMidBossReward({ bossName, options, onPick }) {
+    const cardHtml = (o) => `
+        <div class="card upgrade-card card--rare" data-boon="${o.id}"
+             style="--rc:${o.color};border-color:${o.color};box-shadow:0 0 0 1px ${o.color}55,0 0 18px ${o.color}33">
+          <div class="card-head">
+            <div class="avatar" style="background:${o.color}22;border-color:${o.color};color:${o.color}">${o.glyph}</div>
+            <div>
+              <div class="card-name">${o.name}</div>
+              <div class="card-role">中 Boss 能力</div>
+            </div>
+          </div>
+          <div class="card-rarity" style="background:${o.color}22;border-color:${o.color};color:${o.color}">${o.tierName}品质</div>
+          <div class="card-desc">${o.desc}</div>
+        </div>`;
+
+    const root = this._mount(`
+      <div class="screen">
+        <h2>中 Boss 奖励</h2>
+        <div class="sub">击败了 ${bossName || '中 Boss'}！三种技能能力，选一个带走。</div>
+        <div class="char-grid levelup-grid">${options.map(cardHtml).join('')}</div>
+      </div>
+    `);
+
+    root.querySelectorAll('[data-boon]').forEach((card) => {
+      card.onclick = () => onPick(card.dataset.boon);
     });
   }
 
