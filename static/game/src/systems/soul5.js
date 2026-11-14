@@ -387,7 +387,7 @@ export class Soul5Fight {
     // 站位：与玩家保持 90~150（手短，主动贴脸）
     const dx = p.x - this.bx, dy = p.y - this.by;
     const d = Math.hypot(dx, dy) || 1;
-    const want = 150;   // 立绘很大，站远一点别把玩家盖住（戳击 150 刚好够得着）
+    const want = 165;   // 立绘很大，站远一点别把玩家盖住（戳击 150 刚好够得着）
     const spd = 200 * this.spdMul;
     if (d > want + 25) {
       this.bx += (dx / d) * spd * dt;
@@ -455,7 +455,7 @@ export class Soul5Fight {
         const marks = [0.22, 0.5, 0.78];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(135, 120, 1);
+          this._hitInArc(155, 120, 1);
           this.slashes.push({ kind: 'stab', x: this.bx + this.face * 55, y: this.by - 30, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.18 });
         }
         break;
@@ -483,8 +483,8 @@ export class Soul5Fight {
         const marks = [0.3, 0.62];
         if (a.hit < marks.length && k >= marks[a.hit]) {
           a.hit++;
-          this._hitInArc(185, 220, 1);
-          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.26, r: 190 });
+          this._hitInArc(240, 220, 1);
+          this.slashes.push({ kind: 'wide', x: this.bx, y: this.by - 20, ang: this.face > 0 ? 0 : Math.PI, t: 0, dur: 0.3, r: 240 });
         }
         break;
       }
@@ -829,9 +829,9 @@ export class Soul5Fight {
         sp.hit = stage + 1;
         for (const p of players) {
           if (p.downed) continue;
-          if (Math.hypot(p.x - this.bx, p.y - this.by) < 215) this._hitPlayer(p);
+          if (Math.hypot(p.x - this.bx, p.y - this.by) < 250) this._hitPlayer(p);
         }
-        this.slashes.push({ kind: 'spin', x: this.bx, y: this.by - 20, t: 0, dur: 0.55, r: 215, dir: stage === 0 ? 1 : -1 });
+        this.slashes.push({ kind: 'spin', x: this.bx, y: this.by - 20, t: 0, dur: 0.55, r: 250, dir: stage === 0 ? 1 : -1 });
         this.edgeFlash = 0.4;
       }
     }
@@ -843,10 +843,10 @@ export class Soul5Fight {
         s.hit = 1;
         this.bx = s.x; this.by = s.y;
         this._clampToArena();
-        this.slashes.push({ kind: 'slam', x: s.x, y: s.y, t: 0, dur: 0.45, r: 135 });
+        this.slashes.push({ kind: 'slam', x: s.x, y: s.y, t: 0, dur: 0.45, r: 150 });
         for (const p of players) {
           if (p.downed) continue;
-          if (Math.hypot(p.x - s.x, p.y - s.y) < 135) this._hitPlayer(p, 1.2);
+          if (Math.hypot(p.x - s.x, p.y - s.y) < 150) this._hitPlayer(p, 1.2);
         }
         this.edgeFlash = 0.5;
       }
@@ -1131,18 +1131,33 @@ export class Soul5Fight {
       ctx.globalCompositeOperation = 'lighter';
       const A0 = -0.78, A1 = 0.78;
       // 刀光带：粗弧 + 亮边（像挥过去的一道火痕，不是地上的一块扇形）
-      for (const [w, col] of [[r * 0.30, 'rgba(255,110,30,0.15)'], [r * 0.17, 'rgba(255,165,55,0.28)'], [r * 0.065, 'rgba(255,240,190,0.55)']]) {
-        ctx.strokeStyle = col; ctx.lineWidth = w;
-        ctx.beginPath(); ctx.arc(0, 0, r * 0.8, A0, A1); ctx.stroke();
+      for (const [w, col] of [
+        [r * 0.34, 'rgba(255,60,8,0.20)'],
+        [r * 0.20, 'rgba(255,110,20,0.40)'],
+        [r * 0.09, 'rgba(255,175,60,0.65)'],
+        [r * 0.035, 'rgba(255,245,200,0.85)'],
+      ]) {
+        ctx.strokeStyle = col; ctx.lineWidth = w * (0.92 + 0.08 * Math.sin(this.t * 21));
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.78, A0, A1); ctx.stroke();
       }
-      ctx.strokeStyle = `rgba(255,252,225,${0.9 * fade})`; ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(255,252,225,${0.95 * fade})`; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(0, 0, r * 0.93, A0 * 0.92, A1 * 0.92); ctx.stroke();
-      // 沿弧线的火星 + 拖尾
+      // 沿弧线的火星 + 火舌尖刺（像真的火刃扫过）
       for (let i = 0; i < 18; i++) {
         const a = A0 + (i / 17) * (A1 - A0);
         const rr = r * (0.72 + 0.18 * ((i % 3) / 2) + 0.05 * Math.sin(this.t * 9 + i));
         ctx.fillStyle = `rgba(255,${160 + (i % 3) * 35},60,${0.8 * fade})`;
         ctx.beginPath(); ctx.arc(Math.cos(a) * rr, Math.sin(a) * rr, 1.4 + (i % 3) * 1.3, 0, TAU_); ctx.fill();
+      }
+      for (let i = 0; i < 11; i++) {
+        const a = A0 + (i / 10) * (A1 - A0);
+        const len = (10 + 9 * Math.sin(this.t * 15 + i * 1.7)) * fade;
+        ctx.strokeStyle = `rgba(255,${130 + (i % 3) * 30},40,${0.55 * fade})`;
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * r * 0.94, Math.sin(a) * r * 0.94);
+        ctx.lineTo(Math.cos(a) * (r * 0.94 + len), Math.sin(a) * (r * 0.94 + len));
+        ctx.stroke();
       }
     } else if (s.kind === 'slam') {
       // 高跳竖劈：竖直光柱 + 地面冲击环
@@ -1276,94 +1291,167 @@ export class Soul5Fight {
     } catch { return null; }
   }
 
+  /** 每种武器的握柄位置（图片归一化坐标）：绕它旋转才是"挥武器"而不是转魔法棒 */
+  static GRIP = {
+    scythe: [0.72, 0.06], rkgs: [0.5, 0.96], farron_gs: [0.5, 0.96],
+    farron_ss: [0.9, 0.9], crossbow: [0.5, 0.62],
+  };
+
+  /**
+   * 武器的当前姿势：{ ang, tx, ty, ghosts }
+   * ang = 绕握柄的旋转；tx/ty = 世界坐标位移（突刺的前冲）；ghosts = 残影数量
+   */
+  _weaponPose() {
+    const face = this.face;
+    const base = face > 0 ? -0.22 : Math.PI + 0.22;
+    let ang = base, tx = 0, ty = 0, ghosts = 0;
+    if (this.state === 'intro') {
+      ang = face > 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
+    } else if (this.state === 'act' && this.act) {
+      const a = this.act;
+      const k = Math.min(1, a.t / a.dur);
+      if (a.id === 'poke') {
+        // 三段突刺：每一段小幅前送 + 手腕前压
+        const kk = (k * 3) % 1;
+        const lunge = Math.sin(Math.min(1, kk / 0.55) * Math.PI);
+        ang = base - 0.12 + lunge * 0.16;
+        tx = face * (10 + lunge * 30);
+        ty = -4 * lunge;
+        ghosts = lunge > 0.45 ? 1 : 0;
+      } else if (a.id === 'slash') {
+        // 两段大横斩：起手 → 挥出 → 收刀，每半程一套
+        const half = k < 0.5 ? k / 0.5 : (k - 0.5) / 0.5;
+        let sw;
+        if (half < 0.2) sw = -1.0 * (half / 0.2);                    // 起手（向后抬）
+        else if (half < 0.62) sw = -1.0 + ((half - 0.2) / 0.42) * 2.3;  // 挥出
+        else sw = 1.3 - ((half - 0.62) / 0.38) * 1.5;                // 收刀
+        ang = base + sw;
+        ghosts = 3;
+      } else if (a.id === 'spin') {
+        ang = base + this.t * 22;
+        ghosts = 3;
+      } else if (a.id === 'crossbow') {
+        ang = base - 0.04; tx = face * 6;
+      } else {
+        ang = base;
+      }
+      // 高跳竖劈：举刀 → 劈下
+      if (this.slam) {
+        const sk = Math.min(1, this.slam.t / this.slam.dur);
+        const sw = sk < 0.55 ? -1.35 * (sk / 0.55) : -1.35 + ((sk - 0.55) / 0.45) * 2.6;
+        ang = base + sw; ghosts = 2;
+      }
+    } else if (this.state === 'taunt') {
+      ang = base + this.tauntSpin;
+      ghosts = 2;
+    } else if (this.state === 'roll' && this.roll) {
+      ang = base + this.roll.ang;
+    } else if (this.state === 'heal') {
+      ang = base + 0.15;
+    }
+    return { ang, tx, ty, ghosts };
+  }
+
   _drawWeapon(ctx, gx, gy) {
     const key = this.weapon === 'scythe' ? 'scythe' : this.weapon === 'rkgs' ? 'rkgs' : this.weapon === 'crossbow' ? 'crossbow' : 'farron_gs';
     const img = this.images[key];
-    // 第二百一十轮：入场附魔阶段**横持**在身前（用户："小镰刀的附魔阶段是横着不是竖着"）
-    let ang;
-    if (this.state === 'intro') {
-      ang = this.face > 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
-    } else {
-      ang = this.face > 0 ? -0.35 : Math.PI + 0.35;
-      if (this.state === 'act' && this.act) {
-        const k = Math.min(1, this.act.t / this.act.dur);
-        if (this.act.id === 'poke' || this.act.id === 'slash') {
-          ang = (this.face > 0 ? -0.9 + k * 1.7 : Math.PI + 0.9 - k * 1.7);
-        }
-      }
-      if (this.spin) ang += this.t * 22;
-      if (this.state === 'taunt') ang += this.tauntSpin;
-      if (this.state === 'roll' && this.roll) ang += this.roll.ang;
-    }
     const H = key === 'scythe' ? 122 : key === 'farron_gs' ? 145 : key === 'rkgs' ? 130 : 100;
     const W = img && img.complete && img.naturalWidth ? H * (img.naturalWidth / img.naturalHeight) : 16;
+    const grip = Soul5Fight.GRIP[key] ?? [0.5, 0.9];
+    const pose = this._weaponPose();
+    const px = gx + pose.tx, py = gy + pose.ty;
     const pulse = 0.6 + 0.25 * Math.sin(this.t * 6);
+    const drawImg = (src, ang, alpha, comp) => {
+      if (!src) return;
+      ctx.save();
+      ctx.globalCompositeOperation = comp;
+      ctx.globalAlpha = alpha;
+      ctx.translate(px, py);
+      ctx.rotate(ang);
+      if (this.face < 0) ctx.scale(-1, 1);
+      ctx.drawImage(src, -grip[0] * W, -grip[1] * H, W, H);
+      ctx.restore();
+    };
 
-    ctx.save();
-    ctx.translate(gx, gy);
-    ctx.rotate(ang);
-    if (this.face < 0) ctx.scale(-1, 1);
-    if (img && img.complete && img.naturalWidth) {
-      ctx.drawImage(img, -W * 0.22, -H * 0.5, W, H);
-    } else {
-      ctx.fillStyle = '#cfd2e0';
-      ctx.fillRect(-6, -H * 0.5, 12, H);
+    // ---- 挥动残影（直剑橙 / 镰刀紫）：沿挥动方向错开几帧 ----
+    if (pose.ghosts && this.weaponGlow > 0.02) {
+      const tintGhost = this._tinted(key, key === 'scythe' ? '#a86bff' : key === 'rkgs' ? '#ff7a1a' : '#dfe6ff');
+      if (tintGhost) {
+        for (let i = pose.ghosts; i >= 1; i--) {
+          const a = pose.ang - this.face * 0.13 * i;
+          drawImg(tintGhost, a, 0.16 * this.weaponGlow * (1 - i / (pose.ghosts + 1)), 'lighter');
+        }
+      }
     }
 
-    // ---- 附魔：同一轮廓染色叠加（紫 = 暗松脂 / 橙 = 卡萨斯火焰） ----
+    // ---- 本体 ----
+    if (img && img.complete && img.naturalWidth) drawImg(img, pose.ang, 1, 'source-over');
+    else drawImg(null, pose.ang, 1, 'source-over');
+
+    // ---- 附魔：同轮廓染色叠加 ----
     if (this.weaponGlow > 0.02) {
       const col = key === 'scythe' ? '#c07bff' : key === 'rkgs' ? '#ff8a2a' : null;
       if (col) {
         const tint = this._tinted(key, col);
-        if (tint) {
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = Math.min(1, this.weaponGlow * (pulse + 0.35));
-          ctx.drawImage(tint, -W * 0.23, -H * 0.51, W * 1.02, H * 1.02);
-          ctx.globalAlpha = 1;
-        }
+        if (tint) drawImg(tint, pose.ang, Math.min(1, this.weaponGlow * (pulse + 0.35)), 'lighter');
       }
-      // 直剑：整把剑都在烧 —— 亮黄核心 + 沿剑身的火星（参考图）
       if (key === 'rkgs') {
         const core = this._tinted('rkgs', '#ffe08a');
-        if (core) {
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = Math.min(1, this.weaponGlow * (0.62 + 0.2 * Math.sin(this.t * 9)));
-          ctx.drawImage(core, -W * 0.2, -H * 0.47, W * 0.96, H * 0.94);
-          ctx.globalAlpha = 1;
+        if (core) drawImg(core, pose.ang, Math.min(1, this.weaponGlow * (0.6 + 0.2 * Math.sin(this.t * 9))), 'lighter');
+        // 沿剑身的火舌（局部坐标：从握柄往剑尖）
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(pose.ang);
+        if (this.face < 0) ctx.scale(-1, 1);
+        ctx.globalCompositeOperation = 'lighter';
+        // 整条剑身包一层火光（三层：外焰 / 内焰 / 白心）
+        const L = grip[1] * H;
+        const flick = 0.85 + 0.15 * Math.sin(this.t * 17);
+        for (const [lw, col] of [[13 * flick, 'rgba(255,90,20,0.35)'], [7 * flick, 'rgba(255,150,40,0.6)'], [3, 'rgba(255,240,190,0.9)']]) {
+          ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(0, -4);
+          ctx.quadraticCurveTo(Math.sin(this.t * 7) * 3, -L * 0.55, 0, -L + 2);
+          ctx.stroke();
         }
-        for (let i = 0; i < 10; i++) {
-          const ph = (this.t * 1.7 + i * 0.137) % 1;
-          const y = -H * 0.46 + ph * H * 0.92;
-          const x = Math.sin(this.t * 5 + i * 2.3) * W * 0.3;
-          ctx.fillStyle = `rgba(255,${145 + (i % 3) * 35},45,${0.8 * (1 - ph) * this.weaponGlow})`;
-          ctx.beginPath(); ctx.arc(x, y, 1.4 + (1 - ph) * 3.4, 0, TAU_); ctx.fill();
+        for (let i = 0; i < 12; i++) {
+          const ph = (this.t * 1.6 + i * 0.11) % 1;
+          const y = -grip[1] * H + ph * H * 0.9;
+          const x = Math.sin(this.t * 6 + i * 2.1) * W * 0.32;
+          ctx.fillStyle = `rgba(255,${145 + (i % 3) * 35},45,${0.85 * (1 - ph) * this.weaponGlow})`;
+          ctx.beginPath(); ctx.arc(x, y, 1.5 + (1 - ph) * 3.6, 0, TAU_); ctx.fill();
         }
+        ctx.restore();
       }
-      // 小镰刀：紫光向外晕开一层
       if (key === 'scythe') {
-        const halo = this._tinted('scythe', '#e6b8ff');
-        if (halo) {
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = this.weaponGlow * 0.22;
-          ctx.drawImage(halo, -W * 0.32, -H * 0.6, W * 1.2, H * 1.2);
-          ctx.globalAlpha = 1;
-        }
+        // 镰刀刃口的紫光：在刃的一侧描一条紫色光边
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(pose.ang);
+        if (this.face < 0) ctx.scale(-1, 1);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(200,140,255,${0.5 * this.weaponGlow})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(-grip[0] * W + W * 0.5, -grip[1] * H + H * 0.52, W * 0.34, -0.4, 2.2);
+        ctx.stroke();
+        ctx.restore();
       }
     }
-    ctx.restore();
 
-    // P3 左手法兰短剑（短剑就该小：H 72 → 60，更短）
+    // P3 左手法兰短剑（也绕握柄，随大剑反向摆动）
     if (this.weapon === 'farron') {
       const sImg = this.images.farron_ss;
-      ctx.save();
-      ctx.translate(-this.face * 36, gy + 22);
-      ctx.rotate(ang * -0.6);
-      if (this.face < 0) ctx.scale(-1, 1);
       if (sImg && sImg.complete && sImg.naturalWidth) {
         const H2 = 60, W2 = H2 * (sImg.naturalWidth / sImg.naturalHeight) * 0.8;
-        ctx.drawImage(sImg, -W2 * 0.22, -H2 * 0.5, W2, H2);
+        const g2 = Soul5Fight.GRIP.farron_ss;
+        ctx.save();
+        ctx.translate(this.bx - this.face * 34, gy + 20);
+        ctx.rotate(pose.ang * -0.55);
+        if (this.face < 0) ctx.scale(-1, 1);
+        ctx.drawImage(sImg, -g2[0] * W2, -g2[1] * H2, W2, H2);
+        ctx.restore();
       }
-      ctx.restore();
     }
   }
 
