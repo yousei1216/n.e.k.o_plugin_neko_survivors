@@ -19,6 +19,11 @@
 // ============================================================
 
 export const GACHA_COST = 10;   // 一次十连消耗的券
+// 第二百二十八轮：UR 动态概率 —— 每次十连没出 UR，下一次十连 +1%，
+// 出 UR 后回到 1%。100 发（10 个十连）没出 = 11%。
+export const GACHA_UR_RATE_START = 1;
+export const GACHA_UR_RATE_STEP = 1;
+export const GACHA_UR_RATE_MAX = 100;
 
 /** 顺序即显示顺序；p 之和必须为 1 */
 export const GACHA_RARITIES = [
@@ -34,10 +39,28 @@ export const GACHA_POINTS = Object.fromEntries(
   GACHA_RARITIES.map((r) => [r.id, r.points]),
 );
 
-export function rollGachaRarity(rng) {
+/**
+ * 把"UR 总概率"换算成五档权重。其余四档按原比例缩小，保证总和为 1。
+ * urRate=1 时和旧的固定概率完全一致。
+ */
+export function gachaWeights(urRate = GACHA_UR_RATE_START) {
+  const ur = Math.max(0, Math.min(100, Number(urRate) || 0)) / 100;
+  const rest = 1 - ur;
+  const baseSum = GACHA_RARITIES
+    .filter((r) => r.id !== 'UR')
+    .reduce((s, r) => s + r.p, 0) || 1;
+  const out = {};
+  for (const def of GACHA_RARITIES) {
+    out[def.id] = def.id === 'UR' ? ur : (def.p / baseSum) * rest;
+  }
+  return out;
+}
+
+export function rollGachaRarity(rng, urRate = GACHA_UR_RATE_START) {
+  const weights = gachaWeights(urRate);
   let r = rng.next();
   for (const def of GACHA_RARITIES) {
-    r -= def.p;
+    r -= weights[def.id] || 0;
     if (r <= 0) return def.id;
   }
   return 'N';
@@ -50,24 +73,28 @@ export function rollGachaRarity(rng) {
  * @param {number} pity 当前"距上次 SSR/UR"的抽数（0..99+）
  * @returns {{cards:Array<{rarity:string,points:number,index:number,guaranteed:boolean,pityForced:boolean}>, pityAfter:number}}
  */
-export function rollTenPull(rng, pity = 0) {
+export function rollTenPull(rng, pity = 0, urRate = GACHA_UR_RATE_START) {
+  const rate = Math.max(GACHA_UR_RATE_START, Math.min(GACHA_UR_RATE_MAX, Number(urRate) || GACHA_UR_RATE_START));
   const cards = [];
   let sinceSSR = Math.max(0, Math.floor(Number(pity) || 0));
   let hasSRPlus = false;
+  let hasUR = false;
 
   for (let i = 0; i < 10; i++) {
     let rarity;
     let pityForced = false;
     // 100 抽保底：连续 99 抽没有 SSR/UR，这一抽（第 100 抽）必出 SSR。
+    // UR 概率被动态拉到 100% 时，保底直接给 UR。
     if (sinceSSR >= 99) {
-      rarity = 'SSR';
-      pityForced = true;
+      rarity = rate >= GACHA_UR_RATE_MAX ? 'UR' : 'SSR';
+      pityForced = rarity === 'SSR';
     } else {
-      rarity = rollGachaRarity(rng);
+      rarity = rollGachaRarity(rng, rate);
     }
     if (rarity === 'SSR' || rarity === 'UR') sinceSSR = 0;
     else sinceSSR += 1;
     if (rarity === 'SR' || rarity === 'SSR' || rarity === 'UR') hasSRPlus = true;
+    if (rarity === 'UR') hasUR = true;
     cards.push({
       index: i,
       rarity,
@@ -78,7 +105,8 @@ export function rollTenPull(rng, pity = 0) {
   }
 
   // 10 抽保底 1 个 SR：整组都没有 SR 及以上 → 最后一张变 SR。
-  // （如果最后一张本来就被 SSR 保底占了，hasSRPlus 已经为 true，不会触发。）
+  // 注意：UR 也算 SR+；如果最后一张被改成 SR，不能影响 hasUR 的判定
+  // （UR 只会更早出现在卡组里，保底不会把它降级）。
   if (!hasSRPlus) {
     const last = cards[cards.length - 1];
     last.rarity = 'SR';
@@ -86,7 +114,15 @@ export function rollTenPull(rng, pity = 0) {
     last.guaranteed = true;
   }
 
-  return { cards, pityAfter: sinceSSR };
+  return {
+    cards,
+    pityAfter: sinceSSR,
+    urRate: rate,
+    urRateAfter: hasUR
+      ? GACHA_UR_RATE_START
+      : Math.min(GACHA_UR_RATE_MAX, rate + GACHA_UR_RATE_STEP),
+    hasUR,
+  };
 }
 
 /** 一整组卡折算的能力点数 */

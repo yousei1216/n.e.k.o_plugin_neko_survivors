@@ -2192,7 +2192,8 @@ input[type="range"].fx-slider::-moz-range-thumb {
   z-index: 2;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: clamp(8px, 1.35vw, 18px);
+  column-gap: clamp(8px, 1.35vw, 18px);
+  row-gap: 30px;
   width: min(1080px, 94vw);
 }
 .gacha-card {
@@ -2250,16 +2251,16 @@ input[type="range"].fx-slider::-moz-range-thumb {
   filter: blur(10px);
   animation: gachaGlow 1.6s ease-in-out infinite alternate;
 }
-.gacha-card.ur { filter: drop-shadow(0 0 18px rgba(255, 220, 120, .95)) drop-shadow(0 0 28px rgba(190, 120, 255, .7)) drop-shadow(0 8px 16px rgba(0, 0, 0, .5)); }
+.gacha-card.ur { filter: drop-shadow(0 0 12px rgba(255, 220, 120, .8)) drop-shadow(0 0 20px rgba(190, 120, 255, .55)) drop-shadow(0 8px 16px rgba(0, 0, 0, .5)); }
 .gacha-card.ur::after {
   content: '';
   position: absolute;
-  inset: -18px;
+  inset: -14px;
   z-index: -1;
-  border-radius: 22px;
+  border-radius: 20px;
   background: conic-gradient(from 0deg, #ff5f6d, #ffd93d, #7bffb2, #5fd3ff, #b06bff, #ff5f6d);
-  filter: blur(14px);
-  opacity: .85;
+  filter: blur(11px);
+  opacity: .62;
   animation: gachaRainbowSpin 2.6s linear infinite;
 }
 @keyframes gachaCardIn {
@@ -2784,3 +2785,463 @@ input[type="range"].fx-slider::-moz-range-thumb {
   .title-minigame { width: clamp(150px, 16vw, 210px); }
   .mg-hint { display: none; }
 }
+/* ============================================================
+   第二百二十八轮：主菜单生活区（农场 / 钓场 / 手办柜 / 商店）
+   —— 全屏大布局：顶部农田、底部钓场、右下手办柜；
+      小屏折叠为「生活区」弹窗，不影响现有主菜单。
+   ============================================================ */
+
+/* ---------- 顶部农田 / 底部钓场 ---------- */
+.title-farm,
+.title-fishing {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(960px, 52vw);
+  z-index: 6;
+  padding: 7px 10px 9px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 14px 34px rgba(30, 90, 110, .18);
+}
+.title-farm { top: 12px; }
+.title-fishing { bottom: 36px; }
+
+.title-farm {
+  background:
+    radial-gradient(120% 120% at 10% 0%, rgba(140, 230, 160, .35), transparent 62%),
+    linear-gradient(165deg, rgba(251, 255, 246, .97), rgba(220, 244, 220, .95));
+  border: 1px solid rgba(120, 200, 140, .55);
+}
+.title-fishing {
+  background:
+    radial-gradient(120% 120% at 80% 0%, rgba(140, 220, 255, .4), transparent 62%),
+    linear-gradient(165deg, rgba(241, 252, 255, .97), rgba(205, 238, 250, .95));
+  border: 1px solid rgba(100, 190, 230, .5);
+}
+.life-panel { color: #2c4a3e; }
+.life-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.life-title {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: #2f5a42;
+  white-space: nowrap;
+}
+.title-fishing .life-title { color: #1d5a75; }
+.life-sub {
+  font-size: 10px;
+  color: #6d8577;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+.title-fishing .life-sub { color: #5d8092; }
+.life-coins {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #8a6a1f;
+  white-space: nowrap;
+}
+.life-coins b { color: #c68a00; font-size: 12px; font-variant-numeric: tabular-nums; }
+.life-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+#overlay .life-chip {
+  min-height: 24px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  border: 1px solid rgba(90, 160, 120, .35);
+  background: rgba(255, 255, 255, .65);
+  color: #35624a;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+#overlay .life-chip:hover {
+  background: #fff;
+  border-color: #5fbf82;
+  box-shadow: 0 0 10px rgba(90, 200, 130, .22);
+}
+#overlay .title-fishing .life-chip { border-color: rgba(80, 170, 210, .4); color: #23617c; }
+#overlay .title-fishing .life-chip:hover { border-color: #5fc8e8; box-shadow: 0 0 10px rgba(90, 190, 230, .25); }
+
+/* 农场格 */
+.farm-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+#overlay .farm-plot {
+  position: relative;
+  height: 54px;
+  min-height: 0;
+  padding: 3px 4px;
+  border-radius: 9px;
+  border: 1px solid rgba(100, 170, 120, .4);
+  background: linear-gradient(180deg, #f4ffe9, #dcf2cf);
+  color: #315a3e;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  font: inherit;
+  transition: transform .1s ease, border-color .1s ease, box-shadow .1s ease;
+}
+#overlay .farm-plot:hover {
+  transform: translateY(-1px);
+  border-color: #69c986;
+  box-shadow: 0 4px 12px rgba(70, 160, 100, .2);
+}
+#overlay .farm-plot.empty {
+  border-style: dashed;
+  background: rgba(255, 255, 255, .38);
+  color: #7fa98a;
+}
+#overlay .farm-plot.ready {
+  border-color: #ffc857;
+  background: linear-gradient(180deg, #fffbe6, #ffe9a8);
+  box-shadow: 0 0 12px rgba(255, 200, 70, .4);
+  animation: farm-ready 1.8s ease-in-out infinite;
+}
+@keyframes farm-ready {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 200, 70, .28); }
+  50%      { box-shadow: 0 0 16px rgba(255, 200, 70, .65); }
+}
+.plot-plus { font-size: 18px; font-weight: 900; color: #9ec5a9; line-height: 1; }
+.plot-crop { font-size: 17px; font-weight: 900; line-height: 1.1; text-shadow: 0 1px 0 rgba(255, 255, 255, .8); }
+.plot-time { font-size: 8.5px; font-weight: 800; color: #6b8b74; font-variant-numeric: tabular-nums; }
+.farm-plot.ready .plot-time { color: #a06a00; }
+.plot-progress {
+  position: absolute; left: 5px; right: 5px; bottom: 3px; height: 3px;
+  background: rgba(60, 110, 80, .14); border-radius: 2px; overflow: hidden;
+}
+.plot-progress i { display: block; height: 100%; background: #6fcf8a; border-radius: 2px; }
+.plot-badges {
+  position: absolute; top: 2px; right: 3px;
+  display: flex; gap: 2px; font-size: 7px; font-weight: 900;
+}
+.plot-badges i {
+  font-style: normal; line-height: 1; padding: 1px 2px; border-radius: 3px;
+  background: rgba(255, 255, 255, .75);
+}
+.plot-badges .w { color: #2f8fb0; }
+.plot-badges .dry { color: #c9802f; }
+.plot-badges .f { color: #8a5cc4; }
+
+/* 农田操作浮层 */
+.farm-menu {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, 90%);
+  z-index: 12;
+  padding: 10px;
+  border-radius: 13px;
+  border: 1px solid #b9dfc6;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(40, 100, 70, .28);
+  color: #2f4d3d;
+}
+.life-hub .farm-menu {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(400px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.farm-menu-title { font-size: 12px; font-weight: 900; margin-bottom: 4px; }
+.farm-menu-title span { font-size: 9px; color: #89a394; margin-left: 4px; }
+.farm-menu-desc { font-size: 9.5px; color: #70887a; line-height: 1.5; margin-bottom: 6px; }
+.farm-menu-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+#overlay .farm-menu-item {
+  min-height: 34px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid #cfe6d6;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+#overlay .farm-menu-item:hover:not(:disabled) { border-color: #6fcf8a; background: #f6fff8; }
+#overlay .farm-menu-item:disabled { opacity: .4; cursor: not-allowed; }
+.farm-menu-item b { font-size: 10px; }
+.farm-menu-item span { font-size: 8.5px; color: #7b9485; }
+.farm-menu-foot { display: flex; justify-content: flex-end; gap: 5px; margin-top: 7px; }
+#overlay .life-mini-btn {
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 7px;
+  border: 1px solid #bfdcc8;
+  background: #fff;
+  color: #35624a;
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+#overlay .life-mini-btn.primary { background: #7ed99a; border-color: #4fbf77; color: #173d28; }
+#overlay .life-mini-btn:hover { filter: brightness(1.04); }
+
+/* 钓场 */
+.fish-stage {
+  border-radius: 11px;
+  overflow: hidden;
+  border: 1px solid rgba(90, 180, 220, .35);
+  background: #9ed9ee;
+  box-shadow: inset 0 0 18px rgba(30, 100, 130, .18);
+}
+.fish-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1000 / 170;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* ---------- 右下手办柜 ---------- */
+.title-figures {
+  position: absolute;
+  right: clamp(14px, 3.4vw, 64px);
+  bottom: 36px;
+  width: clamp(300px, 19vw, 360px);
+  z-index: 6;
+  padding: 8px 9px 9px;
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(200, 140, 255, .2), transparent 62%),
+    linear-gradient(165deg, rgba(27, 18, 44, .96), rgba(11, 8, 22, .96));
+  border: 1px solid rgba(200, 150, 255, .35);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+.figure-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.figure-card {
+  min-width: 0;
+  padding: 4px 2px 3px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .05);
+  text-align: center;
+  cursor: default;
+}
+.figure-card.unlocked {
+  border-color: color-mix(in srgb, var(--fc) 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 18%, transparent), rgba(255, 255, 255, .03));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fc) 22%, transparent);
+}
+.figure-card.locked { opacity: .48; filter: grayscale(1); }
+.figure-avatar {
+  width: 26px; height: 26px; margin: 0 auto 2px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  font-size: 13px; font-weight: 900;
+  color: #1d1228;
+  background: var(--fc, #b794f6);
+  border: 1px solid var(--fa, #fff);
+}
+.figure-name { font-size: 9px; font-weight: 800; color: #f1e8ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.figure-lv { font-size: 8px; color: #bda8d8; }
+.figure-dots { font-size: 6px; letter-spacing: 1px; color: var(--fc, #c08bff); }
+
+/* 小屏折叠 */
+.life-hub-btn { display: none; }
+@media (max-width: 1499px), (max-height: 1019px) {
+  .title-farm, .title-fishing, .title-figures { display: none; }
+  .life-hub-btn { display: block; }
+  /* 弹窗里必须重新显示，不能继承上面的"小屏折叠" */
+  .life-hub .title-farm, .life-hub .title-fishing { display: flex; }
+  .life-hub .title-figures { display: block; }
+}
+
+/* ---------- 生活区弹窗 ---------- */
+.screen.life-hub {
+  width: min(1000px, calc(100vw - 48px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 8px;
+}
+.life-hub-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.life-hub-head h2 { margin: 0; font-size: 22px; }
+.life-hub-tabs { display: flex; gap: 6px; margin-left: auto; }
+#overlay .life-hub-tabs button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 9px;
+  border: 1px solid #cfe4fb;
+  background: #fff;
+  color: #3d5570;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+#overlay .life-hub-tabs button.active {
+  background: linear-gradient(135deg, #8fd0ff, #d8f1ff);
+  border-color: #5fb8e8;
+  color: #1d4c6e;
+}
+.life-hub-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .42);
+  border: 1px solid rgba(200, 220, 240, .7);
+}
+.life-hub .title-farm,
+.life-hub .title-fishing,
+.life-hub .title-figures {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  transform: none;
+  width: 100%;
+  filter: none;
+  margin: 0;
+}
+.life-hub .title-fishing { margin-top: 4px; }
+.life-hub-foot { display: flex; justify-content: center; }
+
+/* ---------- 商店 / 鱼篓 / 仓库 ---------- */
+.screen.life-shop-screen {
+  width: min(1020px, calc(100vw - 48px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.life-wallet {
+  position: sticky; top: 0; z-index: 2;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255, 248, 220, .96), rgba(235, 250, 255, .96));
+  border: 1px solid rgba(230, 200, 120, .5);
+  font-size: 12px;
+  font-weight: 800;
+  color: #6b5520;
+}
+.life-wallet b { color: #c68a00; font-size: 14px; }
+.life-section-title { margin: 12px 0 6px; font-size: 15px; color: #34546a; }
+.life-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.life-shop-card {
+  border: 1px solid color-mix(in srgb, var(--ic, #9ad) 40%, transparent);
+  border-radius: 12px;
+  padding: 9px 10px;
+  background: linear-gradient(165deg, #fff, #f6fbff);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.life-shop-card.equipped {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ic, #9ad) 55%, transparent);
+  background: linear-gradient(165deg, #f7fffb, #eafff4);
+}
+.shop-card-name { font-size: 13px; font-weight: 900; color: #2c4a5e; }
+.shop-card-name small { font-size: 10px; color: #8aa0ae; font-weight: 700; }
+.shop-card-desc { font-size: 10.5px; line-height: 1.5; color: #6f8493; }
+.shop-card-stats { display: flex; flex-wrap: wrap; gap: 3px 8px; font-size: 9.5px; color: #557382; }
+.shop-card-stats span { background: rgba(120, 190, 220, .12); padding: 1px 5px; border-radius: 4px; }
+.shop-card-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: auto; }
+#overlay .life-shop-card .btn { min-height: 26px; padding: 3px 8px; font-size: 10.5px; }
+.life-screen-foot { display: flex; justify-content: center; margin: 14px 0 2px; }
+.life-bag-actions { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.life-item-list { display: flex; flex-direction: column; gap: 5px; max-height: 320px; overflow-y: auto; padding-right: 3px; }
+.life-item-card {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ic, #9ad) 35%, transparent);
+  background: linear-gradient(90deg, #fff, #f7fcff);
+}
+.item-glyph {
+  width: 30px; height: 30px; flex: 0 0 30px;
+  border-radius: 8px; border: 1px solid var(--ic, #9ad);
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 900;
+}
+.item-main { flex: 1; min-width: 0; }
+.item-name { font-size: 11.5px; font-weight: 900; color: #2c4a5e; }
+.item-sub { font-size: 9.5px; color: #7f95a3; }
+.item-value { font-size: 10px; font-weight: 800; color: #b07a00; white-space: nowrap; }
+.life-empty {
+  padding: 24px; text-align: center; font-size: 12px; color: #8a9baa;
+  border: 1px dashed #c8d8e4; border-radius: 10px; background: rgba(255, 255, 255, .5);
+}
+.life-collection-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 5px;
+}
+.life-collection-card {
+  padding: 7px 8px; border-radius: 9px;
+  border: 1px dashed rgba(150, 170, 185, .45);
+  background: rgba(255, 255, 255, .55);
+  opacity: .7;
+}
+.life-collection-card.found {
+  opacity: 1;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--ic, #9ad) 45%, transparent);
+  background: linear-gradient(160deg, #fff, color-mix(in srgb, var(--ic, #9ad) 8%, #fff));
+}
+.col-name { font-size: 11px; font-weight: 900; }
+.col-sub { font-size: 9px; color: #6f8493; margin-top: 2px; }
+.col-count { font-size: 8.5px; color: #9aabb8; margin-top: 1px; }
+
+/* ---------- 扭蛋机新增：金币兑换 / UR 概率 / 手办 ---------- */
+.coin-exchange-row { display: flex; gap: 4px; }
+#overlay .coin-exchange-row .btn {
+  flex: 1;
+  min-height: 26px;
+  padding: 3px 3px;
+  font-size: 9.5px;
+  white-space: normal;
+  line-height: 1.25;
+}
+.gacha-figures {
+  position: relative;
+  z-index: 4;
+  margin: 20px auto 0;
+  padding: 8px 12px;
+  width: min(620px, 88vw);
+  border-radius: 14px;
+  background: linear-gradient(165deg, rgba(44, 24, 70, .92), rgba(20, 12, 34, .92));
+  border: 1px solid rgba(255, 190, 120, .45);
+  box-shadow: 0 0 22px rgba(255, 180, 80, .16);
+}
+.gacha-figures-title { font-size: 11px; font-weight: 900; color: #ffd166; text-align: center; margin-bottom: 5px; }
+.gacha-figures-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.gacha-figure { text-align: center; min-width: 74px; }
+.gacha-figure-avatar {
+  width: 36px; height: 36px; margin: 0 auto 3px;
+  border-radius: 10px; display: grid; place-items: center;
+  background: var(--fc, #b794f6); color: #1d1228;
+  font-size: 18px; font-weight: 900;
+  border: 2px solid rgba(255, 255, 255, .65);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--fc, #b794f6) 55%, transparent);
+}
+.gacha-figure-name { font-size: 10px; font-weight: 800; color: #fff6e6; }
+.gacha-figure-lv { font-size: 8.5px; color: #d9c7a8; }

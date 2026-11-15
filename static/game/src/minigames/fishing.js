@@ -1,0 +1,732 @@
+// ============================================================
+// 第二百二十八轮：主菜单底部「猫娘钓场」横向钓鱼
+//
+// 操作：
+//   按住鼠标蓄力 → 松手抛竿 → 等浮漂下沉 → 点击提竿
+//   → 按住收线、松手放线，把进度拉满。张力拉爆会断线。
+//
+// 这里只做 Canvas 表现和即时操作；鱼种随机、鱼篓、金币由
+// src/systems/life-state.js 处理，通过 onCast / onCatch 回调交给 UI/main。
+// 以后换美术优先改 _drawCatgirl / _drawWater / _drawBobber。
+// ============================================================
+
+import { getBait, getFish, getRod } from '../data/life.js';
+
+const W = 1000;
+const H = 170;
+const TAU = Math.PI * 2;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+
+export class FishingGame {
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {{
+   *   onCast?: () => {bait?: object, fallback?: boolean},
+   *   onCatch?: () => {fish?: object, added?: boolean, autoSold?: boolean, autoCoins?: number, coins?: number},
+   *   onHud?: (hud: object) => void,
+   *   onSound?: (name:string) => void,
+   * }} opts
+   */
+  constructor(canvas, opts = {}) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.onCast = opts.onCast || null;
+    this.onCatch = opts.onCatch || null;
+    this.onHud = opts.onHud || null;
+    this.onSound = opts.onSound || null;
+
+    this.state = 'idle'; // idle | charging | cast | wait | bite | reel | result
+    this.message = '按住鼠标蓄力，松手抛竿';
+    this.power = 0;
+    this.castPower = 0;
+    this.castT = 0;
+    this.waitT = 0;
+    this.biteT = 0;
+    this.progress = 0;
+    this.tension = 0;
+    this.reelT = 0;
+    this.reeling = false;
+    this.resultT = 0;
+    this.result = null;
+    this.bobberX = 720;
+    this.bobberY = 112;
+    this.rod = getRod('bamboo');
+    this.bait = getBait('dough');
+    this.ambientT = 0;
+    this.waterT = 0;
+    this.fishShadows = Array.from({ length: 5 }, (_, i) => ({
+      x: rand(260, 920), y: rand(98, 152), sp: rand(8, 20) * (i % 2 ? 1 : -1), phase: rand(0, TAU),
+    }));
+    this.ripples = [];
+    this.particles = [];
+    this._raf = 0;
+    this._last = 0;
+    this._hudAt = 0;
+    this._destroyed = false;
+
+    const dpr = Math.min(2, Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1));
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.imageSmoothingEnabled = true;
+
+    this._onDown = (e) => {
+      if (e.preventDefault) e.preventDefault();
+      try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* */ }
+      this._pointerDown();
+    };
+    this._onUp = (e) => {
+      if (e.preventDefault) e.preventDefault();
+      try { this.canvas.releasePointerCapture?.(e.pointerId); } catch { /* */ }
+      this._pointerUp();
+    };
+    this._onCancel = () => {
+      this.reeling = false;
+      if (this.state === 'charging') {
+        this.state = 'idle';
+        this.power = 0;
+        this.message = '按住鼠标蓄力，松手抛竿';
+        this._emitHud(true);
+      }
+    };
+    canvas.addEventListener('pointerdown', this._onDown);
+    canvas.addEventListener('pointerup', this._onUp);
+    canvas.addEventListener('pointercancel', this._onCancel);
+    canvas.addEventListener('pointerleave', this._onCancel);
+    canvas.style.touchAction = 'none';
+
+    this._loop = this._loop.bind(this);
+    this._emitHud(true);
+    this._raf = requestAnimationFrame(this._loop);
+  }
+
+  destroy() {
+    this._destroyed = true;
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this._raf = 0;
+    try {
+      this.canvas.removeEventListener('pointerdown', this._onDown);
+      this.canvas.removeEventListener('pointerup', this._onUp);
+      this.canvas.removeEventListener('pointercancel', this._onCancel);
+      this.canvas.removeEventListener('pointerleave', this._onCancel);
+    } catch { /* */ }
+  }
+
+  _sound(name) {
+    try { this.onSound?.(name); } catch { /* */ }
+  }
+
+  _pointerDown() {
+    if (this.state === 'idle') {
+      this.state = 'charging';
+      this.power = 0;
+      this.message = '蓄力中……松手抛竿';
+      this._emitHud(true);
+      return;
+    }
+    if (this.state === 'bite') {
+      this.state = 'reel';
+      this.progress = 0.12;
+      this.tension = 0.18;
+      this.reelT = 0;
+      this.reeling = true;
+      this.message = '按住收线，松手放线；张力拉满会断线';
+      this._sound('pickupXp');
+      this._emitHud(true);
+      return;
+    }
+    if (this.state === 'reel') {
+      this.reeling = true;
+    }
+  }
+
+  _pointerUp() {
+    if (this.state === 'charging') {
+      this.castPower = this.power;
+      this.state = 'cast';
+      this.castT = 0.55;
+      this.bobberX = 180;
+      this.bobberY = 76;
+      this.ripples.length = 0;
+      this.particles.length = 0;
+      const cast = this.onCast?.() || {};
+      this.bait = cast.bait || this.bait;
+      this.rod = cast.rod || getRod(this.rod?.id || 'bamboo');
+      this.message = cast.fallback ? '高级鱼饵用完了，换回面团' : '抛竿！';
+      this._sound('click');
+      this._emitHud(true);
+      return;
+    }
+    if (this.state === 'reel') {
+      this.reeling = false;
+    }
+  }
+
+  _loop(ts) {
+    if (this._destroyed) return;
+    this._raf = requestAnimationFrame(this._loop);
+    const t = ts / 1000;
+    const dt = this._last ? Math.min(0.05, t - this._last) : 0.016;
+    this._last = t;
+    this._update(dt);
+    this._draw(t);
+  }
+
+  _update(dt) {
+    this.ambientT += dt;
+    this.waterT += dt;
+    this._updateFishShadows(dt);
+    this._updateEffects(dt);
+
+    if (this.state === 'charging') {
+      this.power = Math.min(1, this.power + dt * 0.75);
+    } else if (this.state === 'cast') {
+      this.castT -= dt;
+      if (this.castT <= 0) {
+        this.state = 'wait';
+        const base = this.bait || getBait('dough');
+        this.waitT = rand(base.biteMin, base.biteMax);
+        this.bobberX = 230 + this.castPower * 620;
+        this.message = '等待鱼咬钩……';
+        this._emitHud(true);
+      }
+    } else if (this.state === 'wait') {
+      this.waitT -= dt;
+      if (this.waitT <= 0) {
+        this.state = 'bite';
+        this.biteT = 0.85;
+        this.message = '咬钩了！点击提竿';
+        this._sound('pickupXp');
+        this.ripples.push({ x: this.bobberX, y: 114, r: 6, max: 42, a: 0.8 });
+        this._emitHud(true);
+      }
+    } else if (this.state === 'bite') {
+      this.biteT -= dt;
+      if (this.biteT <= 0) {
+        this._finishMiss('鱼跑掉了……下次早点提竿');
+      }
+    } else if (this.state === 'reel') {
+      this.reelT += dt;
+      const rod = this.rod || getRod('bamboo');
+      const pull = 0.55 + Math.abs(Math.sin(this.reelT * 2.7)) * 0.75;
+      if (this.reeling) {
+        this.progress += dt * 0.24 * (rod.reel || 1);
+        this.tension += dt * 0.34 * pull / (rod.line || 1);
+      } else {
+        this.progress -= dt * 0.06;
+        this.tension -= dt * 0.5;
+      }
+      this.progress = clamp(this.progress, 0, 1);
+      this.tension = clamp(this.tension, 0, 1.2);
+      if (this.tension >= 1) {
+        this._finishMiss('线绷断了！下次张力高时松一下手');
+      } else if (this.progress >= 1) {
+        this._finishCatch();
+      }
+      if (this._hudAt === 0 || performance.now() - this._hudAt > 90) this._emitHud();
+    } else if (this.state === 'result') {
+      this.resultT -= dt;
+      if (this.resultT <= 0) {
+        this.state = 'idle';
+        this.message = '按住鼠标蓄力，松手抛竿';
+        this.result = null;
+        this.progress = 0;
+        this.tension = 0;
+        this._emitHud(true);
+      }
+    }
+  }
+
+  _finishMiss(msg) {
+    this.state = 'result';
+    this.resultT = 1.25;
+    this.result = { miss: true, message: msg };
+    this.reeling = false;
+    this.progress = 0;
+    this.tension = 0;
+    this.message = msg;
+    this._sound('error');
+    this._emitHud(true);
+  }
+
+  _finishCatch() {
+    const info = this.onCatch?.() || {};
+    const fish = info.fish;
+    this.state = 'result';
+    this.resultT = 1.8;
+    this.reeling = false;
+    this.result = { fish, ...info };
+    this.message = fish ? '上钩了！' : '空钩……';
+    this._sound('pickupMat');
+    if (fish) {
+      for (let i = 0; i < 16; i++) {
+        const a = rand(0, TAU);
+        const sp = rand(30, 110);
+        this.particles.push({
+          x: this.bobberX, y: 112,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
+          life: rand(0.3, 0.8), max: 0.8, r: rand(1.2, 3),
+          color: i % 3 === 0 ? '#ffe36e' : '#bff6ff',
+        });
+      }
+      this.ripples.push({ x: this.bobberX, y: 114, r: 8, max: 90, a: 0.9 });
+    }
+    this._emitHud(true);
+  }
+
+  _updateFishShadows(dt) {
+    for (const f of this.fishShadows) {
+      f.x += f.sp * dt;
+      if (f.x < 240) { f.x = 240; f.sp = Math.abs(f.sp); }
+      if (f.x > 930) { f.x = 930; f.sp = -Math.abs(f.sp); }
+      f.y += Math.sin(this.ambientT * 0.8 + f.phase) * 2 * dt;
+    }
+  }
+
+  _updateEffects(dt) {
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      r.r += (r.max - r.r) * Math.min(1, dt * 4.5);
+      r.a -= dt * 1.1;
+      if (r.a <= 0) this.ripples.splice(i, 1);
+    }
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life -= dt;
+      if (p.life <= 0) { this.particles.splice(i, 1); continue; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 55 * dt;
+      p.vx *= 0.98;
+    }
+  }
+
+  _emitHud(force = false) {
+    if (!this.onHud) return;
+    const now = typeof performance !== 'undefined' ? performance.now() : 0;
+    if (!force && now - this._hudAt < 85) return;
+    this._hudAt = now;
+    try {
+      this.onHud({
+        state: this.state,
+        message: this.message,
+        power: this.power,
+        progress: this.progress,
+        tension: this.tension,
+        rod: this.rod,
+        bait: this.bait,
+        result: this.result,
+      });
+    } catch { /* */ }
+  }
+
+  // ---------------- 绘制 ----------------
+  _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  _draw(t) {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, W, H);
+    this._drawSky(t);
+    this._drawWater(t);
+    this._drawBank(t);
+    this._drawFishShadows();
+    this._drawRodAndBobber(t);
+    this._drawCatgirl(t);
+    this._drawEffects();
+    this._drawMessage();
+    if (this.state === 'charging') this._drawPowerBar();
+    if (this.state === 'reel') this._drawReelBar();
+    if (this.state === 'result') this._drawResult();
+  }
+
+  _drawSky(t) {
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0, 0, 0, 90);
+    g.addColorStop(0, '#dff5ff');
+    g.addColorStop(0.65, '#bfe8f8');
+    g.addColorStop(1, '#9ed9ee');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // 远处的云
+    ctx.fillStyle = 'rgba(255, 255, 255, .55)';
+    for (let i = 0; i < 3; i++) {
+      const x = 300 + i * 240 + Math.sin(t * 0.08 + i) * 14;
+      const y = 24 + i * 9;
+      ctx.beginPath();
+      ctx.ellipse(x, y, 50, 12, 0, 0, TAU);
+      ctx.ellipse(x + 34, y - 5, 32, 10, 0, 0, TAU);
+      ctx.ellipse(x - 30, y + 2, 26, 8, 0, 0, TAU);
+      ctx.fill();
+    }
+    // 太阳
+    ctx.fillStyle = 'rgba(255, 244, 190, .75)';
+    ctx.beginPath();
+    ctx.arc(930, 30, 18, 0, TAU);
+    ctx.fill();
+  }
+
+  _drawWater(t) {
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0, 82, 0, H);
+    g.addColorStop(0, '#7fd6ea');
+    g.addColorStop(0.55, '#48b6d8');
+    g.addColorStop(1, '#247fa8');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 82, W, H - 82);
+
+    // 水波
+    ctx.strokeStyle = 'rgba(220, 255, 255, .28)';
+    ctx.lineWidth = 1.4;
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 16) {
+        const y = 96 + i * 16 + Math.sin(x * 0.018 + t * 0.9 + i) * 2.5;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // 睡莲
+    for (const [x, y, r] of [[360, 145, 21], [700, 136, 17], [880, 154, 24]]) {
+      ctx.fillStyle = 'rgba(48, 130, 92, .8)';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0.4, TAU - 0.4);
+      ctx.lineTo(x, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(160, 240, 180, .3)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+  }
+
+  _drawBank(t) {
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0, 72, 0, H);
+    g.addColorStop(0, '#8ed17a');
+    g.addColorStop(1, '#4f9e65');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, 72);
+    ctx.quadraticCurveTo(110, 60, 176, 86);
+    ctx.quadraticCurveTo(210, 104, 196, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, .22)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 76);
+    ctx.quadraticCurveTo(110, 64, 170, 90);
+    ctx.stroke();
+
+    // 草丛
+    ctx.strokeStyle = '#3f8a58';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const x = 18 + i * 18;
+      const y = 140 + (i % 3) * 8;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + 4, y - 12, x + 10, y - 16);
+      ctx.stroke();
+    }
+  }
+
+  _drawFishShadows() {
+    const ctx = this.ctx;
+    for (const f of this.fishShadows) {
+      ctx.save();
+      ctx.translate(f.x, f.y);
+      ctx.globalAlpha = 0.26;
+      ctx.fillStyle = '#0e4b66';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 14, 5.5, 0, 0, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(-20, -5);
+      ctx.lineTo(-20, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  _drawCatgirl(t) {
+    const ctx = this.ctx;
+    const bob = Math.sin(t * 1.7) * 1.2;
+    ctx.save();
+    ctx.translate(74, 86 + bob);
+
+    // 腿
+    ctx.strokeStyle = '#6b5b7a';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-4, 34); ctx.lineTo(-7, 50); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4, 34); ctx.lineTo(8, 50); ctx.stroke();
+
+    // 裙子
+    ctx.fillStyle = '#8fd0ff';
+    ctx.beginPath();
+    ctx.moveTo(-11, 18);
+    ctx.lineTo(11, 18);
+    ctx.lineTo(16, 38);
+    ctx.lineTo(-16, 38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, .55)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // 身体 / 手臂
+    ctx.fillStyle = '#ffe0c8';
+    ctx.beginPath();
+    ctx.ellipse(0, 14, 8, 10, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#ffe0c8';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(7, 14);
+    ctx.lineTo(22, 20);
+    ctx.stroke();
+
+    // 头
+    ctx.fillStyle = '#ffe6d2';
+    ctx.beginPath();
+    ctx.arc(0, -2, 13, 0, TAU);
+    ctx.fill();
+
+    // 头发
+    ctx.fillStyle = '#6b5b7a';
+    ctx.beginPath();
+    ctx.arc(0, -4, 14, Math.PI, TAU);
+    ctx.lineTo(14, 6);
+    ctx.quadraticCurveTo(8, 1, 4, 6);
+    ctx.lineTo(-13, 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // 猫耳
+    ctx.fillStyle = '#6b5b7a';
+    ctx.beginPath(); ctx.moveTo(-11, -8); ctx.lineTo(-15, -22); ctx.lineTo(-3, -13); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(11, -8); ctx.lineTo(15, -22); ctx.lineTo(3, -13); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffb8d6';
+    ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(-12, -18); ctx.lineTo(-6, -13); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(10, -10); ctx.lineTo(12, -18); ctx.lineTo(6, -13); ctx.closePath(); ctx.fill();
+
+    // 眼睛
+    ctx.fillStyle = '#3d2b4a';
+    ctx.beginPath(); ctx.arc(-4.5, 0, 1.5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(4.5, 0, 1.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#d97a9d';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 4, 3.2, 0.25, Math.PI - 0.25); ctx.stroke();
+
+    // 尾巴
+    ctx.strokeStyle = '#6b5b7a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-8, 30);
+    ctx.quadraticCurveTo(-30, 30 + Math.sin(t * 2) * 4, -24, 14);
+    ctx.stroke();
+
+    // 鱼竿（从手边伸出）
+    ctx.strokeStyle = '#b97945';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(20, 18);
+    ctx.lineTo(84, -34);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 240, 200, .4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(22, 17);
+    ctx.lineTo(82, -32);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  _drawRodAndBobber(t) {
+    const ctx = this.ctx;
+    // 鱼线终点：抛竿阶段从竿尖飞到目标；其余阶段停在 bobber
+    const tip = { x: 158, y: 52 };
+    let bx = this.bobberX;
+    let by = this.bobberY;
+    if (this.state === 'idle' || this.state === 'charging') {
+      bx = tip.x + 2;
+      by = tip.y + 8;
+    } else if (this.state === 'cast') {
+      const p = 1 - clamp(this.castT / 0.55, 0, 1);
+      const e = 1 - (1 - p) * (1 - p);
+      bx = tip.x + (this.bobberX - tip.x) * e;
+      by = tip.y + (this.bobberY - tip.y) * e - Math.sin(p * Math.PI) * 42;
+    } else if (this.state === 'wait' || this.state === 'bite') {
+      by = 112 + Math.sin(t * 4) * 2;
+      if (this.state === 'bite') by += 5;
+    } else if (this.state === 'reel') {
+      by = 112 + Math.sin(t * 10) * 3;
+    }
+
+    ctx.strokeStyle = 'rgba(240, 255, 255, .8)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.quadraticCurveTo((tip.x + bx) / 2, Math.min(tip.y, by) - 8, bx, by);
+    ctx.stroke();
+
+    if (this.state === 'idle' || this.state === 'charging') return;
+
+    // 浮漂
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(0, 0, 6, 9, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ff5f6d';
+    ctx.beginPath(); ctx.ellipse(0, -3, 6, 5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#8a3a44';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -16); ctx.stroke();
+    ctx.restore();
+
+    if (this.state === 'bite') {
+      ctx.fillStyle = '#ff3b5c';
+      ctx.font = '900 28px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('!', bx, by - 26);
+    }
+  }
+
+  _drawEffects() {
+    const ctx = this.ctx;
+    for (const r of this.ripples) {
+      ctx.strokeStyle = `rgba(220, 255, 255, ${Math.max(0, r.a)})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.ellipse(r.x, r.y, r.r, r.r * 0.42, 0, 0, TAU);
+      ctx.stroke();
+    }
+    for (const p of this.particles) {
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  _drawMessage() {
+    const ctx = this.ctx;
+    const text = this.message || '';
+    ctx.font = '800 13px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    const w = Math.max(180, ctx.measureText(text).width + 34);
+    const x = W / 2 - w / 2;
+    ctx.fillStyle = 'rgba(10, 40, 58, .55)';
+    this._roundRect(ctx, x, 8, w, 26, 13);
+    ctx.fill();
+    ctx.fillStyle = '#eafcff';
+    ctx.fillText(text, W / 2, 26);
+  }
+
+  _drawPowerBar() {
+    const ctx = this.ctx;
+    const x = 24;
+    const y = 146;
+    const w = 190;
+    const h = 12;
+    ctx.fillStyle = 'rgba(8, 30, 42, .55)';
+    this._roundRect(ctx, x, y, w, h, 6); ctx.fill();
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, '#7ef0b0');
+    g.addColorStop(0.65, '#ffd166');
+    g.addColorStop(1, '#ff6f61');
+    ctx.fillStyle = g;
+    this._roundRect(ctx, x + 1, y + 1, (w - 2) * this.power, h - 2, 5); ctx.fill();
+    ctx.fillStyle = '#eafcff';
+    ctx.font = '800 10px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('抛竿力度', x, y - 4);
+  }
+
+  _drawReelBar() {
+    const ctx = this.ctx;
+    const x = 300;
+    const y = 146;
+    const w = 400;
+    const h = 9;
+    ctx.fillStyle = 'rgba(8, 30, 42, .55)';
+    this._roundRect(ctx, x, y, w, h, 5); ctx.fill();
+    ctx.fillStyle = '#7ef0b0';
+    this._roundRect(ctx, x + 1, y + 1, (w - 2) * this.progress, h - 2, 4); ctx.fill();
+
+    // 张力条（进度条下方）
+    ctx.fillStyle = 'rgba(8, 30, 42, .55)';
+    this._roundRect(ctx, x, y + 14, w, 6, 3); ctx.fill();
+    const tg = ctx.createLinearGradient(x, 0, x + w, 0);
+    tg.addColorStop(0, '#8fd3ff');
+    tg.addColorStop(0.65, '#ffd166');
+    tg.addColorStop(1, '#ff3b5c');
+    ctx.fillStyle = tg;
+    this._roundRect(ctx, x + 1, y + 15, (w - 2) * Math.min(1, this.tension), 4, 2); ctx.fill();
+
+    ctx.fillStyle = '#eafcff';
+    ctx.font = '800 10px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`收线 ${Math.round(this.progress * 100)}%　张力 ${Math.round(this.tension * 100)}%`, x + w / 2, y - 6);
+  }
+
+  _drawResult() {
+    const ctx = this.ctx;
+    const r = this.result;
+    if (!r) return;
+    const w = 390;
+    const h = 86;
+    const x = W / 2 - w / 2;
+    const y = 42;
+    ctx.fillStyle = 'rgba(255, 255, 255, .94)';
+    this._roundRect(ctx, x, y, w, h, 14); ctx.fill();
+    ctx.strokeStyle = r.fish ? '#ffd166' : '#9fb7c8';
+    ctx.lineWidth = 2;
+    this._roundRect(ctx, x, y, w, h, 14); ctx.stroke();
+
+    ctx.textAlign = 'center';
+    if (r.fish) {
+      const def = getFish(r.fish.id);
+      const stars = r.fish.star > 0 ? '★'.repeat(r.fish.star) : '';
+      ctx.fillStyle = def.body || '#ff9a3c';
+      ctx.font = '900 17px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.fillText(`${def.name} ${stars}`, W / 2, y + 25);
+      ctx.fillStyle = '#35546a';
+      ctx.font = '700 12px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.fillText(`${r.fish.cm} cm · ${r.fish.value} 金币`, W / 2, y + 45);
+      ctx.fillStyle = r.autoSold ? '#b06bff' : '#2f9e6f';
+      ctx.fillText(r.autoSold ? '鱼篓已满，自动折成金币' : '已放入鱼篓', W / 2, y + 63);
+      if (r.coins != null) {
+        ctx.fillStyle = '#7a6d8c';
+        ctx.font = '700 10px "Segoe UI", "Microsoft YaHei", sans-serif';
+        ctx.fillText(`金币 ${r.coins}`, W / 2, y + 78);
+      }
+    } else {
+      ctx.fillStyle = '#5f7386';
+      ctx.font = '900 16px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.fillText(r.message || '鱼跑掉了……', W / 2, y + 42);
+      ctx.fillStyle = '#8fa6b8';
+      ctx.font = '700 11px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.fillText('再试一次吧', W / 2, y + 62);
+    }
+  }
+}

@@ -25,6 +25,13 @@ import {
 import { iconSvg, BOON_ICONS, META_ICONS } from './icons.js';
 // 第二百二十七轮：标题页左侧小游戏《猫娘捞金鱼》
 import { GoldfishScoop, GOLDFISH_DAILY_CAP, GOLDFISH_DURATION } from '../minigames/goldfish-scoop.js';
+// 第二百二十八轮：生活区面板 / 商店 / 鱼篓 / 手办柜
+import {
+  farmPanelHtml, fishPanelHtml, figuresPanelHtml, lifeHubHtml,
+  fishingShopHtml, farmShopHtml, fishBagHtml, cropBagHtml,
+  bindLifePanels, bindLifeShop,
+} from './life-ui.js';
+import { COINS_PER_TICKET, getFigure } from '../data/life.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。
@@ -332,14 +339,17 @@ export class UI {
   clearOverlay() {
     this._shopLive = null;   // 201 轮：关掉任何界面都不再让 tickShop 去重绘商店
     this._destroyGoldfish();
+    this._destroyLife();
     this.el.overlay.innerHTML = '';
   }
 
   _mount(html) {
     // 重渲染前先收掉旧气泡，否则会留一个孤儿挂在 body 上
     this.hideTip();
-    // 第二百二十七轮：标题页小游戏有自己的 RAF 和 pointer 监听，换界面前必须销毁
+    // 第二百二十七/二十八轮：标题页小游戏 / 生活区有自己的 RAF、计时器和
+    // pointer 监听，换界面前必须销毁，否则旧实例会继续跑。
     this._destroyGoldfish();
+    this._destroyLife();
     this.el.overlay.innerHTML = html;
     const root = this.el.overlay.firstElementChild;
     this._applySprites(root);
@@ -349,6 +359,11 @@ export class UI {
   _destroyGoldfish() {
     try { this._goldfish?.destroy?.(); } catch { /* 旧实例卸载失败不阻塞新界面 */ }
     this._goldfish = null;
+  }
+
+  _destroyLife() {
+    try { this._lifeBind?.destroy?.(); } catch { /* */ }
+    this._lifeBind = null;
   }
 
   // =========================================================
@@ -445,7 +460,9 @@ export class UI {
   // ---------------- 标题页 ----------------
   showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest,
     gachaTickets = 0, gachaPoints = 0, gachaPity = 0, biliClaimed = false, onGacha, onMetaUpgrades, onBiliSupport,
-    goldfishEarned = 0, goldfishCap = GOLDFISH_DAILY_CAP, onGoldfishReward = null, onGoldfishSound = null }) {
+    goldfishEarned = 0, goldfishCap = GOLDFISH_DAILY_CAP, onGoldfishReward = null, onGoldfishSound = null,
+    lifeMeta = null, onLifeAction = null, onOpenLifeShop = null, onOpenLifeBag = null,
+    onLifeSound = null, onOpenLifeHub = null, onCoinExchange = null, gachaUrRate = 1 }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -514,6 +531,13 @@ export class UI {
           </div>
         </div>
 
+        <!-- 第二百二十八轮：顶部农田 / 底部钓场 / 右下手办柜。
+             大屏（约 1500×960 以上）全部显示；小屏折叠成「生活区」弹窗。
+             面板本身只读 meta，所有变更通过 onLifeAction 回 main。 -->
+        ${farmPanelHtml({ farm: lifeMeta?.farm, coins: lifeMeta?.coins | 0 })}
+        ${fishPanelHtml({ fishing: lifeMeta?.fishing, coins: lifeMeta?.coins | 0 })}
+        ${figuresPanelHtml({ figures: lifeMeta?.figures })}
+
         <!-- 第二百二十七轮：主菜单左侧小游戏《猫娘捞金鱼》。
              独立 Canvas + 自己的 RAF；结算通过 onGoldfishReward 交给 main
              做每日上限、写 meta 和刷新券数。 -->
@@ -553,7 +577,12 @@ export class UI {
           <div class="gacha-wallet">
             <div class="gacha-line"><span>🎟 扭蛋券</span><b data-gacha-tickets="">${gachaTickets}</b></div>
             <div class="gacha-line"><span>✦ 能力点数</span><b data-gacha-points>${gachaPoints}</b></div>
-            <div class="gacha-pity">SSR 保底进度 ${gachaPity}/100</div>
+            <div class="gacha-line"><span>💰 金币</span><b data-gacha-coins>${lifeMeta?.coins | 0}</b></div>
+            <div class="gacha-pity">UR 概率 ${gachaUrRate}% · SSR 保底 ${gachaPity}/100</div>
+          </div>
+          <div class="coin-exchange-row">
+            <button class="btn small" data-act="coin-exchange" data-count="1">${COINS_PER_TICKET} 金币 → 1 券</button>
+            <button class="btn small" data-act="coin-exchange" data-count="10">${COINS_PER_TICKET * 10} → 10 券</button>
           </div>
           <button class="btn small gacha-upg-btn" data-act="meta-upgrades">${iconSvg('extraUpgrade', 'gacha-upg-ico')}升级能力</button>
           <!-- 第二百二十六轮：给作者视频三连的 50 抽一次性福利 -->
@@ -561,6 +590,7 @@ export class UI {
             ${iconSvg('video', 'bili-ico')}给作者视频3连可得50抽
           </button>
           <div class="bili-support-note">拜托了，你们的支持对我真的很重要。</div>
+          <button class="btn small life-hub-btn" data-act="life-hub">🌱 生活区</button>
           <div class="gacha-hint">10 张券抽一次十连</div>
         </div>
 
@@ -698,6 +728,44 @@ export class UI {
         game.start();
       };
     }
+
+    // 第二百二十八轮：金币兑换抽卡券（用户选择"不限量"，只受金币余额限制）
+    root.querySelectorAll('[data-act="coin-exchange"]').forEach((b) => {
+      b.onclick = () => {
+        if (!onCoinExchange) return;
+        const r = onCoinExchange(Number(b.dataset.count) || 1);
+        if (!r) return;
+        if (r.ok) {
+          const ce = root.querySelector('[data-gacha-coins]');
+          const te = root.querySelector('[data-gacha-tickets]');
+          if (ce) ce.textContent = String(r.coins | 0);
+          if (te) te.textContent = String(r.tickets | 0);
+          root.querySelectorAll('[data-life-coins]').forEach((el) => { el.textContent = String(r.coins | 0); });
+          this.toast(`兑换成功：抽卡券 +${r.count}`, 'good', 2400);
+        } else {
+          this.toast(r.msg || '兑换失败', 'bad', 2400);
+        }
+      };
+    });
+
+    // 小屏生活区入口
+    const hubBtn = root.querySelector('[data-act="life-hub"]');
+    if (hubBtn) {
+      if (onOpenLifeHub) hubBtn.onclick = onOpenLifeHub;
+      else hubBtn.remove();
+    }
+
+    // 第二百二十八轮：顶部农田 / 底部钓场 / 手办柜
+    if (lifeMeta && onLifeAction) {
+      this._lifeBind = bindLifePanels(this, root, {
+        meta: lifeMeta,
+        onLifeAction,
+        onOpenShop: onOpenLifeShop,
+        onOpenBag: onOpenLifeBag,
+        onSound: onLifeSound,
+        toast: (msg, kind, dur) => this.toast(msg, kind, dur),
+      });
+    }
     // 第二百零九轮：旧区的落幕测试入口
         // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');
@@ -711,10 +779,67 @@ export class UI {
     });
   }
 
+  // ---------------- 生活区弹窗 / 商店 / 鱼篓 / 仓库 ----------------
+  showFishingShop({ meta, onLifeAction, onClose }) {
+    const render = () => this.showFishingShop({ meta, onLifeAction, onClose });
+    const root = this._mount(fishingShopHtml({ meta }));
+    bindLifeShop(root, {
+      meta, onLifeAction, onClose, rerender: render,
+      toast: (msg, kind, dur) => this.toast(msg, kind, dur),
+    });
+  }
+
+  showFarmShop({ meta, onLifeAction, onClose }) {
+    const render = () => this.showFarmShop({ meta, onLifeAction, onClose });
+    const root = this._mount(farmShopHtml({ meta }));
+    bindLifeShop(root, {
+      meta, onLifeAction, onClose, rerender: render,
+      toast: (msg, kind, dur) => this.toast(msg, kind, dur),
+    });
+  }
+
+  showFishBag({ meta, onLifeAction, onClose }) {
+    const render = () => this.showFishBag({ meta, onLifeAction, onClose });
+    const root = this._mount(fishBagHtml({ meta }));
+    bindLifeShop(root, {
+      meta, onLifeAction, onClose, rerender: render,
+      toast: (msg, kind, dur) => this.toast(msg, kind, dur),
+    });
+  }
+
+  showCropBag({ meta, onLifeAction, onClose }) {
+    const render = () => this.showCropBag({ meta, onLifeAction, onClose });
+    const root = this._mount(cropBagHtml({ meta }));
+    bindLifeShop(root, {
+      meta, onLifeAction, onClose, rerender: render,
+      toast: (msg, kind, dur) => this.toast(msg, kind, dur),
+    });
+  }
+
+  /** 小屏折叠后的生活区：农场 / 钓鱼 / 手办三个标签共用同一套面板。 */
+  showLifeHub({ meta, tab = 'farm', onLifeAction, onOpenShop, onOpenBag, onClose, onSound }) {
+    const root = this._mount(lifeHubHtml({ tab, meta }));
+    root.querySelectorAll('[data-hub-tab]').forEach((b) => {
+      b.onclick = () => this.showLifeHub({
+        meta, tab: b.dataset.hubTab, onLifeAction, onOpenShop, onOpenBag, onClose, onSound,
+      });
+    });
+    const closeBtn = root.querySelector('[data-hub-close]');
+    if (closeBtn) closeBtn.onclick = onClose;
+    if (onLifeAction) {
+      this._lifeBind = bindLifePanels(this, root, {
+        meta, onLifeAction, onSound,
+        onOpenShop: (kind) => onOpenShop?.(kind, tab),
+        onOpenBag: (kind) => onOpenBag?.(kind, tab),
+        toast: (msg, kind, dur) => this.toast(msg, kind, dur),
+      });
+    }
+  }
+
   // ---------------- 扭蛋机（十连） ----------------
   // 第二百二十轮：10 张卡券斜着 5 张一行、两行，逐张弹出。
   // 点数量在动画结束后汇总（点数实际已在 main 里入账，界面只负责表现）。
-  showGachaPull({ cards, pointsGained, points, tickets, pity, onClose }) {
+  showGachaPull({ cards, pointsGained, points, tickets, pity, onClose, urRate = 1, urRateAfter = 1, figures = [] }) {
     const byId = Object.fromEntries(GACHA_RARITIES.map((r) => [r.id, r]));
     const hasUR = cards.some((c) => c.rarity === 'UR');
     const hasSSR = cards.some((c) => c.rarity === 'SSR');
@@ -746,11 +871,22 @@ export class UI {
           : hasSSR ? 'SSR 出现！金光炸开了！'
             : '扭蛋机咔哒咔哒地转……'}</div>
         <div class="gacha-cards">${cards.map(cardHtml).join('')}</div>
+        ${figures.length ? `<div class="gacha-figures">
+          <div class="gacha-figures-title">UR 附赠手办</div>
+          <div class="gacha-figures-row">${figures.map((f) => {
+            const def = getFigure(f.charId);
+            return `<div class="gacha-figure" style="--fc:${def.color}">
+              <div class="gacha-figure-avatar">${def.glyph}</div>
+              <div class="gacha-figure-name">${def.name}</div>
+              <div class="gacha-figure-lv">${f.duplicate ? `已满级 · +${f.coins} 金币` : `Lv.${f.level}/5`}</div>
+            </div>`;
+          }).join('')}</div>
+        </div>` : ''}
         <div class="gacha-summary">
           <span>本次获得 <b class="gacha-gain">+${pointsGained}</b> 能力点数</span>
           <span>当前 <b>${points}</b> 点</span>
           <span>剩余扭蛋券 <b>${tickets}</b></span>
-          <span class="gacha-pity">SSR 保底 ${pity}/100</span>
+          <span class="gacha-pity">UR ${urRate}%${urRateAfter !== urRate ? ` → ${urRateAfter}%` : ''} · SSR 保底 ${pity}/100</span>
         </div>
         <div class="gacha-actions">
           <button class="btn primary" data-act="gacha-close">收下</button>

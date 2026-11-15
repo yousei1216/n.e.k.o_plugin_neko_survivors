@@ -21,6 +21,8 @@ import { PhantomClone } from './entities/phantom.js';
 import { UI } from './ui/ui.js';
 // 第二百二十七轮：标题页左侧小游戏《猫娘捞金鱼》的每日奖励上限
 import { GOLDFISH_DAILY_CAP } from './minigames/goldfish-scoop.js';
+// 第二百二十八轮：主菜单生活区（钓鱼 / 农田 / 手办 / 金币）
+import * as Life from './systems/life-state.js';
 import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
 // 第二百一十六轮：中 Boss 技能能力奖励（白/蓝/紫/金 三选一）
@@ -409,6 +411,10 @@ export class Game {
       biliSupportClaimed: false,
       // 第二百二十七轮：标题页小游戏「猫娘捞金鱼」的每日奖励
       goldfishTicketsDate: '', goldfishTicketsToday: 0,
+      // 第二百二十八轮：生活区（金币 / 钓鱼 / 农田 / 手办）由
+      // life-state.normalizeLifeMeta 统一补默认值。
+      coins: 120,
+      fishing: null, farm: null, figures: null, gachaUrRate: 1, lifeSeq: 0,
     };
     let out = { ...DEFAULTS };
     try {
@@ -440,6 +446,9 @@ export class Game {
         }
       }
     } catch (e) { /* 忽略 */ }
+    // 第二百二十八轮：把生活区字段补齐/校正。normalizeLifeMeta 只返回
+    // 生活区那几个键，不会覆盖上面已经校验过的扭蛋/成长字段。
+    out = { ...out, ...Life.normalizeLifeMeta(out) };
     // 第二百二十一轮：用户："给所有玩家新存档就送30抽奖券。"
     // 用 gachaWelcome 标记保证只发一次；老存档（没有该标记）也补发一次。
     if (!out.gachaWelcome) {
@@ -488,11 +497,20 @@ export class Game {
     this.gachaRng ??= new RNG(randomSeed());
 
     this.meta.gachaTickets = tickets - GACHA_COST;
-    const { cards, pityAfter } = rollTenPull(this.gachaRng, this.meta.gachaPitySSR ?? 0);
+    const urRateBefore = this.meta.gachaUrRate ?? 1;
+    const { cards, pityAfter, urRateAfter } = rollTenPull(
+      this.gachaRng, this.meta.gachaPitySSR ?? 0, urRateBefore,
+    );
     const gained = totalGachaPoints(cards);
     this.meta.gachaPoints = (this.meta.gachaPoints | 0) + gained;
     this.meta.gachaPitySSR = pityAfter;
+    this.meta.gachaUrRate = urRateAfter;
     this.meta.gachaPulls = (this.meta.gachaPulls | 0) + 10;
+    // 第二百二十八轮：每张 UR 额外附赠一个随机角色手办。
+    const figures = [];
+    for (const c of cards) {
+      if (c.rarity === 'UR') figures.push(Life.grantFigure(this.meta, this.gachaRng));
+    }
     this._saveMeta();
 
     audio.play('levelUp');
@@ -502,6 +520,9 @@ export class Game {
       points: this.meta.gachaPoints | 0,
       tickets: this.meta.gachaTickets | 0,
       pity: pityAfter,
+      urRate: urRateBefore,
+      urRateAfter,
+      figures,
       onClose: () => this.showTitle(),
     });
   }
@@ -586,6 +607,93 @@ export class Game {
       remaining: Math.max(0, st.cap - earned),
       totalTickets: this.meta.gachaTickets | 0,
     };
+  }
+
+  /** 生活区独立随机流（不污染本局战斗种子）。 */
+  _lifeRng() {
+    this.lifeRng ??= new RNG(randomSeed());
+    return this.lifeRng;
+  }
+
+  /**
+   * 第二百二十八轮：生活区统一动作入口。
+   * UI 只传动作名和参数，所有存档变更、金币收支、收获随机都在这里。
+   */
+  _lifeAction(action, payload = {}) {
+    const meta = this.meta;
+    let r = null;
+    switch (action) {
+      case 'buyRod': r = Life.buyRod(meta, payload.id); break;
+      case 'equipRod': r = Life.equipRod(meta, payload.id); break;
+      case 'buyBait': r = Life.buyBait(meta, payload.id, payload.units ?? 10); break;
+      case 'selectBait': r = Life.selectBait(meta, payload.id); break;
+      case 'consumeBait': r = Life.consumeBait(meta); break;
+      case 'rollFish': {
+        const fish = Life.rollFishCatch(this._lifeRng(), meta.fishing.rod, meta.fishing.bait);
+        const added = Life.addFishItem(meta, fish);
+        r = { ok: true, fish, ...added, coins: meta.coins, bagCount: meta.fishing.bag.length };
+        break;
+      }
+      case 'addFish': r = Life.addFishItem(meta, payload.fish); break;
+      case 'sellFish': r = Life.sellFish(meta, payload.uid); break;
+      case 'sellAllFish': r = Life.sellAllFish(meta); break;
+      case 'buySeed': r = Life.buySeed(meta, payload.id, payload.units ?? 1); break;
+      case 'buyFertilizer': r = Life.buyFertilizer(meta, payload.id, payload.units ?? 1); break;
+      case 'plant': r = Life.plantCrop(meta, payload.index, payload.cropId); break;
+      case 'water': r = Life.waterPlot(meta, payload.index); break;
+      case 'fertilize': r = Life.fertilizePlot(meta, payload.index, payload.fertId); break;
+      case 'harvest': r = Life.harvestPlot(meta, payload.index, Date.now(), this._lifeRng()); break;
+      case 'sellCrop': r = Life.sellCrop(meta, payload.uid); break;
+      case 'sellAllCrops': r = Life.sellAllCrops(meta); break;
+      case 'buyMachine': r = Life.buyMachine(meta, payload.id); break;
+      case 'exchangeTickets': r = Life.exchangeCoinsForTickets(meta, payload.count ?? 1); break;
+      case 'tickFarm': r = Life.tickFarm(meta, Date.now(), this._lifeRng()); break;
+      default: r = { ok: false, msg: '未知的生活区操作' };
+    }
+    const changed = r?.ok === true || r?.watered > 0 || r?.harvested > 0 || r?.autoCoins > 0;
+    if (changed) this._saveMeta();
+    return r;
+  }
+
+  /** 标题页每秒刷新时调用：自动浇水/自动收获（离线也会补算）。 */
+  _lifeTick() {
+    return this._lifeAction('tickFarm');
+  }
+
+  _openLifeShop(kind, returnTab = null) {
+    this.state = STATE.TITLE;
+    const args = {
+      meta: this.meta,
+      onLifeAction: (action, payload) => this._lifeAction(action, payload),
+      onClose: () => (returnTab ? this._openLifeHub(returnTab) : this.showTitle()),
+    };
+    if (kind === 'fishShop') this.ui.showFishingShop(args);
+    else this.ui.showFarmShop(args);
+  }
+
+  _openLifeBag(kind, returnTab = null) {
+    this.state = STATE.TITLE;
+    const args = {
+      meta: this.meta,
+      onLifeAction: (action, payload) => this._lifeAction(action, payload),
+      onClose: () => (returnTab ? this._openLifeHub(returnTab) : this.showTitle()),
+    };
+    if (kind === 'fish') this.ui.showFishBag(args);
+    else this.ui.showCropBag(args);
+  }
+
+  /** 小屏折叠入口：农场 / 钓鱼 / 手办三个标签。 */
+  _openLifeHub(tab = 'farm') {
+    this.state = STATE.TITLE;
+    this.ui.showLifeHub({
+      meta: this.meta,
+      tab,
+      onLifeAction: (action, payload) => this._lifeAction(action, payload),
+      onOpenShop: (kind, fromTab) => this._openLifeShop(kind, fromTab),
+      onOpenBag: (kind, fromTab) => this._openLifeBag(kind, fromTab),
+      onClose: () => this.showTitle(),
+      onSound: (name) => { try { audio.play(name); } catch { /* */ } },
+    });
   }
 
   /** 打开"升级能力"界面（局外永久成长；数据表 META_UPGRADES 驱动）。 */
@@ -720,6 +828,8 @@ export class Game {
 
   showTitle() {
     this.state = STATE.TITLE;
+    // 第二百二十八轮：先补算离线期间的自动浇水/自动收获，再渲染面板。
+    try { this._lifeTick(); } catch { /* 生活区异常不影响主菜单 */ }
     this.ui.showHud(false);
     // 标题/菜单曲（用户要求："open是打开游戏的曲子"）
     audio.playScene('open');
@@ -768,6 +878,15 @@ export class Game {
       goldfishCap: GOLDFISH_DAILY_CAP,
       onGoldfishReward: (tickets) => this._rewardGoldfish(tickets),
       onGoldfishSound: (name) => { try { audio.play(name); } catch { /* */ } },
+      // 第二百二十八轮：生活区（金币 / 钓鱼 / 农田 / 手办）
+      lifeMeta: this.meta,
+      gachaUrRate: this.meta.gachaUrRate | 0 || 1,
+      onLifeAction: (action, payload) => this._lifeAction(action, payload),
+      onOpenLifeShop: (kind) => this._openLifeShop(kind),
+      onOpenLifeBag: (kind) => this._openLifeBag(kind),
+      onLifeSound: (name) => { try { audio.play(name); } catch { /* */ } },
+      onOpenLifeHub: () => this._openLifeHub(),
+      onCoinExchange: (count) => this._lifeAction('exchangeTickets', { count }),
       audioEnabled: audio.enabled,
     });
   }
@@ -925,6 +1044,8 @@ export class Game {
     let p1MetaBonuses = null;
     for (const pl of [this.player, ...this.world.partners()]) {
       const b = applyMetaUpgrades(pl, this.meta);
+      // 第二百二十八轮：对应角色的手办永久小幅加强（P1 和队友都生效）
+      Life.applyFigureBonuses(pl, this.meta);
       if (pl === this.player) p1MetaBonuses = b;
     }
     if (p1MetaBonuses) {
