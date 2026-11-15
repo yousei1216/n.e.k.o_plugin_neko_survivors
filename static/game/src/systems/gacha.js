@@ -8,7 +8,7 @@
 //     → N / R / SR / SSR / UR。
 //   · 10 抽保底 1 个 SR（10 张都没有 SR 时最后一张变 SR）；
 //     100 抽保底 1 个 SSR（连续 100 抽没有 SSR 时第 100 抽必出）。
-//   · 卡券在动画结束后折算成能力点数：N1 / R3 / SR10 / SSR30 / UR80。
+//   · 卡券在动画结束后折算成能力点数：N1 / R5 / SR20 / SSR60 / UR300。
 //
 // 本模块只做**纯随机与点数换算**（无 DOM、无存档），方便 Node 测试：
 //   存档字段（main.meta）：
@@ -23,10 +23,11 @@ export const GACHA_COST = 10;   // 一次十连消耗的券
 /** 顺序即显示顺序；p 之和必须为 1 */
 export const GACHA_RARITIES = [
   { id: 'N', name: 'N', p: 0.49, points: 1, color: '#8fd3ff' },
-  { id: 'R', name: 'R', p: 0.35, points: 3, color: '#7cffb2' },
-  { id: 'SR', name: 'SR', p: 0.10, points: 10, color: '#c08bff' },
-  { id: 'SSR', name: 'SSR', p: 0.05, points: 30, color: '#ffd45e' },
-  { id: 'UR', name: 'UR', p: 0.01, points: 80, color: '#ff7bd5' },
+  // 第二百二十四轮：用户要求 R 3→5、SR 10→20、SSR 30→60、UR 80→300
+  { id: 'R', name: 'R', p: 0.35, points: 5, color: '#7cffb2' },
+  { id: 'SR', name: 'SR', p: 0.10, points: 20, color: '#c08bff' },
+  { id: 'SSR', name: 'SSR', p: 0.05, points: 60, color: '#ffd45e' },
+  { id: 'UR', name: 'UR', p: 0.01, points: 300, color: '#ff7bd5' },
 ];
 
 export const GACHA_POINTS = Object.fromEntries(

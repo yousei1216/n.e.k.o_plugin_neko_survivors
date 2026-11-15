@@ -32,6 +32,10 @@ export const POISON_TICK = 1;            // 每秒一跳
 // 旧的场地在 1280×800 里只剩 40px 边距。战斗开始前 fitArenaToViewport
 // 会再按实际视口收敛一次（小窗口自动缩小，不会出框）。
 export const ARENA = { cx: 0, cy: -40, hw: 620, hh: 390 };
+// 第二百二十三轮：120 秒限时（用户："考虑到4ai猫娘打他很费劲，
+// 直接把时间改到120秒吧"）。此前完全没有计时/超时结算 —— 4AI 能打到
+// BGM 放完也不结束，HUD 还因为 waveTimeLeft=0 一直显示 0。
+export const SOUL5_TIME_LIMIT = 120;
 const BGM_FILE = 'assets/soul5/bgm.ogg';
 // 入场：0-3s 黑屏 → 3-6s 场地淡入 → 6-9s 小镰刀附魔（全程无敌）→ 开战
 const INTRO_BLACK_END = 3;
@@ -63,6 +67,7 @@ export class Soul5Fight {
     this.onDone = onDone;
     this.over = false;
     this.t = 0;
+    this.timeLeft = SOUL5_TIME_LIMIT;   // 入场演出结束后开始倒数
     this.introT = 0;
     this.state = 'intro';        // intro | idle | act | roll | taunt | backstep | heal | pause | win
     this.stateT = 0;
@@ -164,7 +169,13 @@ export class Soul5Fight {
   // ---------------------------------------------------------
   // 生命周期
   // ---------------------------------------------------------
-  getDisplayTimer() { return null; }
+  getDisplayTimer() {
+    return {
+      label: '',
+      left: Math.max(0, this.timeLeft),
+      total: SOUL5_TIME_LIMIT,
+    };
+  }
 
   finish(outcome) {
     if (this.over) return;
@@ -208,6 +219,16 @@ export class Soul5Fight {
       }
       this._syncBoss();
       return;
+    }
+
+    // ---- 120 秒限时：没打死就收场（与维吉尔 timeout 同口径，不给奖励） ----
+    // win 演出期间停表，避免 0.9 秒的胜利延迟被 timeout 抢先。
+    if (this.state !== 'win') {
+      this.timeLeft -= dtReal;
+      if (this.timeLeft <= 0) {
+        this.finish('timeout');
+        return;
+      }
     }
 
     // 阶段推进（66% / 33%）

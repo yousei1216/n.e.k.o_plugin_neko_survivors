@@ -142,12 +142,16 @@ export class UI {
     // "计时器全程锁定30秒显示，而不是90秒变动"）。
     const fight = game.world?.flandreFight;
     const vfight = game.world?.vergilFight;
+    // 第二百二十三轮：魂5 也有自己的限时（此前 getDisplayTimer() 恒 null，
+    // 回落到冻结的 waveTimeLeft=0 → 全场显示 0）。
+    const s5fight = game.world?.soul5Fight;
     const disp = fight
       ? (fight.getDisplayTimer?.() ?? null)
-      : (vfight ? (vfight.getDisplayTimer?.() ?? null) : null);
+      : (vfight ? (vfight.getDisplayTimer?.() ?? null)
+        : (s5fight ? (s5fight.getDisplayTimer?.() ?? null) : null));
     const timerBox = e.timerText && e.timerText.closest('.hud-timer');
     if (timerBox) {
-      timerBox.classList.toggle('hidden', !!(fight || vfight) && !disp);
+      timerBox.classList.toggle('hidden', !!(fight || vfight || s5fight) && !disp);
       timerBox.classList.toggle('flandre', !!fight && !!disp);
     }
     if (e.timerLabel) {
@@ -616,7 +620,7 @@ export class UI {
   // ---------------- 升级能力（局外永久成长） ----------------
   // 第二百二十轮：数据表驱动。META_UPGRADES 为空时显示"筹备中"空态；
   // 以后加条目即可自动出现在这里，无需再改 UI。
-  showMetaUpgrades({ points, upgrades, levels, meta, onBuy, onClose }) {
+  showMetaUpgrades({ points, upgrades, levels, meta, scrollTop = 0, onBuy, onClose }) {
     const m = meta || { metaUpgradeLevels: levels || {} };
     const list = upgrades || [];
 
@@ -701,6 +705,9 @@ export class UI {
         </div>
       </div>
     `);
+    // 第二百二十四轮：购买后重绘保持滚动位置
+    const body = root.querySelector('.meta-upg-body');
+    if (body && scrollTop > 0) body.scrollTop = scrollTop;
     root.querySelectorAll('[data-buy]').forEach((b) => {
       b.onclick = () => onBuy?.(b.dataset.buy);
     });

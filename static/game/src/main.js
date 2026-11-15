@@ -496,13 +496,16 @@ export class Game {
   }
 
   /** 打开"升级能力"界面（局外永久成长；数据表 META_UPGRADES 驱动）。 */
-  _openMetaUpgrades() {
+  _openMetaUpgrades(scrollTop = 0) {
     this.state = STATE.TITLE;
     this.ui.showMetaUpgrades({
       points: this.meta.gachaPoints | 0,
       upgrades: META_UPGRADES,
       levels: this.meta.metaUpgradeLevels || {},
       meta: this.meta,
+      // 第二百二十四轮：购买后重绘时保持滚动位置 —— 用户："每次点了之后
+      // 屏幕都会闪一下回到顶端，升级下面的能力需要反复滑下去。"
+      scrollTop,
       onBuy: (id) => {
         const def = META_UPGRADES.find((u) => u.id === id);
         if (!def) return;
@@ -523,7 +526,10 @@ export class Game {
         this.meta.metaUpgradeLevels = { ...(this.meta.metaUpgradeLevels || {}), [id]: lv + 1 };
         this._saveMeta();
         audio.play('buy');
-        this._openMetaUpgrades();   // 重绘，点数/等级立刻可见
+        // 重绘前记住滚动位置，重绘后回到原位（不再从顶部重新滑）
+        const body = document.querySelector('.meta-upg-body');
+        const top = body?.scrollTop ?? 0;
+        this._openMetaUpgrades(top);
       },
       onClose: () => this.showTitle(),
     });
@@ -1598,6 +1604,8 @@ export class Game {
       const name = mid.def?.bossName ?? mid.def?.name ?? '';
       this._lastMidBossName = name;
       this.pendingMidBossRewards = (this.pendingMidBossRewards || 0) + 1;
+      // 第二百二十四轮：中 Boss 也掉 1 张扭蛋券
+      this._awardGachaTickets(1);
       // 第二百一十八轮：P2~P4 各拿各的（AI 立刻自选，见下方方法）
       this._grantPartnerMidBossRewards();
       this.ui?.toast(`击败中 Boss：${name}！三选一奖励准备中…`, 'good', 3500);
@@ -1624,6 +1632,8 @@ export class Game {
         // 抽到同一个 → 商店里两把一模一样的红装）。_bossRedWave 按波次去重。
         if ((wave === 10 || wave === 20) && this._bossRedWave !== wave) {
           this._bossRedWave = wave;
+          // 第二百二十四轮：10/20 波 Boss 也掉 1 张扭蛋券（同波次去重）
+          this._awardGachaTickets(1);
           // 第一百六十轮：池子排除阎魔刀 —— 用户："按理说阎魔刀不出现在
           // 普通boss掉落里。"（此前池子含 yamato，20 波 boss 随机抽中它时
           // 看起来就像"维吉尔的刀又掉了一把"。）同时排除已持有的
@@ -2239,8 +2249,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
-      // 第二百二十轮：击败隐藏 Boss +1 扭蛋券
-      this._awardGachaTickets(1);
+      // 第二百二十四轮：击败隐藏 Boss +2 扭蛋券
+      this._awardGachaTickets(2);
       this.ui.toast(`次元斩落下！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
       // 阎魔刀：红色至尊（每回合一次的次元斩），走宝箱战利品流程
       // 第一百六十轮：已持有则不再掉第二把 —— 用户："20波打败芙兰之后
@@ -2263,7 +2273,14 @@ export class Game {
     }
     // 第二百零八轮（用户："就在第十波隐藏打完大排档椅子继续他的战斗"）：
     // 打赢大排档椅子 → 不立刻进商店，黑屏续战「旧区的落幕」；打完再进商店。
-    if (outcome === 'beat') { this._startSoul5({ chain: true }); return; }
+    if (outcome === 'beat') {
+      // 第二百二十四轮：用户实测 "4个ai猫娘打大排档椅子全是残血赢得，
+      // 进魂5的时候4个人都没血" —— 续战前给全队一次**回满**（含倒地
+      // 队员），这是两场连战之间的整备，不是魂5战的回血机制。
+      this._healAllPlayersFull();
+      this._startSoul5({ chain: true });
+      return;
+    }
     // 正常进入第 10 波商店（下一波 = 第 11 波）
     this._openShop();
   }
@@ -2278,6 +2295,31 @@ export class Game {
     for (const pl of (this.world?.players?.() ?? [])) {
       if (!pl) continue;
       if (pl.downed && !pl.dead) { pl.downed = false; pl.hp = pl.maxHp; pl.invuln = 1.5; }
+      pl.resetDownCount?.();
+    }
+  }
+
+  /**
+   * 第二百二十四轮：Boss 连战之间的全队整备 —— 所有猫娘回满血。
+   * 维吉尔 → 魂5 的续战入口调用（用户："打完大排档椅子应该全员回满血
+   * 之后继续战斗的"）。倒地/濒死都拉起来，但不改变魂5自己的禁疗规则
+   *（_startSoul5 随后会重新 _setNoHealAll(true)）。
+   */
+  _healAllPlayersFull() {
+    const list = new Set();
+    if (this.player) list.add(this.player);
+    for (const pl of (this.world?.players?.() ?? [])) if (pl) list.add(pl);
+    for (const pl of (this.world?.partners?.() ?? [])) if (pl) list.add(pl);
+    for (const pl of list) {
+      if (!pl) continue;
+      if (pl.dead) pl.dead = false;
+      if (pl.downed) {
+        pl.downed = false;
+        pl.rescueProgress = 0;
+      }
+      const max = pl.stats?.get?.('maxHp') ?? pl.maxHp ?? pl.hp;
+      if (Number.isFinite(max) && max > 0) pl.hp = max;
+      pl.invuln = Math.max(pl.invuln ?? 0, 1.5);
       pl.resetDownCount?.();
     }
   }
@@ -2407,8 +2449,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
-      // 第二百二十轮：击败隐藏 Boss +1 扭蛋券
-      this._awardGachaTickets(1);
+      // 第二百二十四轮：击败隐藏 Boss +2 扭蛋券
+      this._awardGachaTickets(2);
       this.ui.toast(`旧区的落幕。获得 ${xp} 经验、${mats} 材料`, 'good', 5000);
       // 第二百一十四轮：专属红品「濡湿小镰刀」（同阎魔刀的宝箱战利品流程）
       if (!p.hasItem?.('wet_scythe')) {
@@ -2421,6 +2463,9 @@ export class Game {
         p.gainMaterials(pity);
         this.ui.toast(`你已持有濡湿小镰刀，他把湿意化作了 ${pity} 材料送你`, 'good', 5000);
       }
+    } else if (outcome === 'timeout') {
+      // 第二百二十三轮：120 秒到 → 正常收场（没有奖励，进商店）
+      this.ui.toast('时间到……旧区的落幕仍未结束，什么都没有留下', 'bad', 4500);
     } else {
       this.ui.toast('被老 ass 送回了篝火……什么都没有留下', 'bad', 4200);
     }
@@ -2564,8 +2609,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
-      // 第二百二十一轮：万圣节双猫胜利 +1 扭蛋券（20 波三连隐藏全胜 = 3 张）
-      this._awardGachaTickets(1);
+      // 第二百二十四轮：万圣节双猫胜利 +2 扭蛋券（20 波三连隐藏全胜 = 6 张）
+      this._awardGachaTickets(2);
       this.ui.toast(`双猫玩累了回家啦！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
       if (!this.meta.halloweenUnlocked) {
         this.meta.halloweenUnlocked = true;
@@ -2671,8 +2716,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
-      // 第二百二十一轮：芙兰→蕾米胜利 +1 扭蛋券
-      this._awardGachaTickets(1);
+      // 第二百二十四轮：芙兰→蕾米胜利 +2 扭蛋券
+      this._awardGachaTickets(2);
       this.ui.toast(`红雾散尽，姐妹俩退场了！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
     }
     if (p.dead) {
@@ -2903,8 +2948,8 @@ export class Game {
       p.gainMaterials(mats);
       audio.play('bossKill');
       if (outcome === 'beat') {
-        // 第二百二十轮：击败隐藏 Boss +1 扭蛋券
-        this._awardGachaTickets(1);
+        // 第二百二十四轮：击败隐藏 Boss +2 扭蛋券
+        this._awardGachaTickets(2);
         this.ui.toast(` Extra Phantom 存活成功！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
         // 第一百一十七轮：击败 EP 芙兰 → 永久解锁「直接挑战芙兰！」按钮
         //（localStorage meta，跨会话生效；只奖一次，重复击败无副作用）

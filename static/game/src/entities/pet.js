@@ -391,28 +391,37 @@ export class Pet extends Entity {
   // ---------------------------------------------------------
   _tryHeal(player, world) {
     if (this.healCd > 0) return false;
-    if (player.dead) return false;
-    const max = player.stats.get('maxHp');
-    if (max <= 0) return false;
-    const ratio = player.hp / max;
-    if (ratio >= PET_HEAL_THRESHOLD) return false;
+    // 第二百二十三轮：触发条件从"P1 血量低于 50%"改成"队伍里**任何一人**
+    // 低于 50%"，否则 4AI / 4P 里 P1 血量健康时，P2~P4 快死了小小猫娘也
+    // 完全不会触发（用户实测魂5 战 4 个 AI 全程没回血）。
+    const team = (world.players?.() ?? [player])
+      .filter((pl) => pl && !pl.dead && !pl.downed);
+    let trigger = null;
+    let worst = Infinity;
+    for (const pl of team) {
+      const m = pl.stats?.get?.('maxHp') ?? 0;
+      if (m <= 0) continue;
+      const r = pl.hp / m;
+      if (r < worst) { worst = r; trigger = pl; }
+    }
+    if (!trigger || worst >= PET_HEAL_THRESHOLD) return false;
 
     // 触发一次 20% 最大生命的回复，然后进入 15 秒冷却
+    const max = trigger.stats.get('maxHp');
     const amount = max * PET_HEAL_RATIO;
-    // force：芙兰战 noHeal 唯一合法豁免（第四十九轮明确保留小小猫娘半血治疗）
-    const healed = player.heal(amount, { force: true });
+    // force：芙兰战 / 魂5战 noHeal 唯一合法豁免（第四十九轮明确保留）
+    const healed = trigger.heal(amount, { force: true });
     // ---- 第一百八十四轮（用户："1p猫娘倒地次数是最少的，2-3-4p猫娘倒地
     // 明显多……要不让小小猫娘的回血触发的时候也回复其他3个猫娘的血"）——
-    // 治疗以前只喂 P1，4P 的 2~4P 局内零回复，倒地次数差距的直接来源。
     // 现在触发时全队（活着、非倒地）各回 20% 自身最大生命。
     let teamHealed = 0;
-    for (const pl of (world.players?.() ?? [player])) {
-      if (!pl || pl === player || pl.dead || pl.downed) continue;
+    for (const pl of team) {
+      if (!pl || pl === trigger) continue;
       const m2 = pl.stats?.get?.('maxHp') ?? 0;
       if (m2 > 0 && pl.hp > 0) teamHealed += pl.heal(m2 * PET_HEAL_RATIO, { force: true });
     }
     if (teamHealed > 0) {
-      world.fx?.damageText(player.x, player.y - 52, `全队 +${Math.round(teamHealed)}`, false, '#6ee7b7');
+      world.fx?.damageText(trigger.x, trigger.y - 52, `全队 +${Math.round(teamHealed)}`, false, '#6ee7b7');
     }
     // 第二百一十六轮：中 Boss 金色「小小猫娘·灵巧」技能冷却 -3 秒/层
     this.healCd = Math.max(3, PET_HEAL_COOLDOWN - (player?.boons?.petCdCut ?? 0));
@@ -425,7 +434,7 @@ export class Pet extends Entity {
 
     world.fx?.sparkle(this.x, this.y, '#ff7bac');
     world.fx?.ring(this.x, this.y, 34, '#ff7bac', 0.5);
-    world.fx?.damageText(player.x, player.y - 30, `+${Math.round(healed)}`, false, '#6ee7a8');
+    world.fx?.damageText(trigger.x, trigger.y - 30, `+${Math.round(healed)}`, false, '#6ee7a8');
     world.onPetHeal?.(this, healed);
     return true;
   }

@@ -665,12 +665,19 @@ export class NekoPilot {
         // 芙兰是站桩弹源，贴脸 = 站在弹幕喷口上。这里把环绕半径整体外推（近战也往外让），
         // 输出交给武器射程；下面 dodgeW 也同步调高，两件事一起做。
         const flan = !!ff;
-        const inner = (guarding ? (hasMelee ? 95 : 260) : (hasMelee ? 70 : 200)) + (flan ? (hasMelee ? 55 : 35) : 0);
-        const outer = (guarding ? (hasMelee ? 150 : 330) : (hasMelee ? 120 : 280)) + (flan ? 90 : 0);
+        // 第二百二十四轮：芙兰 EP（Extra Phantom）是 70 秒无敌演出，打她
+        // 不掉血。旧版 AI 仍按"近战贴身/远程压射程"的 boss 站位往她脸上贴，
+        // 被符卡弹打成筛子。EP 期间改成**保活优先**：环绕半径外推到
+        // 300~390，切向速度加快，闪避权重 2.0，输出交给自动开火的武器。
+        const flanEP = !!ff && ff.phase === 'extra';
+        const inner = flanEP ? 300
+          : (guarding ? (hasMelee ? 95 : 260) : (hasMelee ? 70 : 200)) + (flan ? (hasMelee ? 55 : 35) : 0);
+        const outer = flanEP ? 390
+          : (guarding ? (hasMelee ? 150 : 330) : (hasMelee ? 120 : 280)) + (flan ? 90 : 0);
         if (d < inner) { tx = p.x + (dx / d) * (inner - 15); ty = p.y + (dy / d) * (inner - 15); }
         else if (d > outer) { tx = b.x + (dx / d) * (outer - 25); ty = b.y + (dy / d) * (outer - 25); }
         else { // 环绕切向移动，不吃直线弹幕
-          const tang = hasMelee ? (guarding ? 90 : 60) : (guarding ? 120 : 110);
+          const tang = flanEP ? 160 : (hasMelee ? (guarding ? 90 : 60) : (guarding ? 120 : 110));
           tx = p.x + (-dy / d) * tang; ty = p.y + (dx / d) * tang;
         }
         // ---- 第一百八十四轮（用户："4ai猫娘都不躲芙兰弹幕"）----
@@ -686,9 +693,10 @@ export class NekoPilot {
 // 用户要求"躲避优先级提高一些"，宁可少打两下也别站在弹里。
         // 第二百一十九轮：魂5 的弩箭/毒雾/结晶比普通 Boss 密，闪避权重单独提高，
 // 但低于芙兰符卡（那是最密的一档）。
-        const dodgeW = flan ? (lowHp ? 1.6 : 1.35)
-          : s5 ? (lowHp ? 1.5 : 1.2)
-            : (lowHp ? 1.1 : 0.8);
+        const dodgeW = flanEP ? 2.0
+          : flan ? (lowHp ? 1.6 : 1.35)
+            : s5 ? (lowHp ? 1.5 : 1.2)
+              : (lowHp ? 1.1 : 0.8);
         const fm = Math.hypot(fleeX, fleeY);
         if (fm > 0.01) {
           const kpx = (Math.min(fm, 1.6) / fm) * fleeMag * dodgeW;
@@ -1272,6 +1280,40 @@ export class NekoPilot {
     }
   }
 
+  /**
+   * 第二百二十四轮：代打自动领取商店战利品栏。
+   * 与 main._openShop 的 onTakeReward 同口径：P1 拿一份，若满叠/已持有
+   * 则折价成材料；队里有一名活着的队友时也复制一份（战利品共享）。
+   */
+  _claimPendingRewards(g, p) {
+    const list = g?.world?.pendingItemRewards;
+    if (!Array.isArray(list) || list.length === 0) return 0;
+    const mates = (g.world?.players?.() ?? []).filter((o) => o && o !== p && !o.dead);
+    let n = 0;
+    // 从后往前删，避免 splice 下标漂移
+    for (let i = list.length - 1; i >= 0; i--) {
+      const r = list[i];
+      if (!r || typeof r.id !== 'string') continue;
+      if (p.addItem(r.id)) {
+        const mate = mates[0];
+        try { mate?.addItem?.(r.id); } catch { /* 队友上限不阻塞 P1 */ }
+        list.splice(i, 1);
+        n++;
+        this._log(`领取战利品 ${r.name ?? r.id}`);
+      } else {
+        const v = Number(r.sellValue) || 4;
+        p.gainMaterials?.(v);
+        list.splice(i, 1);
+        n++;
+        this._log(`战利品已达上限，${r.name ?? r.id} 折价 ${v} 材料`);
+      }
+    }
+    if (n > 0) {
+      try { g.ui?.toast?.(`小小猫娘帮你领取了 ${n} 件战利品`, 'good', 3600); } catch { /* */ }
+    }
+    return n;
+  }
+
   // ---------------------------------------------------------
   // 商店：优先买远程武器（定风筝基调），再补 afford 道具，然后推波
   // ---------------------------------------------------------
@@ -1279,6 +1321,12 @@ export class NekoPilot {
     try {
       const shop = g.shop;
       const p = ent ?? g.player;
+      // 第二百二十四轮：AI 也要领取商店战利品栏（Boss 掉落、宝箱）。
+      // 用户："猫娘ai会领取掉落的道具吗？她们打过了大排档椅子应该有阎魔刀，
+      // 但是ai猫娘被打死了也没触发过一次阎魔刀的效果。"
+      // 旧版只有真人点商店的"领取"按钮；P1 代打从不碰 pendingItemRewards，
+      // 阎魔刀/濡湿小镰刀等红品永远躺在栏里。entity 模式（P2~P4）不碰 P1 的栏。
+      if (!this.entity) this._claimPendingRewards(g, p);
       if (shop && p && Array.isArray(shop.offers)) {
         // ① 先合成：两把同名 → 高一阶武器（T4 传说只能合成得到，伤害跃升）
         // 第一百七十一轮（2P）：entity 模式跳过 —— canCombine 会扫到
