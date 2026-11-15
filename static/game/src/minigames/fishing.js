@@ -7,7 +7,9 @@
 //
 // 这里只做 Canvas 表现和即时操作；鱼种随机、鱼篓、金币由
 // src/systems/life-state.js 处理，通过 onCast / onCatch 回调交给 UI/main。
-// 以后换美术优先改 _drawCatgirl / _drawWater / _drawBobber。
+// 第二百二十九轮：换成 E:\猫娘姐妹\钓鱼 的像素背景/水面 + 猫娘立绘 + 鱼竿素材。
+// 背景和水面按 16:9 原图裁一条 284px 高的宽幅横带；水面先画、背景后画，
+// 这样背景里透明的湖面会露出水面层，码头也能盖在水面上。
 // ============================================================
 
 import { getBait, getFish, getRod } from '../data/life.js';
@@ -15,6 +17,27 @@ import { getBait, getFish, getRod } from '../data/life.js';
 const W = 1000;
 const H = 170;
 const TAU = Math.PI * 2;
+
+// 背景/水面原图 1672×941；取 y=560 起 284px 高的横带，正好铺满 1000×170。
+const SCENE_CROP = { x: 0, y: 560, w: 1672, h: 284 };
+// 立绘 1063×1480 / 1062×1480：画到 160px 高，脚踩在底部码头上。
+const CHAR_H = 160;
+const CHAR_X = 12;
+const CHAR_Y = 4;
+const CHAR_SCALE = CHAR_H / 1480;
+// 两种姿势里手的位置（原图像素）和鱼竿角度。鱼竿图 2172×724，
+// 握把中心约 (190,310)，竿尖约 (2154,330)。
+const POSE_FISH = { handX: 770, handY: 575, angle: -0.12 };
+const POSE_RAISE = { handX: 350, handY: 225, angle: -0.30 };
+const ROD_ANCHOR = { x: 190, y: 310 };
+const ROD_TIP = { x: 2154, y: 330 };
+const ASSET = {
+  bg: 'assets/fishing/bg.png',
+  water: 'assets/fishing/water.png',
+  fishing: 'assets/fishing/char_fishing.png',
+  raise: 'assets/fishing/char_raise.png',
+  rod: 'assets/fishing/rod.png',
+};
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -65,6 +88,12 @@ export class FishingGame {
     this._last = 0;
     this._hudAt = 0;
     this._destroyed = false;
+    this.imgBg = null;
+    this.imgWater = null;
+    this.imgFishing = null;
+    this.imgRaise = null;
+    this.imgRod = null;
+    this._loadAssets();
 
     const dpr = Math.min(2, Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1));
     canvas.width = Math.round(W * dpr);
@@ -100,6 +129,26 @@ export class FishingGame {
     this._loop = this._loop.bind(this);
     this._emitHud(true);
     this._raf = requestAnimationFrame(this._loop);
+  }
+
+  _loadAssets() {
+    const load = (key, src) => {
+      try {
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = src;
+        this[key] = img;
+      } catch { /* 资源失败时保留加载态，不影响玩法逻辑 */ }
+    };
+    load('imgBg', ASSET.bg);
+    load('imgWater', ASSET.water);
+    load('imgFishing', ASSET.fishing);
+    load('imgRaise', ASSET.raise);
+    load('imgRod', ASSET.rod);
+  }
+
+  _ready(img) {
+    return !!img && img.complete && img.naturalWidth > 0;
   }
 
   destroy() {
@@ -336,17 +385,99 @@ export class FishingGame {
   _draw(t) {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, W, H);
-    this._drawSky(t);
-    this._drawWater(t);
-    this._drawBank(t);
+    if (!this._drawScene()) {
+      ctx.fillStyle = '#17263b';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#cfe8ff';
+      ctx.font = '800 14px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('钓场加载中…', W / 2, H / 2);
+      return;
+    }
     this._drawFishShadows();
+    this._drawCharacter(t);
     this._drawRodAndBobber(t);
-    this._drawCatgirl(t);
     this._drawEffects();
     this._drawMessage();
     if (this.state === 'charging') this._drawPowerBar();
     if (this.state === 'reel') this._drawReelBar();
     if (this.state === 'result') this._drawResult();
+  }
+
+  /** 水面在下、背景在上：背景透明处露出水面，码头等不透明处盖住水面。 */
+  _drawScene() {
+    if (!this._ready(this.imgBg) || !this._ready(this.imgWater)) return false;
+    const ctx = this.ctx;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.imgWater,
+      SCENE_CROP.x, SCENE_CROP.y, SCENE_CROP.w, SCENE_CROP.h,
+      0, 0, W, H);
+    ctx.drawImage(this.imgBg,
+      SCENE_CROP.x, SCENE_CROP.y, SCENE_CROP.w, SCENE_CROP.h,
+      0, 0, W, H);
+    return true;
+  }
+
+  _charBob(t) {
+    return Math.sin(t * 1.7) * 1.2;
+  }
+
+  _drawCharacter(t) {
+    const ctx = this.ctx;
+    const img = this.state === 'charging' ? this.imgRaise : this.imgFishing;
+    if (!this._ready(img)) return;
+    const bob = this._charBob(t);
+    const w = img.naturalWidth * CHAR_SCALE;
+    // 脚下的软阴影，让角色和码头有接触感
+    ctx.fillStyle = 'rgba(25, 14, 35, .28)';
+    ctx.beginPath();
+    ctx.ellipse(CHAR_X + w * 0.5, CHAR_Y + CHAR_H - 2, w * 0.34, 5.5, 0, 0, TAU);
+    ctx.fill();
+    ctx.drawImage(img, CHAR_X, CHAR_Y + bob, w, CHAR_H);
+  }
+
+  /** 当前姿势的手部锚点、鱼竿角度和鱼线起点。 */
+  _rodPose(t) {
+    const charging = this.state === 'charging';
+    const pose = charging ? POSE_RAISE : POSE_FISH;
+    let angle = pose.angle;
+    if (this.state === 'cast') {
+      const p = 1 - clamp(this.castT / 0.55, 0, 1);
+      angle = -0.55 + p * 0.43;
+    } else if (this.state === 'reel') {
+      angle = pose.angle + this.tension * 0.18 + Math.sin(t * 12) * 0.008;
+    } else if (this.state === 'bite') {
+      angle += 0.03;
+    }
+    const bob = this._charBob(t);
+    return {
+      pose,
+      angle,
+      anchorX: CHAR_X + pose.handX * CHAR_SCALE,
+      anchorY: CHAR_Y + bob + pose.handY * CHAR_SCALE,
+    };
+  }
+
+  _rodTip(anchorX, anchorY, angle) {
+    const dx = (ROD_TIP.x - ROD_ANCHOR.x) * CHAR_SCALE;
+    const dy = (ROD_TIP.y - ROD_ANCHOR.y) * CHAR_SCALE;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return { x: anchorX + dx * c - dy * s, y: anchorY + dx * s + dy * c };
+  }
+
+  /** 竿尖在画布外时，把鱼线起点夹到画布边缘，避免线"凭空从半空出现"。 */
+  _lineStart(anchor, tip) {
+    if (tip.x >= 0 && tip.x <= W && tip.y >= 0 && tip.y <= H) return tip;
+    const dx = tip.x - anchor.x;
+    const dy = tip.y - anchor.y;
+    let t = 1;
+    if (tip.y < 0 && dy < 0) t = Math.min(t, (0 - anchor.y) / dy);
+    if (tip.y > H && dy > 0) t = Math.min(t, (H - anchor.y) / dy);
+    if (tip.x < 0 && dx < 0) t = Math.min(t, (0 - anchor.x) / dx);
+    if (tip.x > W && dx > 0) t = Math.min(t, (W - anchor.x) / dx);
+    t = clamp(t, 0, 1);
+    return { x: anchor.x + dx * t, y: anchor.y + dy * t };
   }
 
   _drawSky(t) {
@@ -561,18 +692,39 @@ export class FishingGame {
 
   _drawRodAndBobber(t) {
     const ctx = this.ctx;
-    // 鱼线终点：抛竿阶段从竿尖飞到目标；其余阶段停在 bobber
-    const tip = { x: 158, y: 52 };
+    const { angle, anchorX, anchorY } = this._rodPose(t);
+    const tip = this._rodTip(anchorX, anchorY, angle);
+    const lineStart = this._lineStart({ x: anchorX, y: anchorY }, tip);
+
+    // 鱼竿素材：以握把中心为锚点旋转，握把正好压在两只手上。
+    if (this._ready(this.imgRod)) {
+      ctx.save();
+      ctx.translate(anchorX, anchorY);
+      ctx.rotate(angle);
+      ctx.scale(CHAR_SCALE, CHAR_SCALE);
+      ctx.drawImage(this.imgRod, -ROD_ANCHOR.x, -ROD_ANCHOR.y);
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = '#b97945';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(anchorX, anchorY);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.stroke();
+    }
+
+    // 鱼线终点：未抛竿时垂在码头边；抛竿时从竿尖飞向目标。
     let bx = this.bobberX;
     let by = this.bobberY;
     if (this.state === 'idle' || this.state === 'charging') {
-      bx = tip.x + 2;
-      by = tip.y + 8;
+      // 未抛竿时浮漂停在码头外的水面上，不要放在木板上
+      bx = 560;
+      by = 140 + Math.sin(t * 2.2) * 1.5;
     } else if (this.state === 'cast') {
       const p = 1 - clamp(this.castT / 0.55, 0, 1);
       const e = 1 - (1 - p) * (1 - p);
-      bx = tip.x + (this.bobberX - tip.x) * e;
-      by = tip.y + (this.bobberY - tip.y) * e - Math.sin(p * Math.PI) * 42;
+      bx = lineStart.x + (this.bobberX - lineStart.x) * e;
+      by = lineStart.y + (this.bobberY - lineStart.y) * e - Math.sin(p * Math.PI) * 42;
     } else if (this.state === 'wait' || this.state === 'bite') {
       by = 112 + Math.sin(t * 4) * 2;
       if (this.state === 'bite') by += 5;
@@ -580,14 +732,12 @@ export class FishingGame {
       by = 112 + Math.sin(t * 10) * 3;
     }
 
-    ctx.strokeStyle = 'rgba(240, 255, 255, .8)';
+    ctx.strokeStyle = 'rgba(240, 255, 255, .82)';
     ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(tip.x, tip.y);
-    ctx.quadraticCurveTo((tip.x + bx) / 2, Math.min(tip.y, by) - 8, bx, by);
+    ctx.moveTo(lineStart.x, lineStart.y);
+    ctx.quadraticCurveTo((lineStart.x + bx) / 2, Math.min(lineStart.y, by) - 6, bx, by);
     ctx.stroke();
-
-    if (this.state === 'idle' || this.state === 'charging') return;
 
     // 浮漂
     ctx.save();
@@ -644,7 +794,7 @@ export class FishingGame {
 
   _drawPowerBar() {
     const ctx = this.ctx;
-    const x = 24;
+    const x = 600;
     const y = 146;
     const w = 190;
     const h = 12;
