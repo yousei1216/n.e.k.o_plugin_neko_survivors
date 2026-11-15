@@ -19,17 +19,20 @@ const H = 170;
 const TAU = Math.PI * 2;
 
 // 背景/水面原图 1672×941；取 y=560 起 284px 高的横带，正好铺满 1000×170。
-const SCENE_CROP = { x: 0, y: 560, w: 1672, h: 284 };
-// 立绘 1063×1480 / 1062×1480：画到 160px 高，脚踩在底部码头上。
-const CHAR_H = 160;
+const SCENE_CROP = { x: 0, y: 530, w: 1672, h: 284 };
+// 立绘 1063×1480 / 1062×1480：画到 140px 高，脚踩在码头木板表面上。
+// 170px 高的横条里如果角色仍画 160px，脚会贴着画布底，码头面只剩一条边，
+// 看起来像浮空；缩到 140px 后脚下还能露出 10 多像素木板。
+const CHAR_H = 140;
 // 站在码头木板上（用户红圈位置），不再站在最左边的草岸
 const CHAR_X = 286;
-const CHAR_Y = 4;
+const CHAR_Y = 8;
 const CHAR_SCALE = CHAR_H / 1480;
 // 两种姿势里手的位置（原图像素）和鱼竿角度。鱼竿图 2172×724，
 // 握把中心约 (190,310)，竿尖约 (2154,330)。
 const POSE_FISH = { handX: 770, handY: 575, angle: -0.12 };
-const POSE_RAISE = { handX: 350, handY: 225, angle: -0.45 };
+// 举杆时鱼竿接近竖直（约 -97°），竿尖竖起并出画；蓄力时本来就不画鱼线。
+const POSE_RAISE = { handX: 350, handY: 225, angle: -1.70 };
 const ROD_ANCHOR = { x: 190, y: 310 };
 const ROD_TIP = { x: 2154, y: 330 };
 const ASSET = {
@@ -309,10 +312,10 @@ export class FishingGame {
     if (this.state === 'landing') return;
     const pose = this._rodPose(0);
     const tip = this._rodTip(pose.anchorX, pose.anchorY, pose.angle);
-    const fromX = this.bobberX + (tip.x + 90 - this.bobberX);
+    const fromX = tip.x;
     this.state = 'landing';
     this.landT = 0.75;
-    this.landFrom = { x: fromX, y: 102 };
+    this.landFrom = { x: fromX, y: tip.y + 5 };
     this.reeling = false;
     this.message = '收线！鱼要上来了';
     this.ripples.push({ x: fromX, y: 114, r: 10, max: 74, a: 0.9 });
@@ -765,20 +768,23 @@ export class FishingGame {
       by = 112 + Math.sin(t * 4) * 2;
       if (this.state === 'bite') by += 5;
     } else if (this.state === 'reel') {
+      // 收线收到鱼竿头部，不是收到角色身前：鱼线要沿着伸出去的鱼竿收短。
       const pull = clamp(this.progress, 0, 1);
-      const toX = anchorX + 90;
+      const toX = tip.x;
+      const toY = tip.y + 5;
       bx = this.bobberX + (toX - this.bobberX) * pull;
-      by = 112 + Math.sin(t * 10) * 3 - pull * 12;
+      by = 112 + (toY - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7);
       showBobber = false;
       if (pull > 0.08) this._drawStrugglingFish(bx, by + 4, t, 0.8 + pull * 0.35);
     } else if (this.state === 'landing') {
+      // 最后只把鱼提到竿尖附近，线始终以竿尖为终点。
       const p = 1 - clamp(this.landT / 0.75, 0, 1);
       const e = 1 - (1 - p) * (1 - p);
-      const from = this.landFrom || { x: this.bobberX, y: 102 };
-      const toX = anchorX + 8;
-      const toY = anchorY - 10;
+      const from = this.landFrom || { x: tip.x, y: tip.y + 5 };
+      const toX = tip.x;
+      const toY = tip.y - 8;
       bx = from.x + (toX - from.x) * e;
-      by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 26;
+      by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 8;
       showBobber = false;
       this._drawStrugglingFish(bx, by, t, 0.95);
     }
