@@ -1288,15 +1288,13 @@ export class NekoPilot {
   _claimPendingRewards(g, p) {
     const list = g?.world?.pendingItemRewards;
     if (!Array.isArray(list) || list.length === 0) return 0;
-    const mates = (g.world?.players?.() ?? []).filter((o) => o && o !== p && !o.dead);
     let n = 0;
     // 从后往前删，避免 splice 下标漂移
     for (let i = list.length - 1; i >= 0; i--) {
       const r = list[i];
       if (!r || typeof r.id !== 'string') continue;
       if (p.addItem(r.id)) {
-        const mate = mates[0];
-        try { mate?.addItem?.(r.id); } catch { /* 队友上限不阻塞 P1 */ }
+        // 第二百二十五轮：队友的掉落已经各自独立结算，这里不再复制
         list.splice(i, 1);
         n++;
         this._log(`领取战利品 ${r.name ?? r.id}`);

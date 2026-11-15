@@ -447,7 +447,49 @@ export class World {
    * 所以道具**不立即生效**，而是进 pendingItemRewards，等回合结算时让玩家选。
    * 医疗包则立刻回血（那是即时救命的东西，不适合拖到结算）。
    */
+  /**
+   * 第二百二十五轮：给队友**立即**发一件道具（他们不走 P1 的商店战利品栏）。
+   * 已满叠/已持有时折价成材料，不让奖励静默消失。头顶飘一个道具名反馈。
+   */
+  _grantItemImmediate(pl, reward) {
+    if (!pl || !reward) return false;
+    try {
+      if (pl.addItem?.(reward.id)) {
+        this.fx?.damageText(pl.x, pl.y - 30, reward.name, false, '#ffc857');
+        this.fx?.sparkle(pl.x, pl.y, '#ffc857', 6);
+        return true;
+      }
+    } catch { /* 队友上限/异常不阻塞 */ }
+    pl.gainMaterials?.(Number(reward.sellValue) || 4);
+    return false;
+  }
+
   _resolveTreasure(player, entity) {
+    // 显式列 P1 + 队友（兼容测试里 world.player 还没绑定的情况）：
+    // P1 的奖励进商店战利品栏，队友的立即入包。
+    const p1 = this.player ?? player;
+    const players = [p1, ...(this.partners?.() ?? [])];
+    if (player && !players.includes(player)) players.push(player);
+    const rollForTeam = (rare) => {
+      let display = null;
+      for (const pl of players) {
+        if (!pl || pl.dead) continue;
+        const reward = this._rollRewardItem(pl, rare);
+        if (!reward) continue;
+        if (pl === p1) {
+          this.pendingItemRewards.push(reward);
+          if (!display) display = reward;
+        } else {
+          // 第二百二十五轮：P2~P4 也有一份**自己幸运**抽的独立道具，
+          // 包括地图宝箱/宝箱怪。用户："让她们也有一份独属于自己的掉落
+          // 吧，包括地图的宝箱掉的普通道具。"
+          this._grantItemImmediate(pl, reward);
+          if (!display) display = reward;
+        }
+      }
+      return display;
+    };
+
     if (entity.isChest) {
       this.chestsOpened++;
       const rw = entity.reward;
@@ -459,9 +501,8 @@ export class World {
         this.fx?.sparkle(entity.x, entity.y, '#6ee7a8', 8);
         this.onChestOpened?.(entity, { kind: 'heal', amount });
       } else {
-        const reward = this._rollRewardItem(player, rw.rare);
+        const reward = rollForTeam(rw.rare);
         if (reward) {
-          this.pendingItemRewards.push(reward);
           this.fx?.damageText(entity.x, entity.y - 24, reward.name, false, '#ffc857');
           this.fx?.sparkle(entity.x, entity.y, '#ffc857', 10);
           this.onChestOpened?.(entity, { kind: 'item', item: reward });
@@ -469,9 +510,8 @@ export class World {
       }
     } else if (entity.def?.treasure) {
       this.treasureKills++;
-      const reward = this._rollRewardItem(player, entity.def.treasureRare);
+      const reward = rollForTeam(entity.def.treasureRare);
       if (reward) {
-        this.pendingItemRewards.push(reward);
         this.fx?.damageText(entity.x, entity.y - 30, reward.name, false, '#ffc857');
         this.fx?.sparkle(entity.x, entity.y, '#ffc857', 12);
         this.onTreasureKilled?.(entity, reward);

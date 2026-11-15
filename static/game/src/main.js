@@ -1658,6 +1658,8 @@ export class Game {
             });
             this.ui.toast(`击败了波次 Boss！掉落了【${def.name}】！在商店里决定留下还是卖掉`, 'good', 8000);
           }
+          // 第二百二十五轮：P2~P4 也各有一份独属于自己的红品掉落
+          this._grantTeammateBossRedDrops();
         }
       }
 
@@ -2266,6 +2268,8 @@ export class Game {
         p.gainMaterials(pity);
         this.ui.toast(`你已持有阎魔刀，他把刀意化作了 ${pity} 材料送你`, 'good', 5000);
       }
+      // 第二百二十五轮：每位队友也有自己的阎魔刀
+      this._grantMateItemCopy('yamato', '阎魔刀');
     } else if (outcome === 'timeout') {
       this.ui.toast('90 秒到……椅子收刀离场，什么都没有留下', 'bad', 4200);
     } else {
@@ -2305,6 +2309,45 @@ export class Game {
    * 之后继续战斗的"）。倒地/濒死都拉起来，但不改变魂5自己的禁疗规则
    *（_startSoul5 随后会重新 _setNoHealAll(true)）。
    */
+  /**
+   * 第二百二十五轮：10/20 波 Boss 红品 —— 每个队友也按自己的持有情况
+   * 独立抽一件（不走 P1 的商店战利品栏，直接入包；已集齐折价材料）。
+   */
+  _grantTeammateBossRedDrops() {
+    const mates = (this.world?.partners?.() ?? []).filter((pl) => pl && !pl.dead);
+    if (!mates.length) return;
+    let got = 0;
+    for (const pl of mates) {
+      const pool = ITEMS.filter((it) => it.bossDropOnly && !it.hiddenBossOnly
+        && !pl.hasItem?.(it.id));
+      if (pool.length === 0) {
+        pl.gainMaterials?.(80);
+        continue;
+      }
+      const def = this.rng.pick(pool);
+      if (pl.addItem?.(def.id)) {
+        got++;
+        this.world.fx?.damageText(pl.x, pl.y - 30, def.name, false, '#ffc857');
+      } else {
+        pl.gainMaterials?.(Math.max(4, Math.round(def.price * 0.55)));
+      }
+    }
+    if (got > 0) {
+      this.ui?.toast(`队友们也各自获得了红色战利品 ×${got}`, 'good', 4000);
+    }
+  }
+
+  /** 第二百二十五轮：隐藏 Boss 的专属战利品也给每位队友一份（不重复给）。 */
+  _grantMateItemCopy(itemId, itemName) {
+    const mates = (this.world?.partners?.() ?? []).filter((pl) => pl && !pl.dead);
+    for (const pl of mates) {
+      if (!pl || pl.hasItem?.(itemId)) continue;
+      if (pl.addItem?.(itemId)) {
+        this.world?.fx?.damageText?.(pl.x, pl.y - 30, itemName, false, '#ffc857');
+      }
+    }
+  }
+
   _healAllPlayersFull() {
     const list = new Set();
     if (this.player) list.add(this.player);
@@ -2463,6 +2506,8 @@ export class Game {
         p.gainMaterials(pity);
         this.ui.toast(`你已持有濡湿小镰刀，他把湿意化作了 ${pity} 材料送你`, 'good', 5000);
       }
+      // 第二百二十五轮：每位队友也有自己的濡湿小镰刀
+      this._grantMateItemCopy('wet_scythe', '濡湿小镰刀');
     } else if (outcome === 'timeout') {
       // 第二百二十三轮：120 秒到 → 正常收场（没有奖励，进商店）
       this.ui.toast('时间到……旧区的落幕仍未结束，什么都没有留下', 'bad', 4500);
@@ -2970,6 +3015,8 @@ export class Game {
           p.gainMaterials(pity);
           this.ui.toast(`莱万汀已在你手中，芙兰留下了 ${pity} 材料作为战利品`, 'good', 5000);
         }
+        // 第二百二十五轮：每位队友也有自己的莱万汀
+        this._grantMateItemCopy('laevatein', '莱万汀');
       } else if (outcome === 'extraDeath') {
         // 第六十五轮：用户："额外模式死了拿经验和金币，没死拿莱万汀" ——
         // EP 阶段被弹幕打死也结算经验+材料（没有莱万汀）；正式卡阶段
@@ -3122,14 +3169,13 @@ export class Game {
         const r = list[i];
         if (!r) return;
         if (p.addItem(r.id)) {
-          // 第一百七十七轮（2P）：宝箱/Boss 战利品**一人一份** ——
-          // 用户："宝箱和boss战利品也一人一份。"领的人拿一份，队友
-          //（若在且活着）也直接白拿一份同样的。
-          const mate = this.world.players?.().find?.((o) => o && o !== p && !o.dead);
-          if (mate) mate.addItem(r.id);
+          // 第二百二十五轮：一人一份改为**各自的独立掉落**（宝箱在 world 里
+        // 按各人幸运各抽一件；Boss 红品给队友独立抽；隐藏专属战利品直接
+        // _grantMateItemCopy）。P1 的商店领取只结算 P1 自己这一份，避免
+        // 队友已经拿过又被复制一次。
           list.splice(i, 1);
           audio.play('buy');
-          this.ui.toast(mate ? `留下 ${r.name}（队友也拿了一份）` : `留下 ${r.name}`, 'good');
+          this.ui.toast(`留下 ${r.name}`, 'good');
         } else {
           audio.play('error');
           this.ui.toast(`${r.name} 已达叠加上限`, 'bad');
