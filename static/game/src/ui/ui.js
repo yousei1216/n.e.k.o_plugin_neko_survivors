@@ -434,7 +434,7 @@ export class UI {
 
   // ---------------- 标题页 ----------------
   showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest,
-    gachaTickets = 0, gachaPoints = 0, gachaPity = 0, onGacha, onMetaUpgrades }) {
+    gachaTickets = 0, gachaPoints = 0, gachaPity = 0, biliClaimed = false, onGacha, onMetaUpgrades, onBiliSupport }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -516,6 +516,11 @@ export class UI {
             <div class="gacha-pity">SSR 保底进度 ${gachaPity}/100</div>
           </div>
           <button class="btn small gacha-upg-btn" data-act="meta-upgrades">${iconSvg('extraUpgrade', 'gacha-upg-ico')}升级能力</button>
+          <!-- 第二百二十六轮：给作者视频三连的 50 抽一次性福利 -->
+          <button class="btn small bili-support-btn${biliClaimed ? ' claimed' : ''}" data-act="bili-support">
+            ${iconSvg('video', 'bili-ico')}给作者视频3连可得50抽
+          </button>
+          <div class="bili-support-note">拜托了，你们的支持对我真的很重要。</div>
           <div class="gacha-hint">10 张券抽一次十连</div>
         </div>
 
@@ -554,6 +559,8 @@ export class UI {
     if (gachaBtn && onGacha) gachaBtn.onclick = onGacha;
     const metaBtn = root.querySelector('[data-act="meta-upgrades"]');
     if (metaBtn && onMetaUpgrades) metaBtn.onclick = onMetaUpgrades;
+    const biliBtn = root.querySelector('[data-act="bili-support"]');
+    if (biliBtn && onBiliSupport) biliBtn.onclick = onBiliSupport;
     // 第二百零九轮：旧区的落幕测试入口
         // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');

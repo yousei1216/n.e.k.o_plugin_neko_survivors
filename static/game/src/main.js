@@ -403,6 +403,8 @@ export class Game {
       gachaTickets: 0, gachaPoints: 0, gachaPitySSR: 0, gachaPulls: 0, metaUpgradeLevels: {},
       // 第二百二十一轮：新存档见面礼（30 抽）只发一次
       gachaWelcome: false,
+      // 第二百二十六轮：给作者 B 站视频三连的 50 抽一次性福利
+      biliSupportClaimed: false,
     };
     let out = { ...DEFAULTS };
     try {
@@ -425,6 +427,7 @@ export class Game {
             metaUpgradeLevels: parsed.metaUpgradeLevels && typeof parsed.metaUpgradeLevels === 'object'
               ? parsed.metaUpgradeLevels : {},
             gachaWelcome: parsed.gachaWelcome === true,
+            biliSupportClaimed: parsed.biliSupportClaimed === true,
           };
         }
       }
@@ -493,6 +496,38 @@ export class Game {
       pity: pityAfter,
       onClose: () => this.showTitle(),
     });
+  }
+
+  /**
+   * 第二百二十六轮：主菜单「给作者视频3连可得50抽」。
+   * 首次点击：+50 扭蛋券（meta 一次性标记）并打开 B 站视频；
+   * 之后点击只打开视频 / 提示已领取。
+   */
+  _claimBiliSupport() {
+    const url = 'https://www.bilibili.com/video/BV17GsE65Eg4/';
+    // 先开网页，保证仍处在用户点击手势里（否则会被弹窗拦截）
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      try { window.open(url, '_blank', 'noopener,noreferrer'); } catch { /* */ }
+    }
+
+    if (!this.meta.biliSupportClaimed) {
+      this.meta.biliSupportClaimed = true;
+      this.meta.gachaTickets = (this.meta.gachaTickets | 0) + 50;
+      this._saveMeta();
+      audio.play('levelUp');
+      this.ui?.toast?.('感谢三连！扭蛋券 +50（仅一次）', 'good', 5200);
+      this.showTitle();   // 刷新券数 & 按钮已领取态
+    } else {
+      this.ui?.toast?.('50 抽已经领过啦，谢谢支持喵！', 'info', 3200);
+    }
   }
 
   /** 打开"升级能力"界面（局外永久成长；数据表 META_UPGRADES 驱动）。 */
@@ -666,8 +701,10 @@ export class Game {
       gachaTickets: this.meta.gachaTickets | 0,
       gachaPoints: this.meta.gachaPoints | 0,
       gachaPity: this.meta.gachaPitySSR | 0,
+      biliClaimed: this.meta.biliSupportClaimed === true,
       onGacha: () => this._rollGachaTen(),
       onMetaUpgrades: () => this._openMetaUpgrades(),
+      onBiliSupport: () => this._claimBiliSupport(),
       audioEnabled: audio.enabled,
     });
   }

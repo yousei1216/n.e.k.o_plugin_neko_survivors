@@ -2521,3 +2521,32 @@ input[type="range"].fx-slider::-moz-range-thumb {
   gap: 6px;
 }
 .gacha-upg-ico { width: 16px; height: 16px; flex: 0 0 16px; }
+
+/* 第二百二十六轮：给作者视频三连的 50 抽福利 */
+.bili-support-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  padding: 5px 6px;
+  border-color: rgba(255, 120, 170, .55);
+  color: #c94b7d;
+}
+.bili-support-btn.claimed { opacity: .72; }
+.bili-support-btn:hover:not(:disabled) {
+  border-color: #ff6fa5;
+  color: #e05a8c;
+  box-shadow: 0 0 14px rgba(255, 110, 165, .28);
+}
+.bili-ico { width: 15px; height: 15px; flex: 0 0 15px; }
+.bili-support-note {
+  font-size: 10px;
+  line-height: 1.55;
+  text-align: center;
+  color: #5f5273;
+  font-weight: 600;
+}

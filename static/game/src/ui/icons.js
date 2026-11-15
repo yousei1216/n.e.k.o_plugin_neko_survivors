@@ -231,6 +231,13 @@ const icons = {
     <path d="M13.8 15.2l-.8-3.6 2.6 1a4.8 4.8 0 0 1 7.4 0l2.4-1-1 3.4v2.6a4.6 4.6 0 0 1-9.2 0z"/>
     <circle cx="7.3" cy="11.6" r="1" fill="currentColor"/><circle cx="11.9" cy="11.6" r="1" fill="currentColor"/>
     <path d="M8.4 15c.8.7 1.6.7 2.4 0" opacity=".8"/>`,
+
+  video: `
+    <rect x="3" y="5" width="18" height="14" rx="4" fill="currentColor" opacity=".14"/>
+    <rect x="3" y="5" width="18" height="14" rx="4"/>
+    <path d="M10 9.2l5.2 2.9-5.2 2.9z" fill="currentColor" opacity=".75"/>
+    <path d="M18.2 2.6c1.2-1.2 3.2-.3 3.2 1.2 0 1.5-2.1 2.9-3.2 3.6-1.1-.7-3.2-2.1-3.2-3.6 0-1.5 2-2.4 3.2-1.2z"
+          fill="currentColor" opacity=".5"/>`,
 };
 
 /** 中 Boss 奖励 → 图标名 */
