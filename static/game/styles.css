@@ -2550,3 +2550,237 @@ input[type="range"].fx-slider::-moz-range-thumb {
   color: #5f5273;
   font-weight: 600;
 }
+
+/* ============================================================
+   第二百二十七轮：主菜单左侧小游戏《猫娘捞金鱼》
+   —— 追加式；暗色水盆 + 青粉霓虹，和右侧扭蛋机形成左右平衡。
+   以后换素材时，面板/按钮/结算样式都可保留，只换 Canvas 绘制。
+   ============================================================ */
+.title-minigame {
+  position: absolute;
+  left: clamp(14px, 3.4vw, 64px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: clamp(190px, 21vw, 300px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 10px 9px;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(92, 220, 210, .14), transparent 60%),
+    linear-gradient(165deg, rgba(9, 32, 44, .96), rgba(4, 15, 24, .96));
+  border: 1px solid rgba(120, 230, 220, .34);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, .45),
+    0 0 24px rgba(80, 220, 210, .12),
+    inset 0 1px 0 rgba(255, 255, 255, .08);
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, .35));
+}
+.mg-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px;
+}
+.mg-title {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: #ffe3f0;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .5), 0 0 10px rgba(255, 140, 200, .35);
+  white-space: nowrap;
+}
+.mg-timer {
+  font-size: 12px;
+  font-weight: 900;
+  color: #8ff5e8;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 8px rgba(80, 240, 220, .4);
+  white-space: nowrap;
+}
+.mg-stage {
+  position: relative;
+  border-radius: 13px;
+  overflow: hidden;
+  background: #061722;
+  border: 1px solid rgba(140, 240, 230, .18);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, .55);
+}
+.mg-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 8 / 9;
+  cursor: crosshair;
+  touch-action: none;
+}
+.mg-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 14px;
+  text-align: center;
+  background: linear-gradient(180deg, rgba(3, 12, 19, .36), rgba(3, 12, 19, .74));
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+}
+.mg-overlay-title,
+.mg-result-title {
+  font-size: 19px;
+  font-weight: 900;
+  color: #fff0c0;
+  letter-spacing: .02em;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, .35), 0 0 14px rgba(255, 200, 90, .35);
+}
+.mg-overlay-sub {
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: #cfeaf0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .6);
+}
+.mg-overlay-note {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #91b8c4;
+}
+.mg-btn {
+  appearance: none;
+  border: 1px solid rgba(140, 240, 230, .38);
+  background: rgba(255, 255, 255, .08);
+  color: #e2fbff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 7px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform .1s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
+.mg-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .15);
+  border-color: rgba(170, 255, 245, .7);
+  box-shadow: 0 0 14px rgba(90, 240, 220, .25);
+}
+.mg-btn:active:not(:disabled) { transform: scale(.96); }
+.mg-btn.primary {
+  background: linear-gradient(135deg, #ff8ec4, #ffd166);
+  border-color: rgba(255, 230, 180, .55);
+  color: #331428;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .3);
+  box-shadow: 0 0 16px rgba(255, 160, 200, .25);
+}
+.mg-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 0 20px rgba(255, 180, 210, .4);
+}
+.mg-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 2px;
+  font-size: 11px;
+  color: #b4d6df;
+}
+.mg-score b {
+  color: #ffd166;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.mg-paper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.mg-paper i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .16);
+  border: 1px solid rgba(255, 255, 255, .24);
+  transition: background .12s ease, box-shadow .12s ease;
+}
+.mg-paper i.on {
+  background: #7ef0d0;
+  border-color: rgba(200, 255, 240, .7);
+  box-shadow: 0 0 6px rgba(126, 240, 208, .7);
+}
+.mg-paper.low i.on {
+  background: #ff7b8a;
+  border-color: rgba(255, 190, 200, .7);
+  box-shadow: 0 0 6px rgba(255, 110, 130, .75);
+}
+.mg-daily {
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-align: center;
+  color: #8fb4c2;
+}
+.mg-daily b {
+  color: #ffd166;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.mg-hint {
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  color: #7fa3b2;
+  opacity: .82;
+}
+.mg-result-score {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #d8eef5;
+}
+.mg-result-score b {
+  color: #ffe08a;
+  font-size: 14px;
+}
+.mg-result-reward {
+  font-size: 17px;
+  font-weight: 900;
+  color: #ffd166;
+  text-shadow: 0 0 12px rgba(255, 200, 90, .4);
+}
+.mg-result-daily {
+  font-size: 10px;
+  color: #91b8c4;
+}
+.mg-result-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mg-result-actions .mg-btn {
+  font-size: 11px;
+  padding: 6px 10px;
+}
+
+@media (max-width: 1180px) {
+  .title-minigame {
+    width: clamp(160px, 18vw, 220px);
+    left: 14px;
+    gap: 6px;
+  }
+  .mg-title { font-size: 12px; }
+  .mg-timer { font-size: 11px; }
+}
+@media (max-width: 980px) {
+  /* 980 以下主菜单两侧已经很挤；直接收起小游戏，不压缩结算层 */
+  .title-minigame { display: none; }
+}
+@media (max-height: 760px) {
+  .title-minigame { width: clamp(150px, 16vw, 210px); }
+  .mg-hint { display: none; }
+}

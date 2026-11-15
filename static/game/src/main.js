@@ -19,6 +19,8 @@ import { Pet } from './entities/pet.js';
 // 第一百六十轮：四重存在（莱万汀分身）
 import { PhantomClone } from './entities/phantom.js';
 import { UI } from './ui/ui.js';
+// 第二百二十七轮：标题页左侧小游戏《猫娘捞金鱼》的每日奖励上限
+import { GOLDFISH_DAILY_CAP } from './minigames/goldfish-scoop.js';
 import { rollUpgrades } from './data/upgrades.js';
 import { getUpgrade } from './data/upgrades.js';
 // 第二百一十六轮：中 Boss 技能能力奖励（白/蓝/紫/金 三选一）
@@ -405,6 +407,8 @@ export class Game {
       gachaWelcome: false,
       // 第二百二十六轮：给作者 B 站视频三连的 50 抽一次性福利
       biliSupportClaimed: false,
+      // 第二百二十七轮：标题页小游戏「猫娘捞金鱼」的每日奖励
+      goldfishTicketsDate: '', goldfishTicketsToday: 0,
     };
     let out = { ...DEFAULTS };
     try {
@@ -428,6 +432,10 @@ export class Game {
               ? parsed.metaUpgradeLevels : {},
             gachaWelcome: parsed.gachaWelcome === true,
             biliSupportClaimed: parsed.biliSupportClaimed === true,
+            goldfishTicketsDate: typeof parsed.goldfishTicketsDate === 'string'
+              ? parsed.goldfishTicketsDate : '',
+            goldfishTicketsToday: Math.max(0, Math.min(GOLDFISH_DAILY_CAP,
+              Math.floor(Number(parsed.goldfishTicketsToday) || 0))),
           };
         }
       }
@@ -528,6 +536,56 @@ export class Game {
     } else {
       this.ui?.toast?.('50 抽已经领过啦，谢谢支持喵！', 'info', 3200);
     }
+  }
+
+  /** 第二百二十七轮：本地日期键（每日捞鱼奖励重置用）。 */
+  _goldfishDayKey() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+
+  /** 今天的捞鱼券进度；跨天自动归零。 */
+  _goldfishState() {
+    const date = this._goldfishDayKey();
+    let earned = Math.max(0, Math.min(GOLDFISH_DAILY_CAP,
+      Math.floor(Number(this.meta.goldfishTicketsToday) || 0)));
+    if (this.meta.goldfishTicketsDate !== date) {
+      earned = 0;
+      this.meta.goldfishTicketsDate = date;
+      this.meta.goldfishTicketsToday = 0;
+      this._saveMeta();
+    } else if (earned !== this.meta.goldfishTicketsToday) {
+      this.meta.goldfishTicketsToday = earned;
+    }
+    return {
+      date, earned, cap: GOLDFISH_DAILY_CAP,
+      remaining: Math.max(0, GOLDFISH_DAILY_CAP - earned),
+    };
+  }
+
+  /**
+   * 小游戏结算：只发今天剩余额度内的券。返回给 UI 用来显示实际到账数，
+   * 而不是玩家看到的"理论可得"。
+   */
+  _rewardGoldfish(requested) {
+    const st = this._goldfishState();
+    const want = Math.max(0, Math.floor(Number(requested) || 0));
+    const granted = Math.min(want, st.remaining);
+    if (granted > 0) {
+      this.meta.goldfishTicketsToday = st.earned + granted;
+      this.meta.gachaTickets = (this.meta.gachaTickets | 0) + granted;
+      this._saveMeta();
+    }
+    const earned = this.meta.goldfishTicketsToday | 0;
+    return {
+      requested: want,
+      granted,
+      earned,
+      cap: st.cap,
+      remaining: Math.max(0, st.cap - earned),
+      totalTickets: this.meta.gachaTickets | 0,
+    };
   }
 
   /** 打开"升级能力"界面（局外永久成长；数据表 META_UPGRADES 驱动）。 */
@@ -705,6 +763,11 @@ export class Game {
       onGacha: () => this._rollGachaTen(),
       onMetaUpgrades: () => this._openMetaUpgrades(),
       onBiliSupport: () => this._claimBiliSupport(),
+      // 第二百二十七轮：左侧小游戏《猫娘捞金鱼》
+      goldfishEarned: this._goldfishState().earned,
+      goldfishCap: GOLDFISH_DAILY_CAP,
+      onGoldfishReward: (tickets) => this._rewardGoldfish(tickets),
+      onGoldfishSound: (name) => { try { audio.play(name); } catch { /* */ } },
       audioEnabled: audio.enabled,
     });
   }

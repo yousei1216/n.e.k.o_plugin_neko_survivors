@@ -23,6 +23,8 @@ import {
 } from '../data/meta-upgrades.js';
 // 第二百二十二轮：中 Boss 奖励 / 永久成长树的图形图标
 import { iconSvg, BOON_ICONS, META_ICONS } from './icons.js';
+// 第二百二十七轮：标题页左侧小游戏《猫娘捞金鱼》
+import { GoldfishScoop, GOLDFISH_DAILY_CAP, GOLDFISH_DURATION } from '../minigames/goldfish-scoop.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。
@@ -329,16 +331,24 @@ export class UI {
   // =========================================================
   clearOverlay() {
     this._shopLive = null;   // 201 轮：关掉任何界面都不再让 tickShop 去重绘商店
+    this._destroyGoldfish();
     this.el.overlay.innerHTML = '';
   }
 
   _mount(html) {
     // 重渲染前先收掉旧气泡，否则会留一个孤儿挂在 body 上
     this.hideTip();
+    // 第二百二十七轮：标题页小游戏有自己的 RAF 和 pointer 监听，换界面前必须销毁
+    this._destroyGoldfish();
     this.el.overlay.innerHTML = html;
     const root = this.el.overlay.firstElementChild;
     this._applySprites(root);
     return root;
+  }
+
+  _destroyGoldfish() {
+    try { this._goldfish?.destroy?.(); } catch { /* 旧实例卸载失败不阻塞新界面 */ }
+    this._goldfish = null;
   }
 
   // =========================================================
@@ -434,7 +444,8 @@ export class UI {
 
   // ---------------- 标题页 ----------------
   showTitle({ onStart, onContinue, hasSave, seed, difficulty, onSetDifficulty, onToggleAudio, onExit, audioEnabled, onFlandreTest, onVergilLab, onHalloweenTest,
-    gachaTickets = 0, gachaPoints = 0, gachaPity = 0, biliClaimed = false, onGacha, onMetaUpgrades, onBiliSupport }) {
+    gachaTickets = 0, gachaPoints = 0, gachaPity = 0, biliClaimed = false, onGacha, onMetaUpgrades, onBiliSupport,
+    goldfishEarned = 0, goldfishCap = GOLDFISH_DAILY_CAP, onGoldfishReward = null, onGoldfishSound = null }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -503,6 +514,35 @@ export class UI {
           </div>
         </div>
 
+        <!-- 第二百二十七轮：主菜单左侧小游戏《猫娘捞金鱼》。
+             独立 Canvas + 自己的 RAF；结算通过 onGoldfishReward 交给 main
+             做每日上限、写 meta 和刷新券数。 -->
+        <div class="title-minigame" data-minigame="">
+          <div class="mg-head">
+            <span class="mg-title">🐟 猫娘捞金鱼</span>
+            <span class="mg-timer" data-mg-timer="">30.0s</span>
+          </div>
+          <div class="mg-stage">
+            <canvas class="mg-canvas" data-mg-canvas="" width="480" height="540"
+                    aria-label="猫娘捞金鱼：移动纸网，点击捞鱼"></canvas>
+            <div class="mg-overlay" data-mg-start="">
+              <div class="mg-overlay-title">猫娘捞金鱼</div>
+              <div class="mg-overlay-sub">移动纸网，点击捞鱼<br>金鱼越稀有，抽卡券越多</div>
+              <button class="mg-btn primary" data-mg-begin="">开始捞鱼</button>
+              <div class="mg-overlay-note">${goldfishEarned >= goldfishCap
+                ? '今日奖励已满，仍可练习'
+                : '今日还可获得 ' + (goldfishCap - goldfishEarned) + ' 张'}</div>
+            </div>
+            <div class="mg-overlay mg-result hidden" data-mg-result=""></div>
+          </div>
+          <div class="mg-hud">
+            <span class="mg-score">得分 <b data-mg-score="">0</b></span>
+            <span class="mg-paper" data-mg-paper=""></span>
+          </div>
+          <div class="mg-daily">今日捞鱼券 <b data-mg-today="">${goldfishEarned}</b>/${goldfishCap}</div>
+          <div class="mg-hint">移动纸网 · 点击捞鱼</div>
+        </div>
+
         <!-- 第二百二十轮：主菜单右侧扭蛋机（用户："扭蛋机图片出现在主菜单
              右侧……不要太大，差不多比菜单小一点就好别太抢眼。扭蛋机下面显示
              扭蛋券数。"）点击机器抽十连；下面接能力点数与升级入口。 -->
@@ -511,7 +551,7 @@ export class UI {
             <img src="assets/gacha/machine.png" alt="扭蛋机" draggable="false">
           </button>
           <div class="gacha-wallet">
-            <div class="gacha-line"><span>🎟 扭蛋券</span><b data-gacha-tickets>${gachaTickets}</b></div>
+            <div class="gacha-line"><span>🎟 扭蛋券</span><b data-gacha-tickets="">${gachaTickets}</b></div>
             <div class="gacha-line"><span>✦ 能力点数</span><b data-gacha-points>${gachaPoints}</b></div>
             <div class="gacha-pity">SSR 保底进度 ${gachaPity}/100</div>
           </div>
@@ -561,6 +601,103 @@ export class UI {
     if (metaBtn && onMetaUpgrades) metaBtn.onclick = onMetaUpgrades;
     const biliBtn = root.querySelector('[data-act="bili-support"]');
     if (biliBtn && onBiliSupport) biliBtn.onclick = onBiliSupport;
+
+    // 第二百二十七轮：左侧小游戏《猫娘捞金鱼》。
+    // 实例挂在 this._goldfish 上，_mount / clearOverlay 会先 destroy，
+    // 避免标题页重绘后旧 RAF 和 pointer 监听继续跑。
+    const mgCanvas = root.querySelector('[data-mg-canvas]');
+    if (mgCanvas && onGoldfishReward) {
+      const startPanel = root.querySelector('[data-mg-start]');
+      const resultPanel = root.querySelector('[data-mg-result]');
+      const timerEl = root.querySelector('[data-mg-timer]');
+      const scoreEl = root.querySelector('[data-mg-score]');
+      const paperEl = root.querySelector('[data-mg-paper]');
+      const todayEl = root.querySelector('[data-mg-today]');
+      const cap = Math.max(1, goldfishCap | 0);
+      let earned = Math.max(0, Math.min(cap, goldfishEarned | 0));
+
+      const renderDaily = () => {
+        if (todayEl) todayEl.textContent = String(earned);
+        const note = startPanel?.querySelector('.mg-overlay-note');
+        if (note) {
+          note.textContent = earned >= cap
+            ? '今日奖励已满，仍可练习'
+            : `今日还可获得 ${cap - earned} 张`;
+        }
+      };
+      renderDaily();
+
+      const setPaper = (paper) => {
+        if (!paperEl) return;
+        paperEl.classList.toggle('low', paper <= 2);
+        paperEl.innerHTML = Array.from({ length: 5 }, (_, i) =>
+          `<i class="${i < paper ? 'on' : ''}"></i>`).join('');
+      };
+      setPaper(5);
+
+      const showGoldfishResult = (res) => {
+        const title = res.score >= 200 ? '大丰收喵！'
+          : res.score >= 100 ? '捞得不错喵！'
+            : res.score >= 50 ? '小有收获喵' : '再接再厉喵…';
+        const rewardText = res.granted > 0
+          ? `捞鱼券 +${res.granted}`
+          : res.requested > 0 ? '今日奖励已达上限' : '这次没捞到鱼…';
+        if (!resultPanel) return;
+        resultPanel.innerHTML = `
+          <div class="mg-result-title">${title}</div>
+          <div class="mg-result-score">得分 <b>${res.score}</b> · 金鱼 <b>${res.fishCount}</b> 条</div>
+          <div class="mg-result-reward">${rewardText}</div>
+          <div class="mg-result-daily">今日 ${res.earned}/${res.cap} 张</div>
+          <div class="mg-result-actions">
+            <button class="mg-btn primary" data-mg-again="">再来一局</button>
+            <button class="mg-btn" data-mg-close="">收下</button>
+          </div>`;
+        resultPanel.classList.remove('hidden');
+        if (timerEl) timerEl.textContent = '结束';
+        resultPanel.querySelector('[data-mg-again]').onclick = () => {
+          resultPanel.classList.add('hidden');
+          startPanel?.classList.add('hidden');
+          game.start();
+        };
+        resultPanel.querySelector('[data-mg-close]').onclick = () => {
+          resultPanel.classList.add('hidden');
+          startPanel?.classList.remove('hidden');
+          renderDaily();
+          if (timerEl) timerEl.textContent = `${GOLDFISH_DURATION.toFixed(1)}s`;
+        };
+      };
+
+      const game = new GoldfishScoop(mgCanvas, {
+        onSound: onGoldfishSound,
+        onHud: ({ time, score, paper }) => {
+          if (timerEl) timerEl.textContent = `${Math.max(0, time).toFixed(1)}s`;
+          if (scoreEl) scoreEl.textContent = String(score);
+          setPaper(paper);
+        },
+        onReward: (tickets) => {
+          try {
+            const r = onGoldfishReward(tickets);
+            if (r) {
+              earned = Math.max(0, Math.min(cap, Number(r.earned) || 0));
+              const ticketEl = root.querySelector('[data-gacha-tickets]');
+              if (ticketEl) ticketEl.textContent = String(r.totalTickets | 0);
+              renderDaily();
+              return r;
+            }
+          } catch { /* 存档失败不影响继续玩 */ }
+          return { requested: tickets, granted: 0, earned, cap, remaining: cap - earned, totalTickets: 0 };
+        },
+        onEnd: showGoldfishResult,
+      });
+      this._goldfish = game;
+
+      const beginBtn = root.querySelector('[data-mg-begin]');
+      if (beginBtn) beginBtn.onclick = () => {
+        startPanel?.classList.add('hidden');
+        resultPanel?.classList.add('hidden');
+        game.start();
+      };
+    }
     // 第二百零九轮：旧区的落幕测试入口
         // 第六十五轮的音效自检接线已随按钮一并下线（第一百二十二轮）
     const cont = root.querySelector('[data-act="continue"]');
