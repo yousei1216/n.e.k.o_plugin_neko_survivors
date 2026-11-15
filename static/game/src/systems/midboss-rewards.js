@@ -78,7 +78,7 @@ function bestWeaponTier(player) {
 /** 金色红品池：8 件常规 Boss 红品，排除隐藏 Boss 战利品，且不重复给 */
 export function redItemPool(player) {
   return ITEMS.filter((it) => it.bossDropOnly
-    && it.id !== 'yamato' && it.id !== 'wet_scythe'
+    && !it.hiddenBossOnly
     && !player.hasItem(it.id));
 }
 

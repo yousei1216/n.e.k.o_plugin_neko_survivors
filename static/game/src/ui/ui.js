@@ -21,6 +21,8 @@ import {
   metaUpgradeUnlocked, metaT3Unlocked, metaT4Unlocked,
   META_CATEGORIES, META_TIER_NAMES, META_T3_REQUIRE_T2_LEVELS,
 } from '../data/meta-upgrades.js';
+// 第二百二十二轮：中 Boss 奖励 / 永久成长树的图形图标
+import { iconSvg, BOON_ICONS, META_ICONS } from './icons.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。
@@ -509,7 +511,7 @@ export class UI {
             <div class="gacha-line"><span>✦ 能力点数</span><b data-gacha-points>${gachaPoints}</b></div>
             <div class="gacha-pity">SSR 保底进度 ${gachaPity}/100</div>
           </div>
-          <button class="btn small gacha-upg-btn" data-act="meta-upgrades">升级能力</button>
+          <button class="btn small gacha-upg-btn" data-act="meta-upgrades">${iconSvg('extraUpgrade', 'gacha-upg-ico')}升级能力</button>
           <div class="gacha-hint">10 张券抽一次十连</div>
         </div>
 
@@ -630,7 +632,7 @@ export class UI {
       return `
         <div class="meta-upg-card${unlocked ? '' : ' locked'}${maxed ? ' maxed' : ''}" style="--rc:${color}">
           <div class="meta-upg-head">
-            <span class="meta-upg-glyph">${u.glyph || '✦'}</span>
+            <span class="meta-upg-glyph">${iconSvg(META_ICONS[u.id] || 'spark', 'card-ico')}</span>
             <span class="meta-upg-name">${u.name}</span>
             <span class="meta-upg-lv">${lv}/${max}</span>
           </div>
@@ -908,7 +910,7 @@ export class UI {
         <div class="card upgrade-card card--rare" data-boon="${o.id}"
              style="--rc:${o.color};border-color:${o.color};box-shadow:0 0 0 1px ${o.color}55,0 0 18px ${o.color}33">
           <div class="card-head">
-            <div class="avatar" style="background:${o.color}22;border-color:${o.color};color:${o.color}">${o.glyph}</div>
+            <div class="avatar" style="background:${o.color}2b;border-color:${o.color};color:#3a3150">${iconSvg(BOON_ICONS[o.id] || 'spark', 'card-ico')}</div>
             <div>
               <div class="card-name">${o.name}</div>
               <div class="card-role">中 Boss 能力</div>

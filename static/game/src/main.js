@@ -863,6 +863,8 @@ export class Game {
     this.pendingMidBossRewards = 0;
     this.currentMidBossOptions = [];
     this._bossKillPending = false;
+    // 第二百二十二轮：10/20 波红品掉落的"每波一次"去重标记
+    this._bossRedWave = -1;
     this._lastHpRatio = 1;
     this._shopDeferred = false;   // 体检修复：新局清掉"商店被升级打断"旗子
     // 第一百四十一轮：维吉尔触发标志（每局一次）+ 阎魔刀次元斩状态复位
@@ -946,6 +948,8 @@ export class Game {
   _beginWave(index) {
 
     this.waveIndex = index;
+    // 第二百二十二轮：新波次重置红品掉落去重（重试本波也能重新掉）
+    this._bossRedWave = -1;
     // 第一百八十轮：天彗龙乱入判定 —— 第 6 波起 10%、每波 +5%，
     // 每回合判一次、全局一局一次；命中后 5 秒前摇进演出。
     //（测试按钮 forceTrigger 走同一 pending 通道。）
@@ -1615,7 +1619,11 @@ export class Game {
         // wave === 10 || wave === 20 永远不成立 → Boss 从不掉红品
         //（用户："打过第十波boss没有掉落红色物品"）。转成玩家视角 1-based。
         const wave = (this.world.currentWave ?? 0) + 1;
-        if (wave === 10 || wave === 20) {
+        // 第二百二十二轮：一整个波次最多掉 1 件红品。
+        // 双 Boss / 同一 Boss 回调重复触发时，旧代码会各掉一件（同池子还可能
+        // 抽到同一个 → 商店里两把一模一样的红装）。_bossRedWave 按波次去重。
+        if ((wave === 10 || wave === 20) && this._bossRedWave !== wave) {
+          this._bossRedWave = wave;
           // 第一百六十轮：池子排除阎魔刀 —— 用户："按理说阎魔刀不出现在
           // 普通boss掉落里。"（此前池子含 yamato，20 波 boss 随机抽中它时
           // 看起来就像"维吉尔的刀又掉了一把"。）同时排除已持有的
@@ -1626,8 +1634,12 @@ export class Game {
           // 后面的 _bossKillPending / _autoCollectBossLoot 全都不执行 ——
           // 表现就是用户报的"打死 10 波 boss 不结算、90 秒跑完、无红装"。
           // 改回 this.player，并用可选链保证老存档/极端情况下不炸。
-          const pool = ITEMS.filter((it) =>
-            it.bossDropOnly && it.id !== 'yamato' && !this.player?.hasItem?.(it.id));
+          // 池子 = 8 件**常规** Boss 红品：排除隐藏 Boss 专属（阎魔刀/濡湿小镰刀）
+        // 与已持有/已在战利品栏里的，避免同一件重复出现在商店。
+        const pendingIds = new Set((this.world.pendingItemRewards || []).map((r) => r?.id));
+        const pool = ITEMS.filter((it) =>
+          it.bossDropOnly && !it.hiddenBossOnly
+          && !this.player?.hasItem?.(it.id) && !pendingIds.has(it.id));
           if (pool.length > 0) {
             const def = this.rng.pick(pool);
             this.world.pendingItemRewards.push({
@@ -3726,6 +3738,7 @@ export class Game {
     this.waveEnding = false;
     this.pendingLevelUps = 0;
     this._bossKillPending = false;
+    this._bossRedWave = -1;
     this._lastHpRatio = 1;
     this._shopDeferred = false;
 
