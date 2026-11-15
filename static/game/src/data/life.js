@@ -172,6 +172,13 @@ export const CROPS = [
   },
 ];
 
+// 第二百三十轮：像素图标（tools/make_life_sprites.py 生成，64×64 透明底）
+for (const f of FISH) f.sprite = `assets/fishing/fish_${f.id}.png`;
+for (const c of CROPS) {
+  c.sprite = `assets/fishing/crop_${c.id}.png`;
+  c.spriteMut = `assets/fishing/crop_${c.id}_mut.png`;
+}
+
 export const FERTILIZERS = [
   {
     id: 'none', name: '不施肥', price: 0, tier: 0,

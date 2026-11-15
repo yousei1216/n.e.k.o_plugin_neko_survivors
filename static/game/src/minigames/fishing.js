@@ -12,7 +12,7 @@
 // 这样背景里透明的湖面会露出水面层，码头也能盖在水面上。
 // ============================================================
 
-import { getBait, getFish, getRod } from '../data/life.js';
+import { FISH, getBait, getFish, getRod } from '../data/life.js';
 
 const W = 1000;
 const H = 170;
@@ -22,13 +22,14 @@ const TAU = Math.PI * 2;
 const SCENE_CROP = { x: 0, y: 560, w: 1672, h: 284 };
 // 立绘 1063×1480 / 1062×1480：画到 160px 高，脚踩在底部码头上。
 const CHAR_H = 160;
-const CHAR_X = 12;
+// 站在码头木板上（用户红圈位置），不再站在最左边的草岸
+const CHAR_X = 286;
 const CHAR_Y = 4;
 const CHAR_SCALE = CHAR_H / 1480;
 // 两种姿势里手的位置（原图像素）和鱼竿角度。鱼竿图 2172×724，
 // 握把中心约 (190,310)，竿尖约 (2154,330)。
 const POSE_FISH = { handX: 770, handY: 575, angle: -0.12 };
-const POSE_RAISE = { handX: 350, handY: 225, angle: -0.30 };
+const POSE_RAISE = { handX: 350, handY: 225, angle: -0.45 };
 const ROD_ANCHOR = { x: 190, y: 310 };
 const ROD_TIP = { x: 2154, y: 330 };
 const ASSET = {
@@ -73,14 +74,16 @@ export class FishingGame {
     this.reeling = false;
     this.resultT = 0;
     this.result = null;
-    this.bobberX = 720;
+    this.bobberX = 760;
     this.bobberY = 112;
+    this.landT = 0;
+    this.landFrom = null;
     this.rod = getRod('bamboo');
     this.bait = getBait('dough');
     this.ambientT = 0;
     this.waterT = 0;
     this.fishShadows = Array.from({ length: 5 }, (_, i) => ({
-      x: rand(260, 920), y: rand(98, 152), sp: rand(8, 20) * (i % 2 ? 1 : -1), phase: rand(0, TAU),
+      x: rand(360, 930), y: rand(98, 152), sp: rand(8, 20) * (i % 2 ? 1 : -1), phase: rand(0, TAU),
     }));
     this.ripples = [];
     this.particles = [];
@@ -145,6 +148,15 @@ export class FishingGame {
     load('imgFishing', ASSET.fishing);
     load('imgRaise', ASSET.raise);
     load('imgRod', ASSET.rod);
+    this.fishSprites = {};
+    for (const f of FISH) {
+      try {
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = f.sprite;
+        this.fishSprites[f.id] = img;
+      } catch { /* */ }
+    }
   }
 
   _ready(img) {
@@ -237,7 +249,7 @@ export class FishingGame {
         this.state = 'wait';
         const base = this.bait || getBait('dough');
         this.waitT = rand(base.biteMin, base.biteMax);
-        this.bobberX = 230 + this.castPower * 620;
+        this.bobberX = 700 + this.castPower * 240;
         this.message = '等待鱼咬钩……';
         this._emitHud(true);
       }
@@ -272,9 +284,13 @@ export class FishingGame {
       if (this.tension >= 1) {
         this._finishMiss('线绷断了！下次张力高时松一下手');
       } else if (this.progress >= 1) {
-        this._finishCatch();
+        this._startLanding();
       }
       if (this._hudAt === 0 || performance.now() - this._hudAt > 90) this._emitHud();
+    } else if (this.state === 'landing') {
+      this.landT -= dt;
+      this.tension = Math.max(0, this.tension - dt * 0.6);
+      if (this.landT <= 0) this._finishCatch();
     } else if (this.state === 'result') {
       this.resultT -= dt;
       if (this.resultT <= 0) {
@@ -286,6 +302,22 @@ export class FishingGame {
         this._emitHud(true);
       }
     }
+  }
+
+  /** 收线进度满后，鱼从水面飞到角色手里；动画结束才结算。 */
+  _startLanding() {
+    if (this.state === 'landing') return;
+    const pose = this._rodPose(0);
+    const tip = this._rodTip(pose.anchorX, pose.anchorY, pose.angle);
+    const fromX = this.bobberX + (tip.x + 90 - this.bobberX);
+    this.state = 'landing';
+    this.landT = 0.75;
+    this.landFrom = { x: fromX, y: 102 };
+    this.reeling = false;
+    this.message = '收线！鱼要上来了';
+    this.ripples.push({ x: fromX, y: 114, r: 10, max: 74, a: 0.9 });
+    this._sound('pickupXp');
+    this._emitHud(true);
   }
 
   _finishMiss(msg) {
@@ -713,12 +745,16 @@ export class FishingGame {
       ctx.stroke();
     }
 
-    // 鱼线终点：未抛竿时垂在码头边；抛竿时从竿尖飞向目标。
+    // 举杆蓄力时不画鱼线，真正抛竿后再出现。
+    if (this.state === 'charging') return;
+
+    // 鱼线终点：未抛竿时垂在水面；抛竿时从竿尖飞向目标；
+    // 收线时浮漂/鱼会随着进度慢慢往角色方向移动。
     let bx = this.bobberX;
     let by = this.bobberY;
-    if (this.state === 'idle' || this.state === 'charging') {
-      // 未抛竿时浮漂停在码头外的水面上，不要放在木板上
-      bx = 560;
+    let showBobber = true;
+    if (this.state === 'idle') {
+      bx = 680;
       by = 140 + Math.sin(t * 2.2) * 1.5;
     } else if (this.state === 'cast') {
       const p = 1 - clamp(this.castT / 0.55, 0, 1);
@@ -729,7 +765,22 @@ export class FishingGame {
       by = 112 + Math.sin(t * 4) * 2;
       if (this.state === 'bite') by += 5;
     } else if (this.state === 'reel') {
-      by = 112 + Math.sin(t * 10) * 3;
+      const pull = clamp(this.progress, 0, 1);
+      const toX = anchorX + 90;
+      bx = this.bobberX + (toX - this.bobberX) * pull;
+      by = 112 + Math.sin(t * 10) * 3 - pull * 12;
+      showBobber = false;
+      if (pull > 0.08) this._drawStrugglingFish(bx, by + 4, t, 0.8 + pull * 0.35);
+    } else if (this.state === 'landing') {
+      const p = 1 - clamp(this.landT / 0.75, 0, 1);
+      const e = 1 - (1 - p) * (1 - p);
+      const from = this.landFrom || { x: this.bobberX, y: 102 };
+      const toX = anchorX + 8;
+      const toY = anchorY - 10;
+      bx = from.x + (toX - from.x) * e;
+      by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 26;
+      showBobber = false;
+      this._drawStrugglingFish(bx, by, t, 0.95);
     }
 
     ctx.strokeStyle = 'rgba(240, 255, 255, .82)';
@@ -739,17 +790,18 @@ export class FishingGame {
     ctx.quadraticCurveTo((lineStart.x + bx) / 2, Math.min(lineStart.y, by) - 6, bx, by);
     ctx.stroke();
 
-    // 浮漂
-    ctx.save();
-    ctx.translate(bx, by);
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.ellipse(0, 0, 6, 9, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#ff5f6d';
-    ctx.beginPath(); ctx.ellipse(0, -3, 6, 5, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#8a3a44';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -16); ctx.stroke();
-    ctx.restore();
+    if (showBobber) {
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.ellipse(0, 0, 6, 9, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ff5f6d';
+      ctx.beginPath(); ctx.ellipse(0, -3, 6, 5, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#8a3a44';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -16); ctx.stroke();
+      ctx.restore();
+    }
 
     if (this.state === 'bite') {
       ctx.fillStyle = '#ff3b5c';
@@ -757,6 +809,47 @@ export class FishingGame {
       ctx.textAlign = 'center';
       ctx.fillText('!', bx, by - 26);
     }
+  }
+
+  /** 收线时水里的鱼影；越靠近角色越大。 */
+  _drawStrugglingFish(x, y, t, scale = 1) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.sin(t * 9) * 0.28);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = 0.96;
+    ctx.fillStyle = '#ff9a4d';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 17, 6.5, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#ffcf9a';
+    ctx.beginPath();
+    ctx.ellipse(1, 2.2, 11, 2.4, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#f06a3c';
+    ctx.beginPath();
+    ctx.moveTo(-14, 0);
+    ctx.lineTo(-25, -7);
+    ctx.lineTo(-22, 0);
+    ctx.lineTo(-25, 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#eafcff';
+    ctx.beginPath();
+    ctx.arc(9, -2, 2.2, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#1b2a3a';
+    ctx.beginPath();
+    ctx.arc(9.6, -2, 1.1, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(220, 255, 255, .55)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(x, y + 7, 22 * scale, 5 * scale, 0, 0, TAU);
+    ctx.stroke();
   }
 
   _drawEffects() {
@@ -794,7 +887,7 @@ export class FishingGame {
 
   _drawPowerBar() {
     const ctx = this.ctx;
-    const x = 600;
+    const x = 40;
     const y = 146;
     const w = 190;
     const h = 12;
@@ -814,7 +907,7 @@ export class FishingGame {
 
   _drawReelBar() {
     const ctx = this.ctx;
-    const x = 300;
+    const x = 420;
     const y = 146;
     const w = 400;
     const h = 9;
@@ -857,18 +950,27 @@ export class FishingGame {
     if (r.fish) {
       const def = getFish(r.fish.id);
       const stars = r.fish.star > 0 ? '★'.repeat(r.fish.star) : '';
+      let textX = W / 2;
+      const icon = this.fishSprites?.[r.fish.id];
+      if (this._ready(icon)) {
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(icon, x + 14, y + 19, 48, 48);
+        ctx.restore();
+        textX = W / 2 + 26;
+      }
       ctx.fillStyle = def.body || '#ff9a3c';
       ctx.font = '900 17px "Segoe UI", "Microsoft YaHei", sans-serif';
-      ctx.fillText(`${def.name} ${stars}`, W / 2, y + 25);
+      ctx.fillText(`${def.name} ${stars}`, textX, y + 25);
       ctx.fillStyle = '#35546a';
       ctx.font = '700 12px "Segoe UI", "Microsoft YaHei", sans-serif';
-      ctx.fillText(`${r.fish.cm} cm · ${r.fish.value} 金币`, W / 2, y + 45);
+      ctx.fillText(`${r.fish.cm} cm · ${r.fish.value} 金币`, textX, y + 45);
       ctx.fillStyle = r.autoSold ? '#b06bff' : '#2f9e6f';
-      ctx.fillText(r.autoSold ? '鱼篓已满，自动折成金币' : '已放入鱼篓', W / 2, y + 63);
+      ctx.fillText(r.autoSold ? '鱼篓已满，自动折成金币' : '已放入鱼篓', textX, y + 63);
       if (r.coins != null) {
         ctx.fillStyle = '#7a6d8c';
         ctx.font = '700 10px "Segoe UI", "Microsoft YaHei", sans-serif';
-        ctx.fillText(`金币 ${r.coins}`, W / 2, y + 78);
+        ctx.fillText(`金币 ${r.coins}`, textX, y + 78);
       }
     } else {
       ctx.fillStyle = '#5f7386';

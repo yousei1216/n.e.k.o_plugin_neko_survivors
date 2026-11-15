@@ -28,7 +28,7 @@ function cropCard(item) {
   const color = item.mutated ? '#b06bff' : def.body;
   return `
     <div class="life-item-card crop" style="--ic:${color}">
-      <div class="item-glyph" style="background:${color}22;border-color:${color};color:${color}">${item.mutated ? '变' : def.glyph}</div>
+      <img class="life-item-img" src="${item.mutated ? def.spriteMut : def.sprite}" alt="${name}" draggable="false">
       <div class="item-main">
         <div class="item-name">${name} ${stars(item.star)}</div>
         <div class="item-sub">${item.size} cm${item.mutated ? ' · 变异' : ''}</div>
@@ -42,7 +42,7 @@ function fishCard(item) {
   const def = getFish(item.id);
   return `
     <div class="life-item-card fish" style="--ic:${def.body}">
-      <div class="item-glyph" style="background:${def.body}22;border-color:${def.body};color:${def.body}">鱼</div>
+      <img class="life-item-img" src="${def.sprite}" alt="${def.name}" draggable="false">
       <div class="item-main">
         <div class="item-name">${def.name} ${stars(item.star)}</div>
         <div class="item-sub">${item.cm} cm · ${FISH_RARITY_NAMES[def.rarity] || '普通'}</div>
@@ -69,7 +69,7 @@ function plotHtml(plot, index, now) {
   return `<button class="farm-plot ${ready ? 'ready' : 'growing'}" data-farm-plot="${index}"
       style="--pc:${crop.body};--pp:${pct}%"
       title="${crop.name} · ${ready ? '可以收获' : fmtTime(info.remainingMs)}">
-    <span class="plot-crop" style="color:${crop.body}">${crop.glyph}</span>
+    <img class="plot-crop-img" src="${crop.sprite}" alt="${crop.name}" draggable="false">
     <span class="plot-progress"><i style="width:${pct}%"></i></span>
     <span class="plot-time">${ready ? '收获' : fmtTime(info.remainingMs)}</span>
     <span class="plot-badges">
@@ -239,7 +239,7 @@ export function farmShopHtml({ meta }) {
         ${CROPS.map((c) => {
           const count = farm.seeds?.[c.id] | 0;
           return `<div class="life-shop-card" style="--ic:${c.body}">
-            <div class="shop-card-name">${c.glyph} ${c.name} <small>×${count}</small></div>
+            <div class="shop-card-name"><img class="shop-crop-img" src="${c.sprite}" alt="${c.name}" draggable="false"> ${c.name} <small>×${count}</small></div>
             <div class="shop-card-desc">${c.desc}</div>
             <div class="shop-card-stats">
               <span>成熟 ${fmtTime(c.growMs)}</span>
@@ -308,6 +308,7 @@ export function fishBagHtml({ meta }) {
           const rec = f.collection?.[def.id];
           const color = FISH_RARITY_COLORS[def.rarity] || '#9fd8ff';
           return `<div class="life-collection-card ${rec ? 'found' : ''}" style="--ic:${color}" title="${def.name}">
+            ${rec ? `<img class="col-img" src="${def.sprite}" alt="${def.name}" draggable="false">` : ''}
             <div class="col-name" style="color:${rec ? color : '#8a93a6'}">${rec ? def.name : '???'}</div>
             <div class="col-sub">${rec ? `最大 ${rec.bestCm || rec.best || 0} cm ${stars(rec.bestStar)}` : FISH_RARITY_NAMES[def.rarity]}</div>
             <div class="col-count">${rec ? `钓到 ${rec.count} 条` : '未发现'}</div>
@@ -338,11 +339,13 @@ export function cropBagHtml({ meta }) {
           const mut = farm.collection?.[`${def.id}_mut`];
           return [
             `<div class="life-collection-card ${rec ? 'found' : ''}" style="--ic:${def.body}">
+              ${rec ? `<img class="col-img" src="${def.sprite}" alt="${def.name}" draggable="false">` : ''}
               <div class="col-name" style="color:${rec ? def.body : '#8a93a6'}">${rec ? def.name : '???'}</div>
               <div class="col-sub">${rec ? `最大 ${rec.bestSize || rec.best || 0} cm ${stars(rec.bestStar)}` : '未发现'}</div>
               <div class="col-count">${rec ? `收获 ${rec.count} 个` : '普通'}</div>
             </div>`,
             `<div class="life-collection-card ${mut ? 'found' : ''}" style="--ic:#b06bff">
+              ${mut ? `<img class="col-img" src="${def.spriteMut}" alt="变异${def.name}" draggable="false">` : ''}
               <div class="col-name" style="color:${mut ? '#b06bff' : '#8a93a6'}">${mut ? `变异${def.name}` : '???'}</div>
               <div class="col-sub">${mut ? `最大 ${mut.bestSize || mut.best || 0} cm ${stars(mut.bestStar)}` : '异种相邻变异'}</div>
               <div class="col-count">${mut ? `收获 ${mut.count} 个` : '变异'}</div>

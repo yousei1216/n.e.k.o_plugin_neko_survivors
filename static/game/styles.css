@@ -3245,3 +3245,36 @@ input[type="range"].fx-slider::-moz-range-thumb {
 }
 .gacha-figure-name { font-size: 10px; font-weight: 800; color: #fff6e6; }
 .gacha-figure-lv { font-size: 8.5px; color: #d9c7a8; }
+/* ---------- 第二百三十轮：鱼/作物像素图标 ---------- */
+.life-item-img {
+  width: 34px; height: 34px; flex: 0 0 34px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.plot-crop-img {
+  width: 26px; height: 26px;
+  display: block;
+  object-fit: contain;
+  image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.shop-crop-img {
+  width: 18px; height: 18px;
+  vertical-align: -4px;
+  image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.col-img {
+  width: 34px; height: 34px;
+  display: block; margin: 0 auto 3px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+}
