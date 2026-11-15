@@ -2397,3 +2397,106 @@ input[type="range"].fx-slider::-moz-range-thumb {
   .gacha-heading { font-size: 22px; }
   .gacha-cards { width: min(960px, 94vw); }
 }
+
+/* ============================================================
+   第二百二十一轮：能力强化树（战斗/生存/辅助/特殊 + T3/T4）
+   ============================================================ */
+.screen.meta-upg-screen {
+  width: min(860px, calc(100vw - 72px));
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.meta-upg-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 6px 8px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 100, 200, .45) transparent;
+}
+.meta-cat {
+  border: 1px solid rgba(120, 80, 160, .18);
+  background: rgba(255, 255, 255, .46);
+  border-radius: 14px;
+  padding: 9px 10px 10px;
+}
+.meta-cat-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 900;
+  color: #5b3d7a;
+  letter-spacing: .5px;
+}
+.meta-cat-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--rc, #c08bff);
+  box-shadow: 0 0 10px var(--rc, #c08bff);
+}
+.meta-global-progress {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: #a07a2e;
+  opacity: .9;
+}
+.meta-tier-row { margin-top: 8px; }
+.meta-tier-row.locked { opacity: .55; }
+.meta-tier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px;
+}
+.meta-tier-name {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--rc, #8c62c0);
+  letter-spacing: 1px;
+}
+.meta-tier-req {
+  margin-left: auto;
+  font-size: 10px;
+  color: #7a6d8c;
+  opacity: .8;
+}
+.meta-tier-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 5px;
+}
+.meta-upg-screen .meta-upg-card {
+  border: 1px solid color-mix(in srgb, var(--rc, #c08bff) 42%, transparent);
+  background: linear-gradient(160deg, rgba(255, 255, 255, .9), rgba(246, 241, 255, .82));
+  border-radius: 12px;
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(90, 60, 130, .08);
+}
+.meta-upg-screen .meta-upg-card.locked { filter: grayscale(.45); }
+.meta-upg-screen .meta-upg-card.maxed { opacity: .78; }
+.meta-upg-screen .meta-upg-head { display: flex; align-items: center; gap: 7px; }
+.meta-upg-screen .meta-upg-glyph {
+  width: 30px; height: 30px; border-radius: 9px;
+  display: grid; place-items: center;
+  font-weight: 900; font-size: 13px;
+  color: var(--rc, #8c62c0);
+  background: color-mix(in srgb, var(--rc, #c08bff) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rc, #c08bff) 40%, transparent);
+}
+.meta-upg-screen .meta-upg-name { font-weight: 800; color: #3f3154; font-size: 13px; }
+.meta-upg-screen .meta-upg-lv { margin-left: auto; font-size: 11px; color: #7a6d8c; }
+.meta-upg-screen .meta-upg-desc { font-size: 11px; color: #6b6278; line-height: 1.55; min-height: 32px; }
+.meta-upg-screen .meta-upg-card .btn { width: 100%; }
+@media (max-width: 900px) {
+  .meta-tier-cards { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+}

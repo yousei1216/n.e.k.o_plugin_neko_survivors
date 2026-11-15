@@ -595,10 +595,12 @@ export class Shop {
    *
    * @returns {{offer:ShopOffer, item:object}|null}
    */
-  tryStealItem(player, rng = this.rng) {
+  tryStealItem(player, rng = this.rng, bonusPct = 0) {
     // 先掷骰子 —— 概率不过就什么都不发生（也不消耗货架）
     // 传 luckEff（含角色幸运倍率），不是面板值 —— 见 stealChance 的注释。
-    const chance = stealChance(player?.stats?.luckEff ?? 0);
+    // 第二百二十一轮：bonusPct 是局外成长「小小猫娘购物」的固定加点，
+    // 上限 95%（留 5% 让"这次没偷到"的惊喜感还在）。
+    const chance = Math.min(0.95, stealChance(player?.stats?.luckEff ?? 0) + (Number(bonusPct) || 0) / 100);
     if (rng.next() >= chance) return null;
 
     // 找出所有未售出的**道具**槽位

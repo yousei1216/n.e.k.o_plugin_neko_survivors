@@ -16,7 +16,11 @@ import { GAME_VERSION } from '../version.js';
 import { sprites } from '../core/assets.js';
 // 第二百二十轮：扭蛋机界面
 import { GACHA_RARITIES } from '../systems/gacha.js';
-import { metaUpgradeCost } from '../data/meta-upgrades.js';
+import {
+  metaUpgradeCost, metaLevel, metaCategoryTierLevel, metaCategoryTierUnlocked,
+  metaUpgradeUnlocked, metaT3Unlocked, metaT4Unlocked,
+  META_CATEGORIES, META_TIER_NAMES, META_T3_REQUIRE_T2_LEVELS,
+} from '../data/meta-upgrades.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。
@@ -610,39 +614,86 @@ export class UI {
   // ---------------- 升级能力（局外永久成长） ----------------
   // 第二百二十轮：数据表驱动。META_UPGRADES 为空时显示"筹备中"空态；
   // 以后加条目即可自动出现在这里，无需再改 UI。
-  showMetaUpgrades({ points, upgrades, levels, onBuy, onClose }) {
-    const rows = (upgrades || []).map((u) => {
-      const lv = Math.max(0, Math.floor(Number(levels?.[u.id]) || 0));
+  showMetaUpgrades({ points, upgrades, levels, meta, onBuy, onClose }) {
+    const m = meta || { metaUpgradeLevels: levels || {} };
+    const list = upgrades || [];
+
+    const cardHtml = (u, color) => {
+      const lv = metaLevel(m, u.id);
       const max = Math.max(1, Number(u.maxLevel ?? 1));
       const maxed = lv >= max;
+      const unlocked = metaUpgradeUnlocked(m, u);
       const cost = metaUpgradeCost(u, lv);
-      const can = !maxed && points >= cost;
+      const can = unlocked && !maxed && points >= cost;
       const desc = typeof u.desc === 'function' ? u.desc(lv) : (u.desc || '');
+      const label = maxed ? '已满级' : !unlocked ? '未解锁' : `升级 · ${cost} 点`;
       return `
-        <div class="meta-upg-card" style="--rc:${u.color || '#c08bff'}">
+        <div class="meta-upg-card${unlocked ? '' : ' locked'}${maxed ? ' maxed' : ''}" style="--rc:${color}">
           <div class="meta-upg-head">
             <span class="meta-upg-glyph">${u.glyph || '✦'}</span>
             <span class="meta-upg-name">${u.name}</span>
-            <span class="meta-upg-lv">Lv.${lv}/${max}</span>
+            <span class="meta-upg-lv">${lv}/${max}</span>
           </div>
           <div class="meta-upg-desc">${desc}</div>
-          <button class="btn small" data-buy="${u.id}" ${can ? '' : 'disabled'}>
-            ${maxed ? '已满级' : `升级 · ${cost} 点`}
-          </button>
+          <button class="btn small" data-buy="${u.id}" ${can ? '' : 'disabled'}>${label}</button>
         </div>`;
-    }).join('');
+    };
+
+    const tierRow = (cat, tier) => {
+      const defs = list.filter((u) => u.category === cat.id && u.tier === tier);
+      if (!defs.length) return '';
+      const unlocked = metaCategoryTierUnlocked(m, cat.id, tier);
+      const prevLv = tier > 0 ? metaCategoryTierLevel(m, cat.id, tier - 1) : 0;
+      const req = tier === 0
+        ? '基础'
+        : unlocked ? '已解锁' : `需 ${META_TIER_NAMES[tier - 1]} 累计 ${prevLv}/5 级`;
+      return `
+        <div class="meta-tier-row${unlocked ? '' : ' locked'}">
+          <div class="meta-tier-head">
+            <span class="meta-tier-name">${META_TIER_NAMES[tier]}</span>
+            <span class="meta-tier-req">${req}</span>
+          </div>
+          <div class="meta-tier-cards">${defs.map((u) => cardHtml(u, cat.color)).join('')}</div>
+        </div>`;
+    };
+
+    const catSections = META_CATEGORIES.map((cat) => `
+      <section class="meta-cat" style="--rc:${cat.color}">
+        <div class="meta-cat-head"><span class="meta-cat-dot"></span>${cat.name}</div>
+        ${[0, 1, 2].map((t) => tierRow(cat, t)).join('')}
+      </section>`).join('');
+
+    const t3 = list.filter((u) => u.tier === 3);
+    const t4 = list.filter((u) => u.tier === 4);
+    const t3Open = metaT3Unlocked(m);
+    const t4Open = metaT4Unlocked(m);
+    const t2Cats = META_CATEGORIES.filter((c) => metaCategoryTierUnlocked(m, c.id, 2)).length;
+    const t2Levels = META_CATEGORIES.reduce((s, c) => s + metaCategoryTierLevel(m, c.id, 2), 0);
+    const t3Bought = ['t3_weapon', 't3_item', 't3_upgrade'].filter((id) => metaLevel(m, id) >= 1).length;
 
     const root = this._mount(`
       <div class="screen narrow title-panel meta-upg-screen">
         <h2>能力强化</h2>
-        <div class="sub">消耗能力点数，永久强化所有猫娘（跨局生效）。</div>
+        <div class="sub">永久强化，跨局生效。T1 需本系 T0 累计 5 级，T2 需本系 T1 累计 5 级。</div>
         <div class="meta-points">能力点数 <b>${points}</b></div>
-        ${rows || `
-          <div class="meta-empty">
-            <div class="meta-empty-icon">✦</div>
-            <div class="meta-empty-title">强化项目筹备中</div>
-            <div class="meta-empty-sub">扭蛋得到的能力点数会一直保留；后续版本会在这里开放永久成长。</div>
-          </div>`}
+        <div class="meta-upg-body">
+          ${catSections}
+          <section class="meta-cat meta-cat-global" style="--rc:#ffd166">
+            <div class="meta-cat-head">
+              <span class="meta-cat-dot"></span>通用 T3
+              <span class="meta-global-progress">${t3Open ? '已解锁'
+                : `T2 解锁 ${t2Cats}/4 · 累计 ${t2Levels}/${META_T3_REQUIRE_T2_LEVELS}`}</span>
+            </div>
+            <div class="meta-tier-cards">${t3.map((u) => cardHtml(u, '#ffd166')).join('')}</div>
+          </section>
+          <section class="meta-cat meta-cat-global" style="--rc:#ff9ff3">
+            <div class="meta-cat-head">
+              <span class="meta-cat-dot"></span>究极 T4
+              <span class="meta-global-progress">${t4Open ? '已解锁' : `需点亮 T3 ${t3Bought}/3`}</span>
+            </div>
+            <div class="meta-tier-cards">${t4.map((u) => cardHtml(u, '#ff9ff3')).join('')}</div>
+          </section>
+        </div>
         <div class="btn-row">
           <button class="btn" data-act="meta-close">返回主菜单</button>
         </div>

@@ -169,6 +169,9 @@ export class Enemy extends Entity {
     // 控制状态（猫王战锤等重击武器会施加）
     this.stun = 0;          // 僵直剩余秒数：>0 时不动也不攻击
     this.armorShred = 0;    // 护甲削减比例 0~1
+    // 第二百二十一轮：小小猫娘标记（受到伤害 +petVuln%，petVulnT 秒）
+    this.petVuln = 0;
+    this.petVulnT = 0;
 
     // ---- 奶妈怪的增益状态（第十二轮）----
     //
@@ -481,6 +484,7 @@ export class Enemy extends Entity {
     if (this.hurtFlash > 0) this.hurtFlash -= dt;
     if (this.hurtExpr > 0) this.hurtExpr -= dt;
     if (this.stun > 0) this.stun -= dt;
+    if (this.petVulnT > 0) this.petVulnT -= dt;
     // 第二百零一轮：状态推进（懒创建，没吃过状态的怪直接跳过）
     if (this.st) tickStatus(this, dt, world);
 

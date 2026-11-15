@@ -56,7 +56,13 @@ import { Soul5Fight, SOUL5_MAX_HP, ARENA as SOUL5_ARENA } from './systems/soul5.
 import { fitArenaToViewport } from './systems/arena-fit.js';
 // 第二百二十轮：扭蛋机（局外）与能力点数永久成长
 import { GACHA_COST, GACHA_POINTS, rollTenPull, totalGachaPoints } from './systems/gacha.js';
-import { META_UPGRADES, metaUpgradeCost, applyMetaUpgrades } from './data/meta-upgrades.js';
+import {
+  META_UPGRADES, META_CATEGORIES, META_TIER_NAMES, META_TIER_COSTS, META_T3_REQUIRE_T2_LEVELS,
+  metaUpgradeCost, applyMetaUpgrades, metaLevel, metaCategoryTierLevel,
+  metaCategoryTierUnlocked, metaUpgradeUnlocked, metaT3Unlocked, metaT4Unlocked,
+} from './data/meta-upgrades.js';
+// 第二百二十一轮：T4「他猫之力」—— 第二份角色技能运行时
+import { grantExtraCharacter } from './systems/char-bonus.js';
 import { NekoPilot } from './systems/neko-pilot.js';
 
 export const STATE = {
@@ -350,6 +356,22 @@ export class Game {
     return false;
   }
 
+  /**
+   * 第二百二十一轮：Boss 登场固定台词。
+   * 优先级同 petSay：猫娘计划气泡+语音 → 小小猫娘头顶气泡 → toast。
+   */
+  _bossSay(text, key) {
+    try {
+      if (this._nekoSay?.(text, { key: `boss:${key}` })) return true;
+    } catch { /* 语音失败不影响气泡 */ }
+    if (this.pet?.say) {
+      this.pet.say(text, 5600, this.world, 'boss');
+      return true;
+    }
+    this.ui?.toast?.(`小小猫娘：${text}`, 'info', 5600);
+    return false;
+  }
+
   /** 组装给猫娘的当前局势描述 */
   _nekoContext(extra = {}) {
     const p = this.player;
@@ -379,13 +401,16 @@ export class Game {
       flandreUnlocked: false,
       // 第二百二十轮：扭蛋机 / 局外成长
       gachaTickets: 0, gachaPoints: 0, gachaPitySSR: 0, gachaPulls: 0, metaUpgradeLevels: {},
+      // 第二百二十一轮：新存档见面礼（30 抽）只发一次
+      gachaWelcome: false,
     };
+    let out = { ...DEFAULTS };
     try {
       const raw = localStorage.getItem(META_KEY) || localStorage.getItem(LEGACY_META_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
-          return { ...DEFAULTS, ...parsed,
+          out = { ...DEFAULTS, ...parsed,
             bestWave: Number(parsed.bestWave) || 0,
             totalKills: Number(parsed.totalKills) || 0,
             runs: Number(parsed.runs) || 0,
@@ -399,11 +424,19 @@ export class Game {
             gachaPulls: Math.max(0, Math.floor(Number(parsed.gachaPulls) || 0)),
             metaUpgradeLevels: parsed.metaUpgradeLevels && typeof parsed.metaUpgradeLevels === 'object'
               ? parsed.metaUpgradeLevels : {},
+            gachaWelcome: parsed.gachaWelcome === true,
           };
         }
       }
     } catch (e) { /* 忽略 */ }
-    return { ...DEFAULTS };
+    // 第二百二十一轮：用户："给所有玩家新存档就送30抽奖券。"
+    // 用 gachaWelcome 标记保证只发一次；老存档（没有该标记）也补发一次。
+    if (!out.gachaWelcome) {
+      out.gachaTickets = (out.gachaTickets | 0) + 30;
+      out.gachaWelcome = true;
+      try { localStorage.setItem(META_KEY, JSON.stringify(out)); } catch { /* 忽略 */ }
+    }
+    return out;
   }
 
   _saveMeta() {
@@ -469,9 +502,15 @@ export class Game {
       points: this.meta.gachaPoints | 0,
       upgrades: META_UPGRADES,
       levels: this.meta.metaUpgradeLevels || {},
+      meta: this.meta,
       onBuy: (id) => {
         const def = META_UPGRADES.find((u) => u.id === id);
         if (!def) return;
+        if (!metaUpgradeUnlocked(this.meta, def)) {
+          audio.play('error');
+          this.ui?.toast?.('前置能力还没解锁喵', 'bad', 3000);
+          return;
+        }
         const lv = Math.max(0, Math.floor(Number(this.meta.metaUpgradeLevels?.[id]) || 0));
         if (lv >= (def.maxLevel ?? 1)) return;
         const cost = metaUpgradeCost(def, lv);
@@ -488,6 +527,58 @@ export class Game {
       },
       onClose: () => this.showTitle(),
     });
+  }
+
+  /**
+   * 第二百二十一轮：发放 T3/T4 的"开局随机奖励"（只给 P1）。
+   * 这些奖励在 startRun 时随机一次；读档/重试时武器、道具、升级本身
+   * 已经在存档里，T4 由 t4CharId 重新挂回，不会重复抽。
+   */
+  _applyMetaRandomStartBonuses() {
+    const p = this.player;
+    const b = p?._metaStartBonuses;
+    if (!p || !b) return;
+    const notes = [];
+
+    // T3：额外武器
+    for (let i = 0; i < (b.startRandomWeapon | 0); i++) {
+      if (!p.hasWeaponSlot) break;
+      const def = this.rng.pick(WEAPONS);
+      if (def && p.addWeapon(def.id)) notes.push(`武器【${def.name}】`);
+    }
+    // T3：额外道具
+    for (let i = 0; i < (b.startRandomItem | 0); i++) {
+      let got = null;
+      for (let k = 0; k < 8 && !got; k++) {
+        const r = this.world?._rollRewardItem?.(p);
+        if (r && p.addItem(r.id)) got = r;
+      }
+      if (got) notes.push(`道具【${got.name}】`);
+      else p.materials += 25;
+    }
+    // T3：额外升级
+    for (let i = 0; i < (b.startRandomUpgrade | 0); i++) {
+      const defs = rollUpgrades(this.rng, p.upgradesTaken, 1, {
+        level: 1,
+        luck: p.stats.values.luck,
+        luckEffectMul: p.stats.luckEffectMul ?? 1,
+      });
+      if (defs[0]) {
+        p.applyUpgrade(defs[0]);
+        notes.push(`升级【${defs[0].name}】`);
+      }
+    }
+    // T4：随机另一位猫娘的能力与技能
+    if ((b.startExtraChar | 0) > 0) {
+      const others = CHARACTERS.filter((c) => c.id !== p.characterId);
+      const def = others.length ? this.rng.pick(others) : null;
+      if (def && grantExtraCharacter(p, def.id)) notes.push(`能力【${def.name}】`);
+    }
+
+    if (notes.length) {
+      this.ui?.toast(`局外成长：开局获得 ${notes.join('、')}`, 'good', 6500);
+    }
+    p._metaStartBonuses = null;
   }
 
   /**
@@ -720,8 +811,20 @@ export class Game {
     for (let s = opts.duo ? 3 : 2; s <= party; s++) {
       this._spawnPartner(characterId, null, s);
     }
-    // 第二百二十轮：局外永久成长（能力点数）对全队生效
-    for (const pl of this.world.players()) applyMetaUpgrades(pl, this.meta);
+    // 第二百二十/二十一轮：局外永久成长（能力点数）对全队生效；
+    // T3/T4 的开局随机奖励只发给 P1（局外成长属于玩家本人）。
+    // 注意：此时 world.player 还没在 World.update 里绑定（那是第一帧的事），
+// 所以不能用 world.players() —— 它会把 P1 漏成 null，导致局外成长
+ // 对 P1 完全不生效（P2~P4 反而正常）。直接显式列出 P1 + 队友。
+    let p1MetaBonuses = null;
+    for (const pl of [this.player, ...this.world.partners()]) {
+      const b = applyMetaUpgrades(pl, this.meta);
+      if (pl === this.player) p1MetaBonuses = b;
+    }
+    if (p1MetaBonuses) {
+      this.player._metaStartBonuses = p1MetaBonuses;
+      this._applyMetaRandomStartBonuses();
+    }
     this._partySize = party;
     this._duoEnabled = party >= 2 || !!opts.duo;
     // ---- 万圣节战实测纠偏（用户："ai猫娘的倒地系统疑似失效"）：pilot 的救援分支读
@@ -888,6 +991,7 @@ export class Game {
     // 回合都是直接死"）；双死重开时 P2 重建实例才"看起来好了"。
     for (const pl of (this.world.players?.() ?? [this.player])) {
       pl?.charRt?.onRoundStart?.();
+      pl?.extraCharRt?.onRoundStart?.();
     }
 
     // 本波是不是 Boss 波。
@@ -1354,7 +1458,9 @@ export class Game {
     p.onShieldBreak = () => {
       // 技能侧的碎盾处理（进入封锁期 + 关掉完全格挡开关）
       p.charRt?.onShieldBreak?.();
-      if (p.shieldFullBlock === false && p.charRt?.id === 'youyi') {
+      p.extraCharRt?.onShieldBreak?.();
+      if (p.shieldFullBlock === false
+        && (p.charRt?.id === 'youyi' || p.extraCharRt?.id === 'youyi')) {
         this.ui?.toast('护盾碎掉了，5 秒内没法再挡喵…', '', 1600);
       }
     };
@@ -1881,13 +1987,13 @@ export class Game {
     //   悠怡萌妹  → 每拥有 10 点（实际生效）幸运 +1
     // 两个都走 charRt，各自返回实际加了多少，便于下面小结里显示。
     // 第一百八十四轮：duo 全员都结算（2P 悠怡/萌妹的回合收益此前一直没发）
-    let skillHarvest = p.charRt?.onRoundEnd?.() ?? 0;
-    let luckHarvest = p.charRt?.luckHarvest?.() ?? 0;
+    let skillHarvest = (p.charRt?.onRoundEnd?.() ?? 0) + (p.extraCharRt?.onRoundEnd?.() ?? 0);
+    let luckHarvest = (p.charRt?.luckHarvest?.() ?? 0) + (p.extraCharRt?.luckHarvest?.() ?? 0);
     if (luckHarvest > 0) p.gainMaterials(luckHarvest);
     for (const pl of (this.world.players?.() ?? [])) {
       if (pl === p || !pl || pl.dead) continue;
-      skillHarvest += pl.charRt?.onRoundEnd?.() ?? 0;
-      const lk = pl.charRt?.luckHarvest?.() ?? 0;
+      skillHarvest += (pl.charRt?.onRoundEnd?.() ?? 0) + (pl.extraCharRt?.onRoundEnd?.() ?? 0);
+      const lk = (pl.charRt?.luckHarvest?.() ?? 0) + (pl.extraCharRt?.luckHarvest?.() ?? 0);
       if (lk > 0) pl.gainMaterials(lk);
       luckHarvest += lk;
     }
@@ -2231,6 +2337,8 @@ export class Game {
     this.soul5 = new Soul5Fight(this, { onDone: (outcome) => this._soul5Finish(outcome) });
     this.world.soul5Fight = this.soul5;
     this.state = STATE.SOUL5;
+    // 第二百二十一轮：用户指定的魂5登场台词
+    this._bossSay('哇，有个戴奇怪头套的家伙正在往他的镰刀上涂了什么，你要小心喵。', 'soul5_intro');
   }
 
   /** 旧区战每一帧：世界照推（没有慢动作），AI 用真实秒 */
@@ -2388,6 +2496,8 @@ export class Game {
     });
     this.world.halloweenFight = this.halloween;
     this.state = STATE.HALLOWEEN;
+    // 第二百二十一轮：用户指定的万圣节双猫登场台词
+    this._bossSay('有2个万圣节装扮的猫娘要和我们一起玩的样子，但是她们的糖果和万圣节南瓜灯怎么都会爆炸啊？', 'halloween_intro');
   }
 
   _updateHalloween(dt) {
@@ -2442,6 +2552,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
+      // 第二百二十一轮：万圣节双猫胜利 +1 扭蛋券（20 波三连隐藏全胜 = 3 张）
+      this._awardGachaTickets(1);
       this.ui.toast(`双猫玩累了回家啦！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
       if (!this.meta.halloweenUnlocked) {
         this.meta.halloweenUnlocked = true;
@@ -2547,6 +2659,8 @@ export class Game {
       p.gainXp(xp);
       p.gainMaterials(mats);
       audio.play('bossKill');
+      // 第二百二十一轮：芙兰→蕾米胜利 +1 扭蛋券
+      this._awardGachaTickets(1);
       this.ui.toast(`红雾散尽，姐妹俩退场了！获得 ${xp} 经验、${mats} 材料`, 'good', 4500);
     }
     if (p.dead) {
@@ -3060,7 +3174,7 @@ export class Game {
     const pet = this.pet || this.world?.pet;
     if (!pet || pet.dead) return null;
 
-    const res = this.shop.tryStealItem(player);
+    const res = this.shop.tryStealItem(player, this.shop.rng, player.boons?.petSteal ?? 0);
     if (!res) return null;
 
     // 宠物头顶冒个得意的 $ 表情，配合提示。
@@ -3379,6 +3493,8 @@ export class Game {
     const p = this.player;
     return {
       characterId: p.characterId,
+      // 第二百二十一轮：T4 随机到的另一位猫娘（读档/重试时重新挂回技能）
+      t4CharId: p._t4CharId ?? null,
       waveIndex: this.waveIndex,
       level: p.level,
       xp: p.xp,
@@ -3482,6 +3598,9 @@ export class Game {
   _applyRunData(data, opts = {}) {
     this.rng = new RNG(data.seed || randomSeed());
     this.player = new Player(data.characterId, this.rng);
+    // 第二百二十一轮：先挂回 T4 的被动与第二技能运行时，再 restoreStatMods
+    //（最终乘算/幸运倍率随后由存档值覆盖，不会重复叠乘；charMul 不在存档里）
+    if (data.t4CharId) grantExtraCharacter(this.player, data.t4CharId);
     this.world = new World(this.rng, this.camera);
     // 恢复存档里的难度（旧存档没有该字段 → 用默认）
     if (data.difficulty) this.difficultyId = data.difficulty;
@@ -3561,6 +3680,13 @@ export class Game {
         healRecv: pos(bo.healRecv, 1),
         petDmg: pos(bo.petDmg, 1),
         petCdCut: nonneg(bo.petCdCut, 0),
+        // 第二百二十一轮：局外「特殊」系的运行时字段
+        petDmgFlat: nonneg(bo.petDmgFlat, 0),
+        petPickup: nonneg(bo.petPickup, 0),
+        petAtkSpeed: nonneg(bo.petAtkSpeed, 0),
+        petRange: nonneg(bo.petRange, 0),
+        petSteal: nonneg(bo.petSteal, 0),
+        petVuln: nonneg(bo.petVuln, 0),
         hitboxStacks: Math.min(4, Math.floor(nonneg(bo.hitboxStacks, 0))),
         lethal: Math.floor(nonneg(bo.lethal, 0)),
         elemental: !!bo.elemental,

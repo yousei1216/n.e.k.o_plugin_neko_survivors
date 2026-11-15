@@ -90,7 +90,8 @@ export class Turret extends Entity {
     // 第十六轮：「M博士来了」的伤害加成是**动态**的（受伤叠层、5 秒清零），
     // 不能像 damageMul 那样在构造时缓存 —— 那样炮台一落地就永远
     // 用着落地那一刻的层数。所以这一项每次开火现算。
-    const md = this.ownerPlayer?.charRt?.mdDamageBonus ?? 0;
+    const md = (this.ownerPlayer?.charRt?.mdDamageBonus ?? 0)
+      + (this.ownerPlayer?.extraCharRt?.mdDamageBonus ?? 0);
     const base = (this.def.damage ?? 5) * (this.weapon?.levelDamageMul ?? 1);
     const dmg = base * this.damageMul * (1 + md / 100);
 

@@ -117,7 +117,8 @@ export class WeaponInstance {
     // 应该线性相加（叠 10 层 = +30%，正好等于三件 +10% 的道具）。
     // 如果改成乘法，10 层会变成 ×1.34，比用户要的更猛，
     // 而且"可无限叠加"会失控得更快。
-    const md = player.charRt?.mdDamageBonus ?? 0;
+    // 第二百二十一轮：T4 第二角色如果是开发猫猫，层数也计入。
+    const md = (player.charRt?.mdDamageBonus ?? 0) + (player.extraCharRt?.mdDamageBonus ?? 0);
     if (md > 0) out *= 1 + md / 100;
 
     // 体检修复（第九十二轮）：莱万汀的 +80% 最终伤害乘区。
@@ -195,7 +196,9 @@ export class WeaponInstance {
       // 第十六轮库洛"近战武器攻击距离 +20%"保持原有专属乘区，叠在最后。
       const rate = (this.def.behavior === 'spin' || this.def.behavior === 'orbit') ? 0.85 : 0.5;
       let mul = 1 + (rangeStat / 100) * rate;
-      if (player.charRt?.id === 'kuro') mul *= player.charRt.params.meleeRangeMul ?? 1.2;
+      const kuroRt = player.charRt?.id === 'kuro' ? player.charRt
+        : player.extraCharRt?.id === 'kuro' ? player.extraCharRt : null;
+      if (kuroRt) mul *= kuroRt.params.meleeRangeMul ?? 1.2;
       r *= mul;
     }
     // ---- 第一百三十四轮：智慧型魔棒 —— 远程攻击射程 +30%（最终乘算）----

@@ -1194,6 +1194,8 @@ export class World {
     }
     const stats = player.stats.values;
     const rt = player.charRt;
+    // 第二百二十一轮：T4 第二角色的伤害侧技能（幸运一击 / 距离 / 炮台叠层）
+    const rt2 = player.extraCharRt;
 
     // 暴击
     let critChance = stats.critChance + (weapon?.def?.critBonus ?? 0);
@@ -1221,23 +1223,32 @@ export class World {
     //     子弹飞行期间玩家一直在移动，用开火距离等于这条技能白给。
     //  3. 炮台叠层（Neon（原"neon宴会"））—— "该敌人受到的最终伤害 +1%×层数"，
     //     是挂在**目标**身上的易伤，所以放最后（它就是"最终"的意思）。
-    if (rt) {
-      const lucky = rt.rollLuckyHit?.() ?? 1;
+    if (rt || rt2) {
+      // 两个角色各掷各的幸运一击（同一角色不会重复，T4 只会是另一位）
+      const lucky = (rt?.rollLuckyHit?.() ?? 1) * (rt2?.rollLuckyHit?.() ?? 1);
       if (lucky !== 1) dmg *= lucky;
 
-      if (rt.id === 'luna') {
+      const lunaRt = rt?.id === 'luna' ? rt : (rt2?.id === 'luna' ? rt2 : null);
+      if (lunaRt) {
         const dist = Math.hypot(target.x - player.x, target.y - player.y);
-        dmg *= rt.distanceMul(dist);
+        dmg *= lunaRt.distanceMul(dist);
       }
 
-      if (rt.id === 'neon_party' && opts.fromTurret) {
+      const neonRts = [rt, rt2].filter((r) => r?.id === 'neon_party');
+      if (neonRts.length && opts.fromTurret) {
         // 先读当前层数（不写），再叠一层给"下一次"用 ——
         // 反过来的话第一次命中就吃到了 +1%，和用户描述的
         // "命中时使它受到的最终伤害+1%"（先挨打再涨）不符。
-        const cur = rt.turretBonusFor(target);
-        if (cur > 0) dmg *= 1 + cur;
-        rt.onTurretHit(target);
+        let bonusMul = 1;
+        for (const r of neonRts) bonusMul *= 1 + r.turretBonusFor(target);
+        if (bonusMul !== 1) dmg *= bonusMul;
+        for (const r of neonRts) r.onTurretHit(target);
       }
+    }
+
+    // 第二百二十一轮：小小猫娘攻击标记 —— 期间敌人受到的所有伤害 +X%
+    if (target.petVulnT > 0 && target.petVuln > 0) {
+      dmg *= 1 + target.petVuln / 100;
     }
 
     // 命中目标
@@ -1384,13 +1395,16 @@ export class World {
     //     带了 `noLobster` 标记，所以追击本身不会再触发追击（不会无限递归）。
     //  2. 伤害基数是 `dealt / 本次倍率`…不行 —— 直接用 `dmg`（这一击的实际伤害）
     //     乘 2。用户说的是"触发的武器伤害的200%"，就是这一下的 2 倍。
-    if (rt && !opts.noLobster && !res.killed && weapon?.def?.kind === 'melee') {
-      if (rt.rollLobster?.('melee')) {
+    if (!opts.noLobster && !res.killed && weapon?.def?.kind === 'melee') {
+      // 第二百二十一轮：原角色或 T4 第二角色是小八都能触发（同一击只判定一次）
+      const lobsterRt = rt?.rollLobster?.('melee') ? rt
+        : (rt2?.rollLobster?.('melee') ? rt2 : null);
+      if (lobsterRt) {
         // 第四十五轮：触发龙虾突击时给小八回 5 滴血 ——
         // 用户原话："然后技能龙虾突击加强：造成龙虾突击时给小八回5滴血。"
         player.heal?.(5);
         this.fx?.damageText?.(player.x, player.y - 24, '+5', false, '#6ee7a8');
-        const followDmg = dmg * (rt.lobsterMul ?? 2);
+        const followDmg = dmg * (lobsterRt.lobsterMul ?? 2);
         // 视觉：一道橙红的追击划痕，和普通命中区分开
         this.fx?.thrust?.(player.x, player.y, target.x, target.y, 16, '#ff6b4a');
         this.fx?.damageText?.(target.x, target.y - target.radius * 1.1, '龙虾突击', false, '#ff6b4a');
@@ -1445,6 +1459,13 @@ export class World {
       return 0;
     }
     const dealt = res.dealt;
+    // 第二百二十一轮：局外成长「小小猫娘标记」——
+    // 被打中的敌人 5 秒内受到的伤害 +X%（取玩家当前的总加成）。
+    const pv = this.player?.boons?.petVuln ?? 0;
+    if (pv > 0) {
+      target.petVuln = Math.max(target.petVuln ?? 0, pv);
+      target.petVulnT = 5;
+    }
     this.fx.damageText(target.x, target.y - target.radius * 0.6, dealt, false, '#ffd166');
     this.fx.hit(target.x, target.y, '#ffd166', { player: true });
     if (res.killed) {

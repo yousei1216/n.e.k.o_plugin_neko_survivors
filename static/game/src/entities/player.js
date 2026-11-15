@@ -89,6 +89,13 @@ export class Player extends Entity {
       healRecv: 1,        // 受到的治疗乘区
       petDmg: 1,          // 小小猫娘伤害乘区
       petCdCut: 0,        // 小小猫娘技能冷却缩短（秒）
+      // 第二百二十一轮：局外成长「特殊」系
+      petDmgFlat: 0,      // 小小猫娘攻击固定加值
+      petPickup: 0,       // 小小猫娘拾取范围加值
+      petAtkSpeed: 0,     // 小小猫娘攻速（百分点）
+      petRange: 0,        // 小小猫娘攻击范围加值
+      petSteal: 0,        // 小小猫娘免费购物概率（百分点）
+      petVuln: 0,         // 小小猫娘命中标记（受到伤害 +%，持续 5 秒）
       hitboxStacks: 0,    // 缩骨功层数（0~4）
       lethal: 0,          // 九条命剩余次数
       elemental: false,   // 混沌猫爪：攻击 20% 附带随机效果
@@ -367,7 +374,9 @@ export class Player extends Entity {
     // （拾取物 / 宠物代拾 / 波次结算），改入口一处就全覆盖，
     // 改调用点必然漏（这正是幸运那 6 个消费点踩过的坑）。
     // 第二百一十六轮：中 Boss 蓝色「学习猫」经验 +10%（与角色被动叠乘）
-    const mul = (this.charRt?.xpMul?.() ?? 1) * (this.boons?.xpGain ?? 1);
+    const mul = (this.charRt?.xpMul?.() ?? 1)
+      * (this.extraCharRt?.xpMul?.() ?? 1)
+      * (this.boons?.xpGain ?? 1);
     const gain = mul === 1 ? amount : amount * mul;
     this.xp += gain;
     let leveled = 0;
@@ -420,6 +429,16 @@ export class Player extends Entity {
     this.lethalFlash = 1;
     this.onBoonLethal?.();
     return true;
+  }
+
+  /**
+   * 第二百二十一轮：依次尝试原角色与 T4 第二角色的锁血。
+   * 任一成功就返回 true（两份技能不会同时消耗）。
+   */
+  _tryCharacterLethalSave(x, y) {
+    if (this.charRt?.tryLethalSave?.(x, y)) return true;
+    if (this.extraCharRt?.tryLethalSave?.(x, y)) return true;
+    return false;
   }
 
   /** 挨打后叠「受击反弹」层数（5 秒，可叠加；时间由 update 递减） */
@@ -496,19 +515,17 @@ export class Player extends Entity {
         this.onHurt?.(toHpF, sourceX, sourceY);
         return toHpF;
       }
-      if (this.charRt && toHpF > 0 && toHpF >= this.hp && this.hp > 0) {
-        if (this.charRt.tryLethalSave()) {
-          this.damageTaken += Math.max(0, this.hp - 1);
-          this.hp = 1;
-          this.onHurt?.(toHpF, sourceX, sourceY);
-          return toHpF;
-        }
+      if (toHpF > 0 && toHpF >= this.hp && this.hp > 0 && this._tryCharacterLethalSave?.()) {
+        this.damageTaken += Math.max(0, this.hp - 1);
+        this.hp = 1;
+        this.onHurt?.(toHpF, sourceX, sourceY);
+        return toHpF;
       }
       this.hp -= toHpF;
       this.damageTaken += fixed;
       if (toHpF > 0) this._noteBoonHurt?.();
       this.hurtFlash = 0.25;
-      if (toHpF > 0) this.charRt?.onHurt?.();
+      if (toHpF > 0) { this.charRt?.onHurt?.(); this.extraCharRt?.onHurt?.(); }
       this.onHurt?.(fixed, sourceX, sourceY);
       if (this.hp <= 0) {
         this.hp = 0;
@@ -558,7 +575,8 @@ export class Player extends Entity {
 
     // ---- 第十六轮：悠怡萌妹「本喵最欧」防御侧 ----
     // 也放在护甲之后：用户说"减少50%**最终**伤害"。
-    const guard = this.charRt?.rollLuckyGuard?.() ?? 1;
+    const guard = (this.charRt?.rollLuckyGuard?.() ?? 1)
+      * (this.extraCharRt?.rollLuckyGuard?.() ?? 1);
     if (guard !== 1) final *= guard;
 
     // ---- 第一百三十二轮：波次真实伤害附加 ----
@@ -637,10 +655,11 @@ export class Player extends Entity {
       return toHp;
     }
 
-    if (this.charRt && toHp > 0 && toHp >= this.hp && this.hp > 0) {
+    if (toHp > 0 && toHp >= this.hp && this.hp > 0) {
       // 第一百七十三轮：把伤害来源坐标传给锁血 —— 后空翻要"往受击
       // 完全相反的方向跳"，得知道是哪边打来的
-      if (this.charRt.tryLethalSave(sourceX, sourceY)) {
+      // 第二百二十一轮：原角色与 T4 第二角色依次尝试。
+      if (this._tryCharacterLethalSave?.(sourceX, sourceY)) {
         // 统计口径：这一下**本该**扣掉 hp-1（锁血后剩 1 点），
         // 所以按差额记入承受伤害，而不是记满 toHp ——
         // 否则"承受伤害"的统计会比玩家实际掉的血虚高一大截。
@@ -678,7 +697,7 @@ export class Player extends Entity {
     // 放在这里而不是更早：只有**真的挨到伤害**（没被闪避/锁血/护盾全挡）
     // 才算"受到伤害"。用盾全挡掉的那次不该给叠层，否则悠怡洛丽塔
     // 那种"一直有盾"的角色会白嫖（虽然她不是开发猫猫，但规则要一致）。
-    if (toHp > 0) this.charRt?.onHurt?.();
+    if (toHp > 0) { this.charRt?.onHurt?.(); this.extraCharRt?.onHurt?.(); }
 
     this.onHurt?.(final, sourceX, sourceY);
 
@@ -720,6 +739,7 @@ export class Player extends Entity {
    */
   _breakShield() {
     this.charRt?.onShieldBreak?.();
+    this.extraCharRt?.onShieldBreak?.();
     this.onShieldBreak?.();
   }
 
@@ -749,6 +769,7 @@ export class Player extends Entity {
     if (overflow > 0) {
       // 满了还继续回 → 溢出的部分交给技能处理（没有技能就是纯浪费）
       this.charRt?.healToShield?.(overflow);
+      this.extraCharRt?.healToShield?.(overflow);
     }
     return healed;
   }
@@ -927,7 +948,7 @@ export class Player extends Entity {
     //   mdMoveBonus          → 开发猫猫"每层 +5% 移速"（第二十轮起，原 3%）
     // 用**加法**把 mdMoveBonus 并进 stats 那一层，而不是再乘一次：
     // 用户说的是"移速+3%"（第二十轮起 +5%），是百分点，和属性面板上"移速 +30%"同一个量纲。
-    const mdMove = this.charRt?.mdMoveBonus ?? 0;
+    const mdMove = (this.charRt?.mdMoveBonus ?? 0) + (this.extraCharRt?.mdMoveBonus ?? 0);
     // 第一百零八轮：晴岚 —— 所有人移速 +25%（乘区，天气结束自动归一）
     let speed = this.baseSpeed * speedMul * this.mulFor('moveSpeed')
       * (this.speedBonusMul ?? 1) * (1 + mdMove / 100)
@@ -1045,6 +1066,7 @@ export class Player extends Entity {
     // 晚一帧的话，第一次判定会打到"还没被 debuff 的敌人"身上，
     // 表现为技能偶尔没效果。
     this.charRt?.update?.(dt, world);
+    this.extraCharRt?.update?.(dt, world);
 
     // ---- 眨眼 ----
     if (this.blinkPhase > 0) {

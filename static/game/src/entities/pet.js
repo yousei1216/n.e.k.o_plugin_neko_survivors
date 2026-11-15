@@ -246,13 +246,15 @@ export class Pet extends Entity {
     if (!s) return this._baseline.damage;
     // 第二百一十六轮：中 Boss 紫色「小小猫娘·凶猛」—— 伤害 ×2
     return this._baseline.damage * (1 + s.damage / 100)
-      * (this.player?.boons?.petDmg ?? 1);
+      * (this.player?.boons?.petDmg ?? 1)
+      // 第二百二十一轮：局外成长「小小猫娘攻击」固定加值
+      + (this.player?.boons?.petDmgFlat ?? 0);
   }
 
   get attackInterval() {
     const s = this.player?.stats.values;
-    const aspd = s ? s.attackSpeed : 0;
-    return Math.max(0.18, this._baseline.cooldown / (1 + aspd / 100));
+    const aspd = (s ? s.attackSpeed : 0) + (this.player?.boons?.petAtkSpeed ?? 0);
+    return Math.max(0.12, this._baseline.cooldown / (1 + aspd / 100));
   }
 
   /** 宠物攻速倍率（给 UI/测试用） */
@@ -433,8 +435,10 @@ export class Pet extends Entity {
   // ---------------------------------------------------------
   _findEnemy(world) {
     if (!world.grid) return null;
+    // 第二百二十一轮：局外成长「小小猫娘射程」
+    const range = ATTACK_RANGE + (this.player?.boons?.petRange ?? 0);
     // 优先打最近的；用 grid 的 nearest 避免遍历全部敌人
-    return world.grid.nearest(this.x, this.y, ATTACK_RANGE, (e) => e.isEnemy && !e.dead) || null;
+    return world.grid.nearest(this.x, this.y, range, (e) => e.isEnemy && !e.dead) || null;
   }
 
   _doAttack(dt, world) {
@@ -452,7 +456,7 @@ export class Pet extends Entity {
     }
 
     if (this.attackCd > 0) return;
-    if (d > ATTACK_RANGE) return;
+    if (d > ATTACK_RANGE + (this.player?.boons?.petRange ?? 0)) return;
 
     this.attackCd = this.attackInterval;
     this.attackAnim = 0.22;
@@ -466,7 +470,8 @@ export class Pet extends Entity {
   // 捡东西
   // ---------------------------------------------------------
   _findPickup(world) {
-    let best = null, bestD = PICKUP_RANGE;
+    // 第二百二十一轮：局外成长「小小猫娘拾取」
+    let best = null, bestD = PICKUP_RANGE + (this.player?.boons?.petPickup ?? 0);
     for (const p of world.pickups.items) {
       if (p.dead) continue;
       // 只帮忙捡经验和材料（医疗包留给玩家自己踩，避免抢手感）
