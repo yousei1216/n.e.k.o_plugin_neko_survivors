@@ -628,6 +628,10 @@ export class Game {
       case 'buyBait': r = Life.buyBait(meta, payload.id, payload.units ?? 10); break;
       case 'selectBait': r = Life.selectBait(meta, payload.id); break;
       case 'consumeBait': r = Life.consumeBait(meta); break;
+      case 'hookFish':
+        // 只预抽鱼种给收线 QTE 定难度，不写入存档、不消耗鱼饵（抛竿时已消耗）
+        r = { fish: Life.rollFishCatch(this._lifeRng(), meta.fishing.rod, meta.fishing.bait) };
+        break;
       case 'rollFish': {
         const fish = Life.rollFishCatch(this._lifeRng(), meta.fishing.rod, meta.fishing.bait);
         const added = Life.addFishItem(meta, fish);

@@ -51,7 +51,8 @@ export class FishingGame {
    * @param {HTMLCanvasElement} canvas
    * @param {{
    *   onCast?: () => {bait?: object, fallback?: boolean},
-   *   onCatch?: () => {fish?: object, added?: boolean, autoSold?: boolean, autoCoins?: number, coins?: number},
+   *   onHook?: () => (fish: object|null),
+   *   onCatch?: (fish?: object) => {added?: boolean, autoSold?: boolean, autoCoins?: number, coins?: number},
    *   onHud?: (hud: object) => void,
    *   onSound?: (name:string) => void,
    * }} opts
@@ -60,11 +61,12 @@ export class FishingGame {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.onCast = opts.onCast || null;
+    this.onHook = opts.onHook || null;
     this.onCatch = opts.onCatch || null;
     this.onHud = opts.onHud || null;
     this.onSound = opts.onSound || null;
 
-    this.state = 'idle'; // idle | charging | cast | wait | bite | reel | result
+    this.state = 'idle'; // idle | charging | cast | wait | bite | reel | landing | result
     this.message = '按住鼠标蓄力，松手抛竿';
     this.power = 0;
     this.castPower = 0;
@@ -75,6 +77,15 @@ export class FishingGame {
     this.tension = 0;
     this.reelT = 0;
     this.reeling = false;
+    this.pointer = { x: W * 0.72, y: 100 };
+    this.hookedFish = null;
+    this.qteRarity = 0;
+    this.qteDir = 0;
+    this.qteTargetDir = 0;
+    this.qteTurnT = 0;
+    this.qteTurnEvery = 1.45;
+    this.qteTurnSpeed = 4.2;
+    this.qteSplashT = 0;
     this.resultT = 0;
     this.result = null;
     this.bobberX = 760;
@@ -107,8 +118,10 @@ export class FishingGame {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.imageSmoothingEnabled = true;
 
+    this._onMove = (e) => { this._setPointer(e); };
     this._onDown = (e) => {
       if (e.preventDefault) e.preventDefault();
+      this._setPointer(e);
       try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* */ }
       this._pointerDown();
     };
@@ -126,6 +139,7 @@ export class FishingGame {
         this._emitHud(true);
       }
     };
+    canvas.addEventListener('pointermove', this._onMove);
     canvas.addEventListener('pointerdown', this._onDown);
     canvas.addEventListener('pointerup', this._onUp);
     canvas.addEventListener('pointercancel', this._onCancel);
@@ -135,6 +149,14 @@ export class FishingGame {
     this._loop = this._loop.bind(this);
     this._emitHud(true);
     this._raf = requestAnimationFrame(this._loop);
+  }
+
+  _setPointer(e) {
+    const r = this.canvas.getBoundingClientRect();
+    const w = r.width || W;
+    const h = r.height || H;
+    this.pointer.x = clamp(((e.clientX - r.left) / w) * W, 0, W);
+    this.pointer.y = clamp(((e.clientY - r.top) / h) * H, 0, H);
   }
 
   _loadAssets() {
@@ -171,6 +193,7 @@ export class FishingGame {
     if (this._raf) cancelAnimationFrame(this._raf);
     this._raf = 0;
     try {
+      this.canvas.removeEventListener('pointermove', this._onMove);
       this.canvas.removeEventListener('pointerdown', this._onDown);
       this.canvas.removeEventListener('pointerup', this._onUp);
       this.canvas.removeEventListener('pointercancel', this._onCancel);
@@ -191,12 +214,14 @@ export class FishingGame {
       return;
     }
     if (this.state === 'bite') {
+      this.hookedFish = this.onHook?.() || null;
+      this._initReelQte();
       this.state = 'reel';
       this.progress = 0.12;
       this.tension = 0.18;
       this.reelT = 0;
       this.reeling = true;
-      this.message = '按住收线，松手放线；张力拉满会断线';
+      this.message = '鱼在挣扎！按住左键，往红箭头的反方向拖';
       this._sound('pickupXp');
       this._emitHud(true);
       return;
@@ -204,6 +229,19 @@ export class FishingGame {
     if (this.state === 'reel') {
       this.reeling = true;
     }
+  }
+
+  /** 鱼上钩时按品质初始化挣扎 QTE；品质越高，转向越快。 */
+  _initReelQte() {
+    const rarity = clamp(this.hookedFish?.rarity | 0, 0, 4);
+    this.qteRarity = rarity;
+    this.qteTurnEvery = Math.max(0.55, 1.45 - rarity * 0.16);
+    this.qteTurnSpeed = 4.2 + rarity * 0.7;
+    // 左右挣扎更直观：红色箭头基本指向左/右，玩家往反方向拖。
+    this.qteDir = (Math.random() < 0.5 ? 0 : Math.PI) + rand(-0.28, 0.28);
+    this.qteTargetDir = this.qteDir;
+    this.qteTurnT = this.qteTurnEvery;
+    this.qteSplashT = 0.08;
   }
 
   _pointerUp() {
@@ -274,18 +312,44 @@ export class FishingGame {
     } else if (this.state === 'reel') {
       this.reelT += dt;
       const rod = this.rod || getRod('bamboo');
-      const pull = 0.55 + Math.abs(Math.sin(this.reelT * 2.7)) * 0.75;
-      if (this.reeling) {
-        this.progress += dt * 0.24 * (rod.reel || 1);
-        this.tension += dt * 0.34 * pull / (rod.line || 1);
+
+      // 鱼每隔一段时间换一个逃跑方向；方向用角速度平滑过渡，不会瞬移。
+      this.qteTurnT -= dt;
+      if (this.qteTurnT <= 0) {
+        this.qteTargetDir = (Math.random() < 0.5 ? 0 : Math.PI) + rand(-0.28, 0.28);
+        this.qteTurnT = this.qteTurnEvery;
+        this._qteSplashBurst();
+      }
+      this.qteDir = this._angleMove(this.qteDir, this.qteTargetDir, this.qteTurnSpeed * dt);
+      this.qteSplashT -= dt;
+      if (this.qteSplashT <= 0) {
+        this.qteSplashT = 0.22;
+        this._qteSplashBurst();
+      }
+
+      const pos = this._reelFishPos(this.ambientT);
+      const dx = this.pointer.x - pos.x;
+      const dy = this.pointer.y - pos.y;
+      const dist = Math.hypot(dx, dy);
+      const align = dist > 1
+        ? Math.cos(Math.atan2(dy, dx) - (this.qteDir + Math.PI))
+        : -1;
+      const strength = this.reeling
+        ? clamp(align, 0, 1) * clamp((dist - 12) / 70, 0, 1)
+        : 0;
+
+      if (strength > 0.12) {
+        this.progress += dt * 0.22 * strength * (rod.reel || 1);
+        this.tension -= dt * 0.38;
       } else {
-        this.progress -= dt * 0.06;
-        this.tension -= dt * 0.5;
+        this.progress -= dt * 0.035;
+        this.tension += dt * (0.12 + this.qteRarity * 0.018
+          + (this.reeling && align < 0 ? 0.05 : 0.02));
       }
       this.progress = clamp(this.progress, 0, 1);
       this.tension = clamp(this.tension, 0, 1.2);
       if (this.tension >= 1) {
-        this._finishMiss('线绷断了！下次张力高时松一下手');
+        this._finishMiss('鱼挣脱了！要往红箭头的反方向拖');
       } else if (this.progress >= 1) {
         this._startLanding();
       }
@@ -307,7 +371,7 @@ export class FishingGame {
     }
   }
 
-  /** 收线进度满后，鱼从水面飞到角色手里；动画结束才结算。 */
+  /** 收线进度满后，鱼被提到竿尖附近；动画结束才结算。 */
   _startLanding() {
     if (this.state === 'landing') return;
     const pose = this._rodPose(0);
@@ -328,6 +392,8 @@ export class FishingGame {
     this.resultT = 1.25;
     this.result = { miss: true, message: msg };
     this.reeling = false;
+    this.hookedFish = null;
+    this.qteRarity = 0;
     this.progress = 0;
     this.tension = 0;
     this.message = msg;
@@ -336,8 +402,9 @@ export class FishingGame {
   }
 
   _finishCatch() {
-    const info = this.onCatch?.() || {};
-    const fish = info.fish;
+    const fish = this.hookedFish;
+    const info = this.onCatch?.(fish) || {};
+    this.hookedFish = null;
     this.state = 'result';
     this.resultT = 1.8;
     this.reeling = false;
@@ -432,6 +499,10 @@ export class FishingGame {
     this._drawFishShadows();
     this._drawCharacter(t);
     this._drawRodAndBobber(t);
+    if (this.state === 'reel') {
+      const pos = this._reelFishPos(t);
+      this._drawReelQte(pos.x, pos.y, t);
+    }
     this._drawEffects();
     this._drawMessage();
     if (this.state === 'charging') this._drawPowerBar();
@@ -499,6 +570,41 @@ export class FishingGame {
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     return { x: anchorX + dx * c - dy * s, y: anchorY + dx * s + dy * c };
+  }
+
+  _angleMove(cur, target, maxStep) {
+    const diff = Math.atan2(Math.sin(target - cur), Math.cos(target - cur));
+    return cur + clamp(diff, -maxStep, maxStep);
+  }
+
+  /** 收线时鱼的位置：从落点慢慢被拉到竿尖；QTE 圈和鱼影都用它。 */
+  _reelFishPos(t) {
+    const { angle, anchorX, anchorY } = this._rodPose(t);
+    const tip = this._rodTip(anchorX, anchorY, angle);
+    const pull = clamp(this.progress, 0, 1);
+    return {
+      x: this.bobberX + (tip.x - this.bobberX) * pull,
+      y: 112 + (tip.y + 5 - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7),
+      tip,
+    };
+  }
+
+  _qteSplashBurst() {
+    const pos = this._reelFishPos(this.ambientT);
+    const a = this.qteDir;
+    const cx = pos.x + Math.cos(a) * 24;
+    const cy = pos.y + Math.sin(a) * 12;
+    for (let i = 0; i < 4; i++) {
+      const ang = a + rand(-0.5, 0.5);
+      const sp = rand(18, 64);
+      this.particles.push({
+        x: cx, y: cy,
+        vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 10,
+        life: rand(0.2, 0.5), max: 0.5, r: rand(1, 2.5),
+        color: i % 2 ? 'rgba(190, 246, 255, .9)' : 'rgba(255, 220, 120, .9)',
+      });
+    }
+    this.ripples.push({ x: cx, y: cy, r: 5, max: 32, a: 0.65 });
   }
 
   /** 竿尖在画布外时，把鱼线起点夹到画布边缘，避免线"凭空从半空出现"。 */
@@ -817,37 +923,28 @@ export class FishingGame {
     }
   }
 
-  /** 收线时水里的鱼影；越靠近角色越大。 */
+  /** 收线/上鱼时的黑色鱼影：不暴露鱼种、大小和颜色。 */
   _drawStrugglingFish(x, y, t, scale = 1) {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(Math.sin(t * 9) * 0.28);
     ctx.scale(scale, scale);
-    ctx.globalAlpha = 0.96;
-    ctx.fillStyle = '#ff9a4d';
+    // 水下淡青色轮廓，保证黑影子在深色水面上也能看清
+    ctx.fillStyle = 'rgba(170, 230, 255, .20)';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 21, 9, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(8, 13, 21, .94)';
     ctx.beginPath();
     ctx.ellipse(0, 0, 17, 6.5, 0, 0, TAU);
     ctx.fill();
-    ctx.fillStyle = '#ffcf9a';
-    ctx.beginPath();
-    ctx.ellipse(1, 2.2, 11, 2.4, 0, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = '#f06a3c';
     ctx.beginPath();
     ctx.moveTo(-14, 0);
     ctx.lineTo(-25, -7);
     ctx.lineTo(-22, 0);
     ctx.lineTo(-25, 7);
     ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = '#eafcff';
-    ctx.beginPath();
-    ctx.arc(9, -2, 2.2, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = '#1b2a3a';
-    ctx.beginPath();
-    ctx.arc(9.6, -2, 1.1, 0, TAU);
     ctx.fill();
     ctx.restore();
 
@@ -856,6 +953,69 @@ export class FishingGame {
     ctx.beginPath();
     ctx.ellipse(x, y + 7, 22 * scale, 5 * scale, 0, 0, TAU);
     ctx.stroke();
+  }
+
+  _drawReelQte(x, y, t) {
+    const ctx = this.ctx;
+    const pulse = Math.sin(t * 6) * 2;
+    ctx.save();
+    ctx.translate(x, y);
+
+    // 多个同心圆
+    for (const [r, a] of [[40 + pulse, .30], [31, .22], [23, .16]]) {
+      ctx.strokeStyle = `rgba(220, 255, 255, ${a})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, TAU);
+      ctx.stroke();
+    }
+
+    // 红色箭头：鱼正在往这个方向逃
+    ctx.save();
+    ctx.rotate(this.qteDir);
+    ctx.strokeStyle = 'rgba(255, 92, 112, .9)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(34, 0);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255, 92, 112, .95)';
+    ctx.beginPath();
+    ctx.moveTo(45, 0);
+    ctx.lineTo(32, -8);
+    ctx.lineTo(32, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // 绿色弧：玩家要往反方向拖
+    ctx.strokeStyle = 'rgba(126, 255, 180, .85)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, 34, this.qteDir + Math.PI - 0.5, this.qteDir + Math.PI + 0.5);
+    ctx.stroke();
+
+    // 当前鼠标拉扯方向
+    const dx = this.pointer.x - x;
+    const dy = this.pointer.y - y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 3) {
+      const a = Math.atan2(dy, dx);
+      const good = Math.cos(a - (this.qteDir + Math.PI)) > 0.15;
+      ctx.save();
+      ctx.rotate(a);
+      ctx.strokeStyle = this.reeling
+        ? (good ? 'rgba(126, 255, 180, .95)' : 'rgba(255, 120, 120, .95)')
+        : 'rgba(255, 255, 255, .35)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(5, 0);
+      ctx.lineTo(Math.min(50, dist), 0);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
   _drawEffects() {
@@ -935,7 +1095,7 @@ export class FishingGame {
     ctx.fillStyle = '#eafcff';
     ctx.font = '800 10px "Segoe UI", "Microsoft YaHei", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`收线 ${Math.round(this.progress * 100)}%　张力 ${Math.round(this.tension * 100)}%`, x + w / 2, y - 6);
+    ctx.fillText(`收线 ${Math.round(this.progress * 100)}%　挣脱 ${Math.round(this.tension * 100)}%`, x + w / 2, y - 6);
   }
 
   _drawResult() {

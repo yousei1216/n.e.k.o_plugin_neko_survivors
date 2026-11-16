@@ -28,15 +28,15 @@ export function goldfishTicketsForScore(score) {
 
 const FISH_KINDS = {
   normal: {
-    score: 10, speed: 30, radius: 16,
+    score: 10, speed: 30, radius: 16, rarity: 0,
     body: '#ff8a3d', belly: '#ffd7ad', fin: '#ff6a2e', tail: '#ff6a35',
   },
   black: {
-    score: 25, speed: 40, radius: 15,
+    score: 25, speed: 40, radius: 15, rarity: 1,
     body: '#302b42', belly: '#5c5572', fin: '#8a3f5a', tail: '#6d3550',
   },
   gold: {
-    score: 60, speed: 52, radius: 13,
+    score: 60, speed: 52, radius: 13, rarity: 2,
     body: '#ffd23a', belly: '#fff4b8', fin: '#ffb300', tail: '#ffc107',
     glow: 'rgba(255, 220, 90, .55)',
   },
@@ -83,6 +83,9 @@ export class GoldfishScoop {
     this.ambientT = 0;
     this.endTimer = 0;
     this.result = null;
+    this.scoopQte = null;
+    this.qteFlashT = 0;
+    this.qteFlashKind = '';
 
     this._raf = 0;
     this._last = 0;
@@ -145,6 +148,9 @@ export class GoldfishScoop {
     this.scoopAnim = 0;
     this.scoopCd = 0;
     this.flash = 0;
+    this.scoopQte = null;
+    this.qteFlashT = 0;
+    this.qteFlashKind = '';
     this.ripples.length = 0;
     this.particles.length = 0;
     this.popups.length = 0;
@@ -213,6 +219,7 @@ export class GoldfishScoop {
 
   // ---------------- 点击 ----------------
   _scoop() {
+    if (this.state === 'qte') { this._resolveScoopQte(); return; }
     if (this.state !== 'playing') return;
     if (this.paper <= 0 || this.scoopCd > 0) return;
     this.scoopCd = 0.32;   // 每次下网有一点动画硬直，防止一秒点完 5 次
@@ -243,14 +250,66 @@ export class GoldfishScoop {
     }
 
     if (hit) {
-      this._catchFish(hit);
+      this._startScoopQte(hit);
     } else {
       this.combo = 0;
       this._sound('click');
+      if (this.paper <= 0) this._beginEnd();
     }
 
-    if (this.paper <= 0) this._beginEnd();
     this._emitHud(true);
+  }
+
+  /** 捞中鱼后先进入 QTE：指针从左到右，必须在绿色区点击。 */
+  _startScoopQte(f) {
+    const kind = FISH_KINDS[f.kind] || FISH_KINDS.normal;
+    const rarity = kind.rarity | 0;
+    const duration = [1.25, 0.95, 0.72][rarity] ?? 1.1;
+    const zoneWidth = [0.30, 0.21, 0.14][rarity] ?? 0.25;
+    const zoneStart = rand(0.28, Math.max(0.28, 0.70 - zoneWidth));
+    this.scoopQte = {
+      fish: f, t: 0, duration, zoneStart, zoneWidth, rarity, kind,
+    };
+    this.state = 'qte';
+    this.message = '捞中了！在绿色区域点击';
+    this._sound('lock');
+    this._emitHud(true);
+  }
+
+  _resolveScoopQte() {
+    const q = this.scoopQte;
+    if (!q) return;
+    const p = clamp(q.t / q.duration, 0, 1);
+    const ok = p >= q.zoneStart && p <= q.zoneStart + q.zoneWidth;
+    this.scoopQte = null;
+    this.state = 'playing';
+    this.scoopCd = 0.4;
+    this.qteFlashT = 0.45;
+    this.qteFlashKind = ok ? 'ok' : 'bad';
+
+    if (ok) {
+      this._catchFish(q.fish);
+      this._sound('levelUp');
+      this.popups.push({
+        x: q.fish.x, y: q.fish.y - 30, text: '捞到了！', sub: '',
+        life: 0.8, max: 0.8, color: '#8fffc0',
+      });
+    } else {
+      this.combo = 0;
+      if (q.fish) {
+        q.fish.fleeT = 1.2;
+        q.fish.angle = rand(0, TAU);
+      }
+      this._sound('error');
+      this.popups.push({
+        x: q.fish?.x ?? W / 2, y: (q.fish?.y ?? H / 2) - 24,
+        text: '跑掉了…', sub: '', life: 0.85, max: 0.85, color: '#ff8a8a',
+      });
+      this.ripples.push({ x: q.fish?.x ?? W / 2, y: q.fish?.y ?? H / 2, r: 8, max: 46, alpha: 0.7 });
+    }
+
+    this._emitHud(true);
+    if (this.paper <= 0) this._beginEnd();
   }
 
   _catchFish(f) {
@@ -336,12 +395,18 @@ export class GoldfishScoop {
     this.scoopAnim = Math.max(0, this.scoopAnim - dt * 3.2);
     this.scoopCd = Math.max(0, this.scoopCd - dt);
     this.flash = Math.max(0, this.flash - dt * 2.6);
+    this.qteFlashT = Math.max(0, this.qteFlashT - dt);
 
     if (this.state === 'playing') {
       this.time = Math.max(0, this.time - dt);
       if (this.time <= 0) this._beginEnd();
       this._hudAcc = (this._hudAcc || 0) + dt;
       if (this._hudAcc >= 0.1) { this._hudAcc = 0; this._emitHud(); }
+    } else if (this.state === 'qte') {
+      if (this.scoopQte) {
+        this.scoopQte.t += dt;
+        if (this.scoopQte.t >= this.scoopQte.duration) this._resolveScoopQte();
+      }
     } else if (this.state === 'ending') {
       this.endTimer -= dt;
       if (this.endTimer <= 0) this._finish();
@@ -457,9 +522,68 @@ export class GoldfishScoop {
     for (const f of this.fish) if (f.alive) this._drawFish(f);
     this._drawScoop(t);
     this._drawEffects();
+    if (this.state === 'qte') this._drawScoopQte();
+    if (this.qteFlashT > 0) {
+      const a = this.qteFlashT / 0.45;
+      ctx.strokeStyle = this.qteFlashKind === 'ok'
+        ? `rgba(126, 255, 180, ${a * 0.8})`
+        : `rgba(255, 110, 120, ${a * 0.8})`;
+      ctx.lineWidth = 7;
+      ctx.strokeRect(3, 3, W - 6, H - 6);
+    }
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(255, 235, 150, ${this.flash * 0.22})`;
       ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  _drawScoopQte() {
+    const q = this.scoopQte;
+    if (!q) return;
+    const ctx = this.ctx;
+    const w = 320;
+    const h = 18;
+    const x = (W - w) / 2;
+    const y = H - 78;
+    const p = clamp(q.t / q.duration, 0, 1);
+
+    ctx.fillStyle = 'rgba(4, 16, 24, .82)';
+    this._roundRect(ctx, x - 12, y - 36, w + 24, 70, 12);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(140, 240, 230, .4)';
+    ctx.lineWidth = 1.5;
+    this._roundRect(ctx, x - 12, y - 36, w + 24, 70, 12);
+    ctx.stroke();
+
+    ctx.fillStyle = '#eafcff';
+    ctx.font = '800 13px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('捞中了！在绿色区域点击', W / 2, y - 14);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, .14)';
+    this._roundRect(ctx, x, y, w, h, 8);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(126, 240, 208, .75)';
+    this._roundRect(ctx, x + q.zoneStart * w, y + 2,
+      Math.max(4, q.zoneWidth * w), h - 4, 6);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff';
+    const mx = x + p * w;
+    ctx.fillRect(mx - 2, y - 4, 4, h + 8);
+    ctx.shadowColor = 'rgba(255, 255, 255, .8)';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(mx - 1, y - 3, 2, h + 6);
+    ctx.shadowBlur = 0;
+
+    const f = q.fish;
+    if (f) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, .5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, 30, 0, TAU);
+      ctx.stroke();
     }
   }
 

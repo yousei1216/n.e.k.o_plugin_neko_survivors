@@ -528,8 +528,11 @@ export function bindLifePanels(ui, root, ctx) {
         if (r.fallback) ctx.toast?.('高级鱼饵用完了，自动换回面团', 'info', 2400);
         return { bait: r.bait || getBait('dough'), rod: getRod(meta.fishing.rod) };
       },
-      onCatch: () => {
-        const r = ctx.onLifeAction('rollFish') || {};
+      onHook: () => (ctx.onLifeAction('hookFish') || {}).fish || null,
+      onCatch: (fish) => {
+        const r = fish
+          ? (ctx.onLifeAction('addFish', { fish }) || {})
+          : (ctx.onLifeAction('rollFish') || {});
         refreshFishStatus();
         refreshCoins();
         return r;
