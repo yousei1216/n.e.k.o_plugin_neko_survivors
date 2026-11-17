@@ -969,10 +969,7 @@ export class UI {
           </div>
         </div>
 
-        <div class="ci-rates">
-          <span>今日概率</span>
-          N ${grant?.rates?.N ?? 50}% · R ${grant?.rates?.R ?? 30}% · SR ${grant?.rates?.SR ?? 15}% · SSR ${grant?.rates?.SSR ?? 5}% · UR ${grant?.rates?.UR ?? 0}%
-        </div>
+        <div class="ci-rates">连续登录奖励会越来越丰厚喵，记得多来玩喵~</div>
         <div class="gacha-actions">
           <button class="btn primary" data-act="checkin-close">收下</button>
         </div>

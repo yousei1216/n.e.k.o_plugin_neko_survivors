@@ -3700,3 +3700,11 @@ input[type="range"].fx-slider::-moz-range-thumb {
 /* 农场细节微调（第二百三十二轮） */
 #overlay .farm-plot.empty { justify-content: center; }
 .plot-crop-img.seedling { transform: scale(.66) translateY(3px); }
+
+/* 签到卡底部提示语（第二百三十三轮：原概率行改为鼓励文案） */
+.ci-rates {
+  font-size: 12px;
+  color: #ffd9ec;
+  letter-spacing: .5px;
+  text-shadow: 0 0 10px rgba(255, 140, 210, .35);
+}
