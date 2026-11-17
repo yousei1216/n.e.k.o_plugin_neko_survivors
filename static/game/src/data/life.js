@@ -129,55 +129,121 @@ export const BAITS = [
 // 农田
 // ============================================================
 
+// 第二百三十二轮：作物扩充到 12 种真实蔬菜/水果（用户提供的作物1/2.png），
+// 每种三态（普通 / 丰硕 / 变异）由 tools/slice_crops.cjs 切图得到。
+// 价格按「成熟时间越长越贵」的阶梯设计；单次收益 ≈ 种子价的 1~1.5 倍，
+// 真正的利润来自浇水 / 施肥 / 相邻同种（丰硕）/ 相邻异种（变异）。
 export const CROPS = [
   {
-    id: 'radish', name: '小萝卜', price: 10, glyph: '萝',
+    id: 'radish', name: '白萝卜', price: 10, glyph: '萝',
     growMs: 3 * 60 * 1000,
     yieldMin: 1, yieldMax: 2, sizeMin: 6, sizeMax: 15,
     baseValue: 8, perCm: 2,
-    body: '#ff8a8a', leaf: '#7ed07e',
-    desc: '3 分钟成熟，适合刚开始种。',
+    body: '#f4f0e2', leaf: '#7ed07e',
+    desc: '3 分钟成熟，适合刚起步。',
   },
   {
-    id: 'carrot', name: '胡萝卜', price: 25, glyph: '胡',
-    growMs: 8 * 60 * 1000,
-    yieldMin: 1, yieldMax: 3, sizeMin: 10, sizeMax: 25,
-    baseValue: 14, perCm: 2.2,
+    id: 'carrot', name: '胡萝卜', price: 22, glyph: '胡',
+    growMs: 6 * 60 * 1000,
+    yieldMin: 1, yieldMax: 2, sizeMin: 10, sizeMax: 22,
+    baseValue: 13, perCm: 2.2,
     body: '#ff9a3c', leaf: '#6fbf73',
-    desc: '8 分钟成熟，产量和价格都不错。',
+    desc: '6 分钟成熟，产量和价格都均衡。',
   },
   {
-    id: 'tomato', name: '番茄', price: 60, glyph: '茄',
-    growMs: 20 * 60 * 1000,
-    yieldMin: 1, yieldMax: 3, sizeMin: 5, sizeMax: 13,
-    baseValue: 30, perCm: 4,
+    id: 'pea', name: '豌豆', price: 30, glyph: '豌',
+    growMs: 10 * 60 * 1000,
+    yieldMin: 2, yieldMax: 3, sizeMin: 8, sizeMax: 16,
+    baseValue: 9, perCm: 2.4,
+    body: '#8fd060', leaf: '#5fae52',
+    desc: '10 分钟成熟，一茬能收好几荚。',
+  },
+  {
+    id: 'strawberry', name: '草莓', price: 50, glyph: '莓',
+    growMs: 15 * 60 * 1000,
+    yieldMin: 1, yieldMax: 3, sizeMin: 3, sizeMax: 9,
+    baseValue: 16, perCm: 5,
     body: '#ff5f6d', leaf: '#5fbf6f',
-    desc: '20 分钟成熟，容易受相邻作物影响。',
+    desc: '15 分钟成熟，个头小但单价高。',
   },
   {
-    id: 'pumpkin', name: '南瓜', price: 150, glyph: '瓜',
+    id: 'tomato', name: '番茄', price: 65, glyph: '茄',
+    growMs: 22 * 60 * 1000,
+    yieldMin: 1, yieldMax: 3, sizeMin: 5, sizeMax: 13,
+    baseValue: 24, perCm: 4,
+    body: '#ff5f6d', leaf: '#5fbf6f',
+    desc: '22 分钟成熟，容易受相邻作物影响。',
+  },
+  {
+    id: 'corn', name: '玉米', price: 85, glyph: '玉',
+    growMs: 30 * 60 * 1000,
+    yieldMin: 1, yieldMax: 2, sizeMin: 18, sizeMax: 32,
+    baseValue: 38, perCm: 3,
+    body: '#ffd45e', leaf: '#6fbf73',
+    desc: '30 分钟成熟，个头大，稳定收益。',
+  },
+  {
+    id: 'pepper', name: '彩椒', price: 120, glyph: '椒',
+    growMs: 45 * 60 * 1000,
+    yieldMin: 1, yieldMax: 3, sizeMin: 8, sizeMax: 16,
+    baseValue: 42, perCm: 4.5,
+    body: '#ff5f6d', leaf: '#5fbf6f',
+    desc: '45 分钟成熟，产量可观。',
+  },
+  {
+    id: 'cabbage', name: '卷心菜', price: 160, glyph: '菜',
     growMs: 60 * 60 * 1000,
-    yieldMin: 1, yieldMax: 2, sizeMin: 20, sizeMax: 52,
-    baseValue: 80, perCm: 4,
-    body: '#ffb347', leaf: '#6fae5a',
-    desc: '1 小时成熟，单个就很值钱。',
+    yieldMin: 1, yieldMax: 2, sizeMin: 15, sizeMax: 28,
+    baseValue: 65, perCm: 4,
+    body: '#9fdc6f', leaf: '#5fa84f',
+    desc: '1 小时成熟，包心越大越值钱。',
   },
   {
-    id: 'moonmelon', name: '月光瓜', price: 400, glyph: '月',
-    growMs: 3 * 60 * 60 * 1000,
-    yieldMin: 1, yieldMax: 2, sizeMin: 25, sizeMax: 62,
-    baseValue: 200, perCm: 8,
-    body: '#8fd3ff', leaf: '#5f9fd8',
-    desc: '3 小时成熟，夜里会发光的稀有作物。',
+    id: 'eggplant', name: '茄子', price: 200, glyph: '紫',
+    growMs: 80 * 60 * 1000,
+    yieldMin: 1, yieldMax: 2, sizeMin: 14, sizeMax: 26,
+    baseValue: 85, perCm: 4.5,
+    body: '#9b6bd6', leaf: '#6fae5a',
+    desc: '80 分钟成熟，紫皮越亮越贵。',
+  },
+  {
+    id: 'mushroom', name: '蘑菇', price: 280, glyph: '菇',
+    growMs: 110 * 60 * 1000,
+    yieldMin: 1, yieldMax: 3, sizeMin: 5, sizeMax: 12,
+    baseValue: 75, perCm: 8,
+    desc: '110 分钟成熟，一丛能收好几朵。',
+    body: '#d98f5f', leaf: '#8a6a4a',
+  },
+  {
+    id: 'grape', name: '葡萄', price: 400, glyph: '萄',
+    growMs: 160 * 60 * 1000,
+    yieldMin: 1, yieldMax: 2, sizeMin: 10, sizeMax: 20,
+    baseValue: 130, perCm: 7,
+    body: '#a06bd6', leaf: '#5fae52',
+    desc: '160 分钟成熟，成串卖价很高。',
+  },
+  {
+    id: 'pumpkin', name: '南瓜', price: 550, glyph: '瓜',
+    growMs: 210 * 60 * 1000,
+    yieldMin: 1, yieldMax: 2, sizeMin: 20, sizeMax: 52,
+    baseValue: 190, perCm: 5,
+    body: '#ffb347', leaf: '#6fae5a',
+    desc: '3.5 小时成熟，单个就非常值钱。',
   },
 ];
 
 // 第二百三十轮：像素图标（tools/make_life_sprites.py 生成，64×64 透明底）
 for (const f of FISH) f.sprite = `assets/fishing/fish_${f.id}.png`;
+// 第二百三十二轮：作物三态插画图标（tools/slice_crops.cjs 切图，256×256 透明底）
 for (const c of CROPS) {
-  c.sprite = `assets/fishing/crop_${c.id}.png`;
-  c.spriteMut = `assets/fishing/crop_${c.id}_mut.png`;
+  c.sprite = `assets/farming/crop_${c.id}_normal.png`;
+  c.spriteRich = `assets/farming/crop_${c.id}_rich.png`;
+  c.spriteMut = `assets/farming/crop_${c.id}_mut.png`;
 }
+// 农田背景与工具图标
+export const FARM_SOIL_SPRITE = 'assets/farming/soil.png';
+export const FARM_WATER_SPRITE = 'assets/farming/tool_watering_can.png';
+export const FARM_FERT_SPRITE = 'assets/farming/tool_fertilizer_bag.png';
 
 export const FERTILIZERS = [
   {

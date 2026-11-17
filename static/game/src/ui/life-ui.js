@@ -9,6 +9,7 @@ import {
   CROPS, FERTILIZERS, RODS, BAITS, MACHINES, FIGURES, FISH,
   FISH_RARITY_NAMES, FISH_RARITY_COLORS, FARM_PLOTS,
   COINS_PER_TICKET, getCrop, getFish, getRod, getBait, getFertilizer, getFigure,
+  FARM_SOIL_SPRITE, FARM_WATER_SPRITE, FARM_FERT_SPRITE,
 } from '../data/life.js';
 import { plotInfo, figureBuffText } from '../systems/life-state.js';
 import { FishingGame } from '../minigames/fishing.js';
@@ -56,8 +57,10 @@ function fishCard(item) {
 // 标题页三个面板
 // ============================================================
 
-function plotHtml(plot, index, now) {
-  const info = plotInfo(plot, now);
+const GRADE_LABEL = { normal: '普通', rich: '丰硕', mut: '变异' };
+
+function plotHtml(plot, index, now, plots) {
+  const info = plotInfo(plot, now, plots ? { plots, index } : null);
   if (info.empty) {
     return `<button class="farm-plot empty" data-farm-plot="${index}" title="空闲地块：点击种植">
       <span class="plot-plus">＋</span>
@@ -66,10 +69,19 @@ function plotHtml(plot, index, now) {
   const crop = info.crop;
   const pct = Math.round(info.progress * 100);
   const ready = info.ready;
-  return `<button class="farm-plot ${ready ? 'ready' : 'growing'}" data-farm-plot="${index}"
+  const grade = info.grade || 'normal';
+  // 生长中：普通态缩小；成熟：按普通/丰硕/变异显示对应图
+  const img = !ready ? crop.sprite
+    : grade === 'mut' ? crop.spriteMut
+      : grade === 'rich' ? crop.spriteRich : crop.sprite;
+  const gradeCls = ready ? ` grade-${grade}` : '';
+  const stageCls = ready ? 'mature' : 'seedling';
+  const gradeTag = ready && grade !== 'normal' ? `<i class="plot-grade ${grade}">${GRADE_LABEL[grade]}</i>` : '';
+  return `<button class="farm-plot ${ready ? 'ready' : 'growing'}${gradeCls}" data-farm-plot="${index}"
       style="--pc:${crop.body};--pp:${pct}%"
-      title="${crop.name} · ${ready ? '可以收获' : fmtTime(info.remainingMs)}">
-    <img class="plot-crop-img" src="${crop.sprite}" alt="${crop.name}" draggable="false">
+      title="${crop.name}${ready ? ` · ${GRADE_LABEL[grade]} · 可以收获` : ` · ${fmtTime(info.remainingMs)}`}">
+    <img class="plot-crop-img ${stageCls}" src="${img}" alt="${crop.name}" draggable="false">
+    ${gradeTag}
     <span class="plot-progress"><i style="width:${pct}%"></i></span>
     <span class="plot-time">${ready ? '收获' : fmtTime(info.remainingMs)}</span>
     <span class="plot-badges">
@@ -85,6 +97,10 @@ export function farmPanelHtml({ farm, coins = 0, now = Date.now() }) {
     .filter((c) => (farm?.seeds?.[c.id] | 0) > 0)
     .map((c) => `${c.name}×${farm.seeds[c.id]}`)
     .join(' · ') || '没有种子';
+  const fertSummary = FERTILIZERS
+    .filter((f) => f.id !== 'none' && (farm?.fertilizers?.[f.id] | 0) > 0)
+    .map((f) => `${f.name}×${farm.fertilizers[f.id]}`)
+    .join(' · ');
   return `
     <div class="title-farm life-panel">
       <div class="life-head">
@@ -96,10 +112,42 @@ export function farmPanelHtml({ farm, coins = 0, now = Date.now() }) {
           <button class="life-chip" data-life-open="cropBag">仓库</button>
         </div>
       </div>
-      <div class="farm-grid">
-        ${plots.map((p, i) => plotHtml(p, i, now)).join('')}
+      <div class="farm-body">
+        <!-- 第二百三十二轮：水壶 / 化肥袋放在农场边上，取代原来点地块弹出的浇水/施肥小菜单 -->
+        <div class="farm-tools">
+          <button class="farm-tool" data-tool="water" title="水壶：点亮后再点地块浇水">
+            <img src="${FARM_WATER_SPRITE}" alt="水壶" draggable="false">
+            <span>浇水</span>
+          </button>
+          <button class="farm-tool" data-tool="fert" title="化肥袋：选肥料后点地块施肥">
+            <img src="${FARM_FERT_SPRITE}" alt="化肥" draggable="false">
+            <span>施肥</span>
+          </button>
+          <div class="farm-tool-hint" data-tool-hint></div>
+        </div>
+        <div class="farm-grid" style="--soil-src:url('${FARM_SOIL_SPRITE}')">
+          ${plots.map((p, i) => plotHtml(p, i, now, plots)).join('')}
+        </div>
       </div>
+      <div class="farm-fert-picker hidden" data-fert-picker>${fertPickerHtml(farm)}</div>
       <div class="farm-menu hidden" data-farm-menu></div>
+    </div>`;
+}
+
+function fertPickerHtml(farm) {
+  return `
+    <div class="farm-fert-title">选择要施的肥料</div>
+    <div class="farm-fert-list">
+      ${FERTILIZERS.filter((f) => f.id !== 'none').map((f) => {
+        const n = farm?.fertilizers?.[f.id] | 0;
+        return `<button class="farm-fert-item" data-pick-fert="${f.id}" ${n <= 0 ? 'disabled' : ''}>
+          <b style="color:${f.color}">${f.name}</b>
+          <span>库存 ×${n} · 产量+${f.yieldBonus}</span>
+        </button>`;
+      }).join('')}
+    </div>
+    <div class="farm-fert-foot">
+      <button class="life-mini-btn" data-fert-cancel>取消</button>
     </div>`;
 }
 
@@ -336,6 +384,7 @@ export function cropBagHtml({ meta }) {
       <div class="life-collection-grid">
         ${CROPS.flatMap((def) => {
           const rec = farm.collection?.[def.id];
+          const rich = farm.collection?.[`${def.id}_rich`];
           const mut = farm.collection?.[`${def.id}_mut`];
           return [
             `<div class="life-collection-card ${rec ? 'found' : ''}" style="--ic:${def.body}">
@@ -344,10 +393,16 @@ export function cropBagHtml({ meta }) {
               <div class="col-sub">${rec ? `最大 ${rec.bestSize || rec.best || 0} cm ${stars(rec.bestStar)}` : '未发现'}</div>
               <div class="col-count">${rec ? `收获 ${rec.count} 个` : '普通'}</div>
             </div>`,
+            `<div class="life-collection-card ${rich ? 'found' : ''}" style="--ic:#ffb84d">
+              ${rich ? `<img class="col-img" src="${def.spriteRich}" alt="丰硕${def.name}" draggable="false">` : ''}
+              <div class="col-name" style="color:${rich ? '#c98a12' : '#8a93a6'}">${rich ? `丰硕${def.name}` : '???'}</div>
+              <div class="col-sub">${rich ? `最大 ${rich.bestSize || rich.best || 0} cm ${stars(rich.bestStar)}` : '相邻同种'}</div>
+              <div class="col-count">${rich ? `收获 ${rich.count} 个` : '丰硕'}</div>
+            </div>`,
             `<div class="life-collection-card ${mut ? 'found' : ''}" style="--ic:#b06bff">
               ${mut ? `<img class="col-img" src="${def.spriteMut}" alt="变异${def.name}" draggable="false">` : ''}
               <div class="col-name" style="color:${mut ? '#b06bff' : '#8a93a6'}">${mut ? `变异${def.name}` : '???'}</div>
-              <div class="col-sub">${mut ? `最大 ${mut.bestSize || mut.best || 0} cm ${stars(mut.bestStar)}` : '异种相邻变异'}</div>
+              <div class="col-sub">${mut ? `最大 ${mut.bestSize || mut.best || 0} cm ${stars(mut.bestStar)}` : '相邻异种'}</div>
               <div class="col-count">${mut ? `收获 ${mut.count} 个` : '变异'}</div>
             </div>`,
           ];
@@ -388,16 +443,7 @@ function farmMenuHtml(index, plot, meta) {
       </div>`;
   }
   return `<div class="farm-menu-title">${info.crop.name} · ${fmtTime(info.remainingMs)}</div>
-    <div class="farm-menu-desc">${info.watered ? '已浇水' : '缺水（收获量和尺寸会降低）'} · ${info.fert > 0 ? `肥料 ${info.fert} 级` : '未施肥'}</div>
-    <div class="farm-menu-list">
-      ${!info.watered ? '<button class="farm-menu-item" data-water><b>💧 浇水</b><span>提高产量和尺寸</span></button>' : ''}
-      ${FERTILIZERS.filter((f) => f.id !== 'none').map((f) => {
-        const n = meta.farm.fertilizers?.[f.id] | 0;
-        return `<button class="farm-menu-item" data-fert="${f.id}" ${info.fert > 0 || n <= 0 ? 'disabled' : ''}>
-          <b style="color:${f.color}">${f.name}</b><span>×${n} · 产量+${f.yieldBonus}</span>
-        </button>`;
-      }).join('')}
-    </div>
+    <div class="farm-menu-desc">${info.watered ? '已浇水' : '缺水（收获量和尺寸会降低）'} · ${info.fert > 0 ? `肥料 ${info.fert} 级` : '未施肥'}<br>用农场左边的💧水壶 / 🌱化肥袋给这块地浇水施肥。</div>
     <div class="farm-menu-foot">
       <button class="life-mini-btn" data-farm-shop>肥料商店</button>
       <button class="life-mini-btn" data-menu-close>关闭</button>
@@ -413,10 +459,15 @@ export function bindLifePanels(ui, root, ctx) {
   if (!meta) return { destroy() {} };
   let fishingGame = null;
   let farmTimer = null;
+  // 第二百三十二轮：工具模式（水壶 / 化肥袋）取代点地块弹出的浇水施肥菜单
+  let farmTool = null;      // null | 'water' | 'fert'
+  let fertId = 'basic';
 
   const panel = root.querySelector('.title-farm, .life-hub .title-farm');
   const farmGrid = panel?.querySelector('.farm-grid');
   const farmMenu = panel?.querySelector('[data-farm-menu]');
+  const fertPicker = panel?.querySelector('[data-fert-picker]');
+  const toolHint = panel?.querySelector('[data-tool-hint]');
   const fishPanel = root.querySelector('.title-fishing');
   const fishCanvas = root.querySelector('[data-fish-canvas]');
   const fishStatus = root.querySelector('[data-fish-status]');
@@ -436,15 +487,29 @@ export function bindLifePanels(ui, root, ctx) {
     fishStatus.textContent = `${rod.name} · ${bait.name} ×${n}`;
     if (bagCount) bagCount.textContent = String(meta.fishing.bag?.length || 0);
   };
+  const applyToolVisual = () => {
+    if (!panel) return;
+    panel.classList.toggle('tool-water', farmTool === 'water');
+    panel.classList.toggle('tool-fert', farmTool === 'fert');
+    panel.querySelectorAll('[data-tool]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.tool === farmTool);
+    });
+    if (toolHint) {
+      toolHint.textContent = farmTool === 'water' ? '点地块浇水'
+        : farmTool === 'fert' ? `点地块施 ${getFertilizer(fertId).name}` : '';
+    }
+  };
   const refreshFarm = () => {
     if (!farmGrid) return;
-    farmGrid.innerHTML = (meta.farm.plots || []).map((p, i) => plotHtml(p, i, Date.now())).join('');
+    farmGrid.innerHTML = (meta.farm.plots || [])
+      .map((p, i) => plotHtml(p, i, Date.now(), meta.farm.plots)).join('');
     if (seedSummaryEl) {
       seedSummaryEl.textContent = CROPS
         .filter((c) => (meta.farm.seeds?.[c.id] | 0) > 0)
         .map((c) => `${c.name}×${meta.farm.seeds[c.id]}`)
         .join(' · ') || '没有种子';
     }
+    applyToolVisual();
   };
   const closeMenu = () => {
     if (!farmMenu) return;
@@ -452,20 +517,39 @@ export function bindLifePanels(ui, root, ctx) {
     farmMenu.innerHTML = '';
     farmMenu.dataset.plot = '';
   };
+  const closeFertPicker = () => {
+    if (!fertPicker) return;
+    fertPicker.classList.add('hidden');
+    fertPicker.innerHTML = '';
+  };
+  const openFertPicker = () => {
+    if (!fertPicker) return;
+    fertPicker.innerHTML = fertPickerHtml(meta.farm);
+    fertPicker.classList.remove('hidden');
+    fertPicker.querySelectorAll('[data-pick-fert]').forEach((b) => {
+      b.onclick = () => {
+        fertId = b.dataset.pickFert;
+        closeFertPicker();
+        farmTool = 'fert';
+        applyToolVisual();
+        ctx.toast?.(`已拿起${getFertilizer(fertId).name}，点地块施肥`, 'info', 1800);
+      };
+    });
+    const cancel = fertPicker.querySelector('[data-fert-cancel]');
+    if (cancel) cancel.onclick = closeFertPicker;
+  };
   const openMenu = (index) => {
     if (!farmMenu) return;
     const plot = meta.farm.plots[index];
     farmMenu.dataset.plot = String(index);
     farmMenu.innerHTML = farmMenuHtml(index, plot, meta);
     farmMenu.classList.remove('hidden');
-    farmMenu.querySelectorAll('[data-plant],[data-water],[data-fert],[data-harvest],[data-farm-shop],[data-menu-close]')
+    farmMenu.querySelectorAll('[data-plant],[data-harvest],[data-farm-shop],[data-menu-close]')
       .forEach((b) => {
         b.onclick = () => {
           const idx = Number(farmMenu.dataset.plot);
           let r = null;
           if (b.dataset.plant) r = ctx.onLifeAction('plant', { index: idx, cropId: b.dataset.plant });
-          else if (b.dataset.water != null) r = ctx.onLifeAction('water', { index: idx });
-          else if (b.dataset.fert) r = ctx.onLifeAction('fertilize', { index: idx, fertId: b.dataset.fert });
           else if (b.dataset.harvest != null) r = ctx.onLifeAction('harvest', { index: idx });
           else if (b.dataset.farmShop != null) { closeMenu(); ctx.onOpenShop?.('farmShop'); return; }
           else if (b.dataset.menuClose != null) { closeMenu(); return; }
@@ -492,20 +576,57 @@ export function bindLifePanels(ui, root, ctx) {
         if (kind === 'cropBag') ctx.onOpenBag?.('crops');
         return;
       }
-      const plotBtn = e.target.closest('[data-farm-plot]');
-      if (plotBtn) {
-        const idx = Number(plotBtn.dataset.farmPlot);
-        const plot = meta.farm.plots[idx];
-        const info = plotInfo(plot, Date.now());
-        if (info.ready) {
-          const r = ctx.onLifeAction('harvest', { index: idx });
-          if (r.ok) {
-            refreshFarm(); refreshCoins();
-            ctx.toast?.(`收获 ${r.items.length} 个${r.mutated ? '变异' : ''}${r.crop.name}`, r.mutated ? 'good' : 'info', 2800);
-          } else ctx.toast?.(r.msg || '还不能收获', 'bad', 2200);
-        } else {
-          openMenu(idx);
+      // 工具选择
+      const toolBtn = e.target.closest('[data-tool]');
+      if (toolBtn) {
+        if (toolBtn.dataset.tool === 'fert') {
+          openFertPicker();
+        } else if (toolBtn.dataset.tool === 'water') {
+          farmTool = farmTool === 'water' ? null : 'water';
+          applyToolVisual();
         }
+        return;
+      }
+      const plotBtn = e.target.closest('[data-farm-plot]');
+      if (!plotBtn) {
+        // 点农场空白处：收起肥料选择器
+        if (fertPicker && !fertPicker.contains(e.target)) closeFertPicker();
+        return;
+      }
+      closeFertPicker();
+      const idx = Number(plotBtn.dataset.farmPlot);
+
+      // 工具模式：直接对这块地浇水 / 施肥（不再弹菜单）
+      if (farmTool === 'water') {
+        const r = ctx.onLifeAction('water', { index: idx });
+        if (r.ok) { refreshFarm(); ctx.toast?.('浇水完成，产量和尺寸提升', 'good', 1500); }
+        else ctx.toast?.(r.msg || '不能浇水', 'bad', 1800);
+        return;
+      }
+      if (farmTool === 'fert') {
+        const r = ctx.onLifeAction('fertilize', { index: idx, fertId });
+        if (r.ok) {
+          refreshFarm(); refreshCoins();
+          ctx.toast?.(`施了${getFertilizer(fertId).name}`, 'good', 1600);
+          // 肥料用完了就退出施肥模式，免得空点
+          if ((meta.farm.fertilizers?.[fertId] | 0) <= 0) { farmTool = null; applyToolVisual(); }
+        } else ctx.toast?.(r.msg || '不能施肥', 'bad', 1800);
+        return;
+      }
+
+      const plot = meta.farm.plots[idx];
+      const info = plotInfo(plot, Date.now(), { plots: meta.farm.plots, index: idx });
+      if (info.empty) {
+        openMenu(idx);
+      } else if (info.ready) {
+        const r = ctx.onLifeAction('harvest', { index: idx });
+        if (r.ok) {
+          refreshFarm(); refreshCoins();
+          const g = r.grade === 'mut' ? '变异' : r.grade === 'rich' ? '丰硕' : '';
+          ctx.toast?.(`收获 ${r.items.length} 个${g}${r.crop.name}`, r.grade === 'mut' ? 'good' : 'info', 2800);
+        } else ctx.toast?.(r.msg || '还不能收获', 'bad', 2200);
+      } else {
+        openMenu(idx);
       }
     });
   }

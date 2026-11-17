@@ -340,15 +340,49 @@ export function plotNeighbors(plots, index) {
   return out;
 }
 
-export function plotInfo(plot, now = nowMs()) {
+/**
+ * 第二百三十二轮：作物成熟品质（三态）。
+ *   相邻异种更多 → 变异（mut，价格 ×3）
+ *   相邻同种更多 → 丰硕（rich，产量 +1）
+ *   一样多且非 0 → 变异优先；全是空地 → 普通（normal）
+ * 纯函数：成熟时显示与收获结算共用同一判定，保证所见即所得。
+ */
+export function computeCropGrade(plots, index) {
+  const plot = plots?.[index];
+  if (!plot) return 'normal';
+  const neighbors = plotNeighbors(plots, index);
+  let same = 0, diff = 0;
+  for (const p of neighbors) {
+    if (p.cropId === plot.cropId) same += 1;
+    else diff += 1;
+  }
+  if (diff > same) return 'mut';
+  if (same > diff) return 'rich';
+  if (same > 0) return 'mut';   // 同种与异种一样多：变异优先
+  return 'normal';
+}
+
+/**
+ * @param {object} plot  地块
+ * @param {number} now
+ * @param {{plots:Array, index:number}} [ctx] 传入时按实时相邻情况算成熟品质；
+ *        不传则回落到 plot.grade（收获瞬间已固化）或 normal。
+ */
+export function plotInfo(plot, now = nowMs(), ctx = null) {
   if (!plot) return { empty: true };
   const crop = getCrop(plot.cropId);
   const elapsed = Math.max(0, now - Math.max(0, num(plot.plantedAt)));
   const progress = clamp(elapsed / crop.growMs, 0, 1);
   const ready = progress >= 1;
   const stage = ready ? 4 : Math.min(3, Math.floor(progress * 4));
+  let grade = 'normal';
+  if (ready) {
+    grade = (ctx && ctx.plots && Number.isInteger(ctx.index))
+      ? computeCropGrade(ctx.plots, ctx.index)
+      : (plot.grade || 'normal');
+  }
   return {
-    empty: false, crop, progress, stage, ready,
+    empty: false, crop, progress, stage, ready, grade,
     remainingMs: Math.max(0, crop.growMs - elapsed),
     watered: plot.watered === true,
     fert: clamp(int(plot.fert), 0, 3),
@@ -368,6 +402,7 @@ export function plantCrop(meta, index, cropId, now = nowMs()) {
     plantedAt: now,
     watered: meta.farm.machines.sprinkler === true,
     fert: 0,
+    grade: null,   // 成熟瞬间按相邻情况判定（normal/rich/mut）
   };
   return { ok: true, crop };
 }
@@ -396,7 +431,10 @@ export function fertilizePlot(meta, index, fertId) {
 }
 
 function recordCropCollection(meta, item) {
-  const key = item.mutated ? `${item.cropId}_mut` : item.cropId;
+  // 第二百三十二轮：图鉴按三态分别记录（普通 / 丰硕 / 变异）
+  const key = item.grade === 'mut' ? `${item.cropId}_mut`
+    : item.grade === 'rich' ? `${item.cropId}_rich`
+      : item.cropId;
   const old = meta.farm.collection[key] || { count: 0, bestSize: 0, bestStar: 0 };
   meta.farm.collection[key] = {
     count: old.count + 1,
@@ -417,7 +455,15 @@ export function addCropItem(meta, item) {
   return { added: true, autoSold: false, autoCoins: 0, item: full };
 }
 
-/** 随机收获一批作物（不写存档，方便测试）。 */
+/**
+ * 随机收获一批作物（不写存档，方便测试）。
+ *
+ * 第二百三十二轮：三态品质（opts.grade 优先；不传则由相邻数推导，与
+ * computeCropGrade 一致）。
+ *   normal 普通 → 基础产量与价格
+ *   rich   丰硕 → 产量 +1（同种相邻带来）
+ *   mut    变异 → 整批价格 ×3（异种相邻带来）
+ */
 export function rollCropHarvest(rng, cropId, opts = {}) {
   const crop = CROP_MAP[cropId] || CROPS[0];
   const fert = FERTILIZERS[clamp(int(opts.fertTier), 0, 3)];
@@ -425,22 +471,21 @@ export function rollCropHarvest(rng, cropId, opts = {}) {
   const diff = Math.max(0, int(opts.diffNeighbors));
   const watered = opts.watered === true;
 
-  const fertileChance = same > 0 ? Math.min(0.65, same * 0.18) : 0;
-  const fertile = fertileChance > 0 && rng.chance(fertileChance);
-  const mutationChance = diff > 0
-    ? Math.min(0.6, diff * 0.13 + (fert.mutationBonus || 0))
-    : 0;
-  const mutated = mutationChance > 0 && rng.chance(mutationChance);
+  // 品质：显式传入优先，否则按相邻数推导（与 computeCropGrade 同规则）
+  const grade = opts.grade
+    || (diff > same ? 'mut' : same > diff ? 'rich' : same > 0 ? 'mut' : 'normal');
+  const mutated = grade === 'mut';
+  const rich = grade === 'rich';
 
   let count = rng.int(crop.yieldMin, crop.yieldMax)
-    + (watered ? 1 : 0) + (fert.yieldBonus || 0) + (fertile ? 1 : 0);
+    + (watered ? 1 : 0) + (fert.yieldBonus || 0) + (rich ? 1 : 0);
   count = clamp(count, 1, 6);
 
   const items = [];
   for (let i = 0; i < count; i++) {
     const bell = (rng.next() + rng.next() + rng.next() + rng.next()) / 4;
     let factor = 0.5 + (bell - 0.5) * 1.15
-      + (fert.sizeBonus || 0) + (watered ? 0.04 : -0.04) + (fertile ? 0.08 : 0);
+      + (fert.sizeBonus || 0) + (watered ? 0.04 : -0.04) + (rich ? 0.08 : 0);
     factor = clamp(factor, 0.02, 0.98);
     const size = crop.sizeMin + (crop.sizeMax - crop.sizeMin) * factor;
     let star = 0;
@@ -454,10 +499,11 @@ export function rollCropHarvest(rng, cropId, opts = {}) {
       size: Math.round(size * 10) / 10,
       star,
       value,
+      grade,
       mutated,
     });
   }
-  return { items, count, mutated, fertile, fertileChance, mutationChance };
+  return { items, count, grade, mutated, rich };
 }
 
 export function harvestPlot(meta, index, now = nowMs(), rng) {
@@ -467,14 +513,18 @@ export function harvestPlot(meta, index, now = nowMs(), rng) {
   const info = plotInfo(plot, now);
   if (!info.ready) return { ok: false, msg: '还没成熟' };
 
+  const grade = computeCropGrade(meta.farm.plots, index);
   const neighbors = plotNeighbors(meta.farm.plots, index);
   const sameNeighbors = neighbors.filter((p) => p.cropId === plot.cropId).length;
   const diffNeighbors = neighbors.filter((p) => p.cropId !== plot.cropId).length;
+  // 把成熟时定下的 grade 固化到地块，收获与展示保持一致
+  plot.grade = grade;
   const roll = rollCropHarvest(rng, plot.cropId, {
     watered: plot.watered,
     fertTier: plot.fert,
     sameNeighbors,
     diffNeighbors,
+    grade,
   });
 
   let autoCoins = 0;
@@ -511,7 +561,7 @@ export function tickFarm(meta, now = nowMs(), rng) {
       if (r.ok) {
         harvested += r.items.length;
         autoCoins += r.autoCoins || 0;
-        crops.push({ crop: r.crop, items: r.items, mutated: r.mutated });
+        crops.push({ crop: r.crop, items: r.items, grade: r.grade, mutated: r.mutated });
       }
     }
   }

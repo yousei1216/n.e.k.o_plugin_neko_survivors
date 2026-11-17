@@ -3485,3 +3485,218 @@ input[type="range"].fx-slider::-moz-range-thumb {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.35); opacity: .7; }
 }
+
+/* =========================================================
+   第二百三十二轮：农场改版（12 种作物三态 + 土地背景 + 水壶/化肥袋工具）
+   只追加覆盖，不改上面的旧规则。
+   ========================================================= */
+/* 农场主体：左边工具栏，右边土地 */
+.farm-body {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.farm-tools {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
+  width: 58px;
+}
+#overlay .farm-tool {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 2px 2px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(120, 190, 140, .55);
+  background: linear-gradient(180deg, #fdfffb, #e8f6ea);
+  cursor: pointer;
+  font: inherit;
+  transition: transform .1s ease, border-color .1s ease, box-shadow .1s ease;
+}
+#overlay .farm-tool img {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+#overlay .farm-tool span {
+  font-size: 8.5px;
+  font-weight: 800;
+  color: #3d6b4c;
+  line-height: 1;
+}
+#overlay .farm-tool:hover {
+  transform: translateY(-1px);
+  border-color: #5fcf86;
+  box-shadow: 0 3px 10px rgba(70, 170, 110, .22);
+}
+#overlay .farm-tool.active {
+  border-color: #3fbf6f;
+  background: linear-gradient(180deg, #eaffef, #c9f2d4);
+  box-shadow: 0 0 0 2px rgba(63, 191, 111, .35), 0 0 12px rgba(63, 191, 111, .4);
+}
+.farm-tool-hint {
+  font-size: 8px;
+  line-height: 1.15;
+  color: #4f8a63;
+  text-align: center;
+  min-height: 9px;
+}
+
+/* 土地背景：把整块泥土图铺在 6×2 的格网下 */
+.farm-grid {
+  flex: 1 1 auto;
+  padding: 7px;
+  gap: 5px;
+  border-radius: 12px;
+  background-image: var(--soil-src);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  box-shadow: inset 0 0 14px rgba(90, 55, 30, .28);
+}
+/* 格子在土地上：半透明，露出泥土纹理 */
+#overlay .farm-plot {
+  height: 80px;
+  padding: 3px;
+  justify-content: flex-start;
+  border-color: rgba(255, 255, 255, .35);
+  background: rgba(255, 255, 255, .12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12);
+}
+#overlay .farm-plot:hover {
+  background: rgba(255, 255, 255, .3);
+  border-color: rgba(255, 255, 255, .7);
+  box-shadow: 0 4px 12px rgba(40, 30, 20, .3);
+}
+#overlay .farm-plot.empty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, .45);
+  background: rgba(255, 255, 255, .08);
+  color: rgba(255, 255, 255, .85);
+}
+#overlay .farm-plot.empty:hover { background: rgba(255, 255, 255, .22); }
+.plot-plus { text-shadow: 0 1px 3px rgba(60, 40, 20, .5); }
+.plot-time { color: #f3ffe9; text-shadow: 0 1px 2px rgba(50, 30, 15, .65); }
+.farm-plot.ready .plot-time { color: #fff3c4; text-shadow: 0 1px 3px rgba(80, 50, 0, .7); }
+
+/* 作物图标：生长中缩小，成熟恢复并按品质发光 */
+.plot-crop-img {
+  width: 58px;
+  height: 58px;
+  flex: 0 0 auto;
+  object-fit: contain;
+  image-rendering: auto;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 3px 3px rgba(40, 25, 10, .45));
+  transition: transform .25s ease;
+}
+.plot-crop-img.seedling {
+  transform: scale(.56) translateY(4px);
+  opacity: .95;
+}
+.plot-crop-img.mature { transform: scale(1); margin-top: 1px; }
+/* 文字沉到底部，给图标让出空间 */
+.farm-plot .plot-time {
+  position: absolute;
+  left: 0; right: 0; bottom: 5px;
+  text-align: center;
+}
+.farm-plot .plot-progress { bottom: 1px; }
+/* 水 / 旱、肥料徽章在左上；品质标签在右上 */
+.farm-plot .plot-badges { top: 3px; left: 3px; right: auto; }
+.farm-plot .plot-grade { top: 3px; left: auto; right: 3px; }
+#overlay .farm-plot.ready { background: rgba(255, 246, 205, .28); border-color: #ffc857; }
+#overlay .farm-plot.grade-rich {
+  background: rgba(255, 236, 170, .38);
+  border-color: #ffbe3d;
+  box-shadow: 0 0 12px rgba(255, 200, 70, .55);
+}
+#overlay .farm-plot.grade-mut {
+  background: rgba(214, 180, 255, .35);
+  border-color: #b06bff;
+  box-shadow: 0 0 14px rgba(176, 107, 255, .6);
+  animation: plotMutGlow 2.2s ease-in-out infinite;
+}
+@keyframes plotMutGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(176, 107, 255, .4); }
+  50% { box-shadow: 0 0 18px rgba(176, 107, 255, .85); }
+}
+.plot-grade {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  font-style: normal;
+  font-size: 7.5px;
+  font-weight: 900;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 5px;
+  color: #fff;
+}
+.plot-grade.rich { background: linear-gradient(120deg, #ffb63d, #ff8f2e); }
+.plot-grade.mut { background: linear-gradient(120deg, #a86bff, #6f3fd6); }
+
+/* 工具模式：可点的地块给出明显提示 */
+.title-farm.tool-water #overlay .farm-plot,
+.title-farm.tool-fert #overlay .farm-plot { cursor: crosshair; }
+.title-farm.tool-water #overlay .farm-plot:not(.empty) { border-color: rgba(90, 200, 240, .8); }
+.title-farm.tool-fert #overlay .farm-plot:not(.empty) { border-color: rgba(120, 220, 130, .85); }
+
+/* 肥料选择浮层 */
+.farm-fert-picker {
+  position: absolute;
+  left: 10px;
+  top: 40px;
+  z-index: 14;
+  width: min(280px, 80%);
+  padding: 9px;
+  border-radius: 12px;
+  border: 1px solid #b9dfc6;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(40, 100, 70, .3);
+  color: #2f4d3d;
+}
+.farm-fert-picker.hidden { display: none; }
+.farm-fert-title { font-size: 11px; font-weight: 900; margin-bottom: 5px; }
+.farm-fert-list { display: flex; flex-direction: column; gap: 4px; }
+#overlay .farm-fert-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  border: 1px solid #cfe6d6;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+#overlay .farm-fert-item:hover:not(:disabled) { border-color: #6fcf8a; background: #f6fff8; }
+#overlay .farm-fert-item:disabled { opacity: .38; cursor: not-allowed; }
+.farm-fert-item b { font-size: 10px; }
+.farm-fert-item span { font-size: 8.5px; color: #7b9485; }
+.farm-fert-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
+
+@media (max-width: 620px) {
+  #overlay .farm-tool img { width: 30px; height: 30px; }
+  .farm-tools { width: 46px; }
+  #overlay .farm-plot { height: 68px; }
+  .plot-crop-img { width: 46px; height: 46px; }
+  .farm-fert-picker { left: 4px; top: 34px; }
+}
+
+/* 农场细节微调（第二百三十二轮） */
+#overlay .farm-plot.empty { justify-content: center; }
+.plot-crop-img.seedling { transform: scale(.66) translateY(3px); }
