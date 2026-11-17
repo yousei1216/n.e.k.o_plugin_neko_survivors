@@ -462,7 +462,8 @@ export class UI {
     gachaTickets = 0, gachaPoints = 0, gachaPity = 0, biliClaimed = false, onGacha, onMetaUpgrades, onBiliSupport,
     goldfishEarned = 0, goldfishCap = GOLDFISH_DAILY_CAP, onGoldfishReward = null, onGoldfishSound = null,
     lifeMeta = null, onLifeAction = null, onOpenLifeShop = null, onOpenLifeBag = null,
-    onLifeSound = null, onOpenLifeHub = null, onCoinExchange = null, gachaUrRate = 1 }) {
+    onLifeSound = null, onOpenLifeHub = null, onCoinExchange = null, gachaUrRate = 1,
+    checkinPreview = null, onCheckin = null }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -591,6 +592,10 @@ export class UI {
           </button>
           <div class="bili-support-note">拜托了，你们的支持对我真的很重要。</div>
           <button class="btn small life-hub-btn" data-act="life-hub">🌱 生活区</button>
+          <!-- 第二百三十一轮：每日签到入口，红点表示今天可领 -->
+          <button class="btn small checkin-entry${checkinPreview?.already ? ' claimed' : ' ready'}" data-act="checkin">
+            🌺 每日签到${checkinPreview?.already ? '（今日已签）' : '<i class="checkin-dot"></i>'}
+          </button>
           <div class="gacha-hint">10 张券抽一次十连</div>
         </div>
 
@@ -631,6 +636,9 @@ export class UI {
     if (metaBtn && onMetaUpgrades) metaBtn.onclick = onMetaUpgrades;
     const biliBtn = root.querySelector('[data-act="bili-support"]');
     if (biliBtn && onBiliSupport) biliBtn.onclick = onBiliSupport;
+    // 第二百三十一轮：每日签到入口
+    const checkinBtn = root.querySelector('[data-act="checkin"]');
+    if (checkinBtn && onCheckin) checkinBtn.onclick = onCheckin;
 
     // 第二百二十七轮：左侧小游戏《猫娘捞金鱼》。
     // 实例挂在 this._goldfish 上，_mount / clearOverlay 会先 destroy，
@@ -894,6 +902,83 @@ export class UI {
       </div>
     `);
     const close = root.querySelector('[data-act="gacha-close"]');
+    if (close) close.onclick = onClose;
+  }
+
+  // ---------------- 每日签到（第二百三十一轮） ----------------
+  /**
+   * 签到结果 / 签到卡弹窗。
+   *   grant   checkinGrant() 的结果：rarity/kind/amount/multiplier/rates
+   *   card    checkinCardState()：stamps/stars
+   *   already 今天是否已签过（重复点入口时只展示卡片，不重复发奖）
+   */
+  showCheckin({ grant = null, card = null, already = false, streak = 1, coins = 0, tickets = 0, onClose }) {
+    const rarity = grant?.rarity || 'N';
+    const amount = grant?.amount || 0;
+    const kind = grant?.kind || 'coins';
+    const multiplier = grant?.multiplier || 1;
+    const stamps = Math.max(0, Math.min(10, card?.stamps ?? 1));
+    const stars = Math.max(0, Math.min(10, card?.stars ?? 0));
+    const top = already ? '' : rarity === 'UR' ? 'ur' : rarity === 'SSR' ? 'ssr' : '';
+    const rc = { N: '#8fd3ff', R: '#7cffb2', SR: '#c08bff', SSR: '#ffd45e', UR: '#ff7bd5' }[rarity] || '#8fd3ff';
+    const rewardLabel = kind === 'coins' ? `💰 ${amount} 金币` : `🎟 ${amount} 张抽奖券`;
+    const d = Math.max(1, Math.min(100, Number(streak) || 1));
+
+    // 5×2 签到卡：当前轮已签的格子盖小红花印章，最后一格是当前签到的日子
+    let cells = '';
+    for (let i = 1; i <= 10; i++) {
+      const stamped = i <= stamps;
+      const current = i === stamps;
+      cells += `<div class="ci-cell${stamped ? ' stamped' : ''}${current && !already ? ' current' : ''}">
+        <span class="ci-day">第${i}天</span>
+        ${stamped ? '<span class="ci-flower">🌺</span>' : ''}
+      </div>`;
+    }
+    // 星星：一行最多 10 颗
+    let starRow = '';
+    for (let i = 0; i < stars; i++) starRow += '<span class="ci-star">⭐</span>';
+
+    const root = this._mount(`
+      <div class="checkin-screen">
+        ${top ? `<div class="gacha-flash ${top}" style="animation-delay:.42s" aria-hidden="true"></div>
+                 <div class="gacha-burst ${top}" style="animation-delay:.42s" aria-hidden="true"></div>` : ''}
+        <div class="checkin-heading">每日签到</div>
+        <div class="checkin-sub">${already ? '今天已经签过啦，明天再来喵～'
+          : rarity === 'UR' ? 'UR 降临！彩虹光闪耀了整个签到卡！'
+            : rarity === 'SSR' ? 'SSR 出现！金光炸开了！'
+              : '每日首次登录，连续签到奖励越来越高～'}</div>
+
+        <div class="ci-card">
+          <div class="ci-card-title">签到卡 · 连续 ${d} 天</div>
+          <div class="ci-grid">${cells}</div>
+          <div class="ci-stars">${starRow || '<span class="ci-stars-empty">满 10 格点亮一颗星</span>'}</div>
+        </div>
+
+        <div class="ci-reward-row${already ? ' dimmed' : ''}">
+          <div class="ci-card-art ${rarity.toLowerCase()}" style="--rc:${rc}">
+            <img src="assets/gacha/card_${rarity}.png" alt="${rarity}" draggable="false">
+            <span class="ci-rarity-tag" style="color:${rc}">${rarity}</span>
+          </div>
+          <div class="ci-reward-info">
+            ${already
+              ? '<div class="ci-reward-label">今日已签到</div>'
+              : `<div class="ci-reward-label">本次奖励</div>
+                 <div class="ci-reward-amount">${rewardLabel}</div>
+                 <div class="ci-reward-mult">连续 ${d} 天 · 加成 ×${multiplier.toFixed(1)}</div>`}
+            <div class="ci-wallet">当前 💰 ${coins} 金币 · 🎟 ${tickets} 张抽奖券</div>
+          </div>
+        </div>
+
+        <div class="ci-rates">
+          <span>今日概率</span>
+          N ${grant?.rates?.N ?? 50}% · R ${grant?.rates?.R ?? 30}% · SR ${grant?.rates?.SR ?? 15}% · SSR ${grant?.rates?.SSR ?? 5}% · UR ${grant?.rates?.UR ?? 0}%
+        </div>
+        <div class="gacha-actions">
+          <button class="btn primary" data-act="checkin-close">收下</button>
+        </div>
+      </div>
+    `);
+    const close = root.querySelector('[data-act="checkin-close"]');
     if (close) close.onclick = onClose;
   }
 

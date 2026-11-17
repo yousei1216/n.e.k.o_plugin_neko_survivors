@@ -3278,3 +3278,210 @@ input[type="range"].fx-slider::-moz-range-thumb {
   user-select: none;
   -webkit-user-drag: none;
 }
+
+/* =========================================================
+   UI v5 签到卡层（第二百三十一轮）
+   5×2 签到卡 + 小红花印章 + 星星行 + SSR 金光 / UR 彩光。
+   只追加，不回头改 v2~v4 的规则。覆盖层跟随扭蛋机的深色底。
+   ========================================================= */
+.checkin-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(52, 74, 120, .55), transparent 58%),
+    linear-gradient(180deg, rgba(8, 16, 30, .94), rgba(12, 22, 40, .97));
+}
+.checkin-heading {
+  position: relative;
+  z-index: 3;
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: #ffe9f6;
+  text-shadow: 0 0 16px rgba(255, 150, 210, .5), 0 2px 0 rgba(0, 0, 0, .4);
+}
+.checkin-sub {
+  position: relative;
+  z-index: 3;
+  font-size: 12px;
+  color: #cfe0f5;
+  min-height: 16px;
+  text-align: center;
+}
+
+/* 签到卡本体：浅色卡片，压在深色覆盖层上 */
+.ci-card {
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(160deg, #fdfdff, #eaf1fb);
+  border: 2px solid rgba(255, 255, 255, .85);
+  border-radius: 16px;
+  padding: 12px 16px 14px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .45), 0 0 0 1px rgba(120, 160, 220, .35) inset;
+}
+.ci-card-title {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #274a76;
+  margin-bottom: 9px;
+  letter-spacing: 1px;
+}
+.ci-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 7px;
+}
+.ci-cell {
+  position: relative;
+  width: 62px;
+  height: 58px;
+  border-radius: 10px;
+  border: 1px dashed rgba(90, 130, 185, .5);
+  background: rgba(255, 255, 255, .55);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  overflow: hidden;
+}
+.ci-cell.stamped {
+  border: 2px solid #ff9db6;
+  background: linear-gradient(160deg, #fff6f8, #ffe6ee);
+  box-shadow: 0 0 10px rgba(255, 110, 150, .35) inset;
+}
+.ci-cell.current {
+  border-color: #ff5f8d;
+  box-shadow: 0 0 0 2px rgba(255, 95, 141, .5), 0 0 14px rgba(255, 95, 141, .5);
+}
+.ci-day {
+  font-size: 9px;
+  font-weight: 700;
+  color: #5a7699;
+}
+.ci-cell.stamped .ci-day { color: #b03057; }
+.ci-flower {
+  font-size: 26px;
+  line-height: 1;
+  transform: rotate(-16deg);
+  filter: drop-shadow(0 2px 2px rgba(170, 20, 60, .35));
+  animation: ciStamp .42s cubic-bezier(.2, 1.5, .4, 1) both;
+}
+@keyframes ciStamp {
+  0% { transform: rotate(-40deg) scale(2.4); opacity: 0; }
+  60% { transform: rotate(10deg) scale(.9); opacity: 1; }
+  100% { transform: rotate(-16deg) scale(1); opacity: 1; }
+}
+.ci-stars {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  margin-top: 10px;
+  min-height: 24px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(90, 130, 185, .28);
+}
+.ci-star {
+  font-size: 19px;
+  line-height: 1;
+  filter: drop-shadow(0 0 5px rgba(255, 200, 60, .8));
+  animation: ciStarPop .4s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+@keyframes ciStarPop {
+  0% { transform: scale(0) rotate(-60deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.ci-stars-empty { font-size: 10px; color: #8aa0bd; }
+
+/* 奖励卡 + 信息 */
+.ci-reward-row {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 120px;
+}
+.ci-reward-row.dimmed { opacity: .7; }
+.ci-card-art {
+  position: relative;
+  width: 96px;
+  flex: 0 0 96px;
+  border-radius: 10px;
+}
+.ci-card-art img {
+  width: 100%;
+  display: block;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .3);
+  background: #101018;
+  animation: gachaCardIn .56s cubic-bezier(.2, 1.35, .4, 1) both;
+}
+.ci-card-art.ssr img { filter: drop-shadow(0 0 16px rgba(255, 212, 94, .9)); }
+.ci-card-art.ur img {
+  filter: drop-shadow(0 0 14px rgba(255, 220, 120, .85)) drop-shadow(0 0 22px rgba(190, 120, 255, .6));
+}
+.ci-rarity-tag {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 900;
+  background: rgba(8, 6, 16, .82);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .12) inset;
+}
+.ci-reward-info { display: flex; flex-direction: column; gap: 5px; }
+.ci-reward-label { font-size: 12px; color: #bcd2ea; letter-spacing: 2px; }
+.ci-reward-amount {
+  font-size: 24px;
+  font-weight: 900;
+  color: #ffe08a;
+  text-shadow: 0 0 14px rgba(255, 200, 90, .55);
+}
+.ci-reward-mult { font-size: 12px; color: #ffc9e2; }
+.ci-wallet { font-size: 11px; color: #9fb8d6; margin-top: 3px; }
+.ci-rates {
+  position: relative;
+  z-index: 2;
+  font-size: 11px;
+  color: #9fb8d6;
+  text-align: center;
+}
+.ci-rates span { color: #d7e6f8; font-weight: 700; margin-right: 6px; }
+
+@media (max-width: 620px) {
+  .ci-cell { width: 48px; height: 48px; }
+  .ci-grid { gap: 5px; }
+  .ci-star { font-size: 15px; }
+  .ci-reward-amount { font-size: 19px; }
+}
+
+/* 每日签到入口（标题页扭蛋面板） */
+.checkin-entry { position: relative; }
+.checkin-entry.claimed { opacity: .62; }
+.checkin-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: #ff4f7d;
+  box-shadow: 0 0 8px rgba(255, 79, 125, .9);
+  vertical-align: middle;
+  animation: ciDotPulse 1.3s ease-in-out infinite;
+}
+@keyframes ciDotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: .7; }
+}

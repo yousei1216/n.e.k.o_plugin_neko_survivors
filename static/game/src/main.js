@@ -60,6 +60,11 @@ import { Soul5Fight, SOUL5_MAX_HP, ARENA as SOUL5_ARENA } from './systems/soul5.
 import { fitArenaToViewport } from './systems/arena-fit.js';
 // 第二百二十轮：扭蛋机（局外）与能力点数永久成长
 import { GACHA_COST, GACHA_POINTS, rollTenPull, totalGachaPoints } from './systems/gacha.js';
+// 第二百三十一轮：每日签到（每天首次登录领奖 + 连续加成 + 签到卡）
+import {
+  CHECKIN_MAX_DAYS, rollCheckinRarity, checkinGrant, checkinCardState,
+  dayKey, nextStreak,
+} from './systems/daily-checkin.js';
 import {
   META_UPGRADES, META_CATEGORIES, META_TIER_NAMES, META_TIER_COSTS, META_T3_REQUIRE_T2_LEVELS,
   metaUpgradeCost, applyMetaUpgrades, metaLevel, metaCategoryTierLevel,
@@ -415,6 +420,8 @@ export class Game {
       // life-state.normalizeLifeMeta 统一补默认值。
       coins: 120,
       fishing: null, farm: null, figures: null, gachaUrRate: 1, lifeSeq: 0,
+      // 第二百三十一轮：每日签到（跨局持久化）
+      checkinLastDate: '', checkinStreak: 0, checkinTotal: 0, checkinBest: 0,
     };
     let out = { ...DEFAULTS };
     try {
@@ -442,6 +449,14 @@ export class Game {
               ? parsed.goldfishTicketsDate : '',
             goldfishTicketsToday: Math.max(0, Math.min(GOLDFISH_DAILY_CAP,
               Math.floor(Number(parsed.goldfishTicketsToday) || 0))),
+            // 第二百三十一轮：签到字段逐个校验，防止手改存档算出 NaN
+            checkinLastDate: typeof parsed.checkinLastDate === 'string'
+              ? parsed.checkinLastDate : '',
+            checkinStreak: Math.max(0, Math.min(CHECKIN_MAX_DAYS,
+              Math.floor(Number(parsed.checkinStreak) || 0))),
+            checkinTotal: Math.max(0, Math.floor(Number(parsed.checkinTotal) || 0)),
+            checkinBest: Math.max(0, Math.min(CHECKIN_MAX_DAYS,
+              Math.floor(Number(parsed.checkinBest) || 0))),
           };
         }
       }
@@ -607,6 +622,90 @@ export class Game {
       remaining: Math.max(0, st.cap - earned),
       totalTickets: this.meta.gachaTickets | 0,
     };
+  }
+
+  // =========================================================
+  // 第二百三十一轮：每日签到（每天首次登录领奖 + 连续加成）
+  // =========================================================
+
+  /** 签到独立随机流（不污染本局战斗种子 / 扭蛋种子）。 */
+  _checkinRng() {
+    this.checkinRng ??= new RNG(randomSeed());
+    return this.checkinRng;
+  }
+
+  /**
+   * 今天的签到预览（不改存档）：连续天数、今日是否已签、概率、卡片状态。
+   * 供主菜单入口显示"今日已签/可领"用。
+   */
+  _checkinPreview() {
+    const today = dayKey();
+    const { streak, already } = nextStreak(
+      this.meta.checkinLastDate, today, this.meta.checkinStreak || 0,
+    );
+    return {
+      today, streak, already,
+      card: checkinCardState(already ? (this.meta.checkinStreak || 1) : streak),
+    };
+  }
+
+  /**
+   * 执行一次签到（写存档 + 发奖）。
+   * 每天最多一次：今天已签则只返回 already=true 的结果，不重复发奖。
+   * @param {boolean} forceOpen 已签时也强制返回结果供 UI 展示卡片
+   * @returns {object|null} 交给 ui.showCheckin 的参数；非标题态返回 null
+   */
+  _doDailyCheckin() {
+    if (this.state !== STATE.TITLE) return null;
+    const today = dayKey();
+    const { streak, already } = nextStreak(
+      this.meta.checkinLastDate, today, this.meta.checkinStreak || 0,
+    );
+    if (already) {
+      return {
+        grant: null, card: checkinCardState(this.meta.checkinStreak || 1),
+        already: true, streak: this.meta.checkinStreak || 1,
+        coins: this.meta.coins | 0, tickets: this.meta.gachaTickets | 0,
+        onClose: () => this.showTitle(),
+      };
+    }
+
+    // 抽档 + 计算奖励（纯逻辑）
+    const rarity = rollCheckinRarity(this._checkinRng(), streak);
+    const grant = checkinGrant(rarity, streak);
+
+    // 入账：金币进生活区钱包，抽奖券进扭蛋券
+    if (grant.kind === 'coins') {
+      this.meta.coins = (this.meta.coins | 0) + grant.amount;
+    } else {
+      this.meta.gachaTickets = (this.meta.gachaTickets | 0) + grant.amount;
+    }
+    // 写签到状态
+    this.meta.checkinLastDate = today;
+    this.meta.checkinStreak = streak;
+    this.meta.checkinTotal = (this.meta.checkinTotal | 0) + 1;
+    this.meta.checkinBest = Math.max(this.meta.checkinBest | 0, streak);
+    this._saveMeta();
+
+    if (rarity === 'SSR' || rarity === 'UR') audio.play('levelUp');
+    else audio.play('coin');
+
+    return {
+      grant, card: checkinCardState(streak), already: false, streak,
+      coins: this.meta.coins | 0, tickets: this.meta.gachaTickets | 0,
+      onClose: () => this.showTitle(),
+    };
+  }
+
+  /**
+   * 每天首次登录自动签到：进入标题页后检测，跨天则自动领奖并弹签到卡。
+   * 用 meta.checkinLastDate 保证幂等 —— showTitle 反复调用不会重复发奖。
+   */
+  _maybeAutoCheckin() {
+    const preview = this._checkinPreview();
+    if (preview.already) return;
+    const result = this._doDailyCheckin();
+    if (result) this.ui?.showCheckin?.(result);
   }
 
   /** 生活区独立随机流（不污染本局战斗种子）。 */
@@ -891,8 +990,17 @@ export class Game {
       onLifeSound: (name) => { try { audio.play(name); } catch { /* */ } },
       onOpenLifeHub: () => this._openLifeHub(),
       onCoinExchange: (count) => this._lifeAction('exchangeTickets', { count }),
+      // 第二百三十一轮：每日签到入口 + 今天首次登录自动弹签到卡
+      checkinPreview: this._checkinPreview(),
+      onCheckin: () => {
+        const result = this._doDailyCheckin();
+        if (result) this.ui?.showCheckin?.(result);
+      },
       audioEnabled: audio.enabled,
     });
+    // 自动签到放在标题页渲染之后：弹出签到卡覆盖在标题之上，
+    // 关闭时 onClose → showTitle() 重绘标题（此时已签，不再触发）。
+    this._maybeAutoCheckin();
   }
 
   showCharSelect() {
