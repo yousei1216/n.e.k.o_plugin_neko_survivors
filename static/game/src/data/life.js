@@ -27,57 +27,115 @@ export const CROP_BAG_CAP = 100;
 /**
  * rarity 0..4 只用于"稀有度权重加成"和显示，不是独立概率。
  * baseValue + cm * perCm 是基础价，星标再乘倍率。
+ *
+ * 第二百三十三轮：鱼种 10 → 20（用户提供 新鱼1/新鱼2 共 20 条插画），
+ * 按稀有度分 5 档，weight 递减、体型与单价递增。
  */
 export const FISH = [
+  // ---- rarity 0 普通 ----
   {
     id: 'minnow', name: '小银鱼', rarity: 0, weight: 30,
     minCm: 6, maxCm: 15, baseValue: 4, perCm: 0.8,
     body: '#b9d7e8', belly: '#eef9ff', fin: '#8fb8cc',
   },
   {
-    id: 'goldfish', name: '小金鱼', rarity: 0, weight: 24,
+    id: 'goldfish', name: '小金鱼', rarity: 0, weight: 26,
     minCm: 8, maxCm: 19, baseValue: 6, perCm: 1.1,
     body: '#ff9a3c', belly: '#ffd8a5', fin: '#ff6a2e',
   },
   {
-    id: 'carp', name: '鲤鱼', rarity: 1, weight: 18,
+    id: 'carp', name: '鲤鱼', rarity: 0, weight: 22,
     minCm: 18, maxCm: 44, baseValue: 15, perCm: 1.5,
     body: '#d9a45b', belly: '#f3d5a3', fin: '#b57a38',
   },
   {
-    id: 'catfish', name: '猫猫鲶', rarity: 1, weight: 14,
-    minCm: 22, maxCm: 56, baseValue: 20, perCm: 1.8,
-    body: '#6f7b8a', belly: '#c3ced9', fin: '#4d5866',
+    id: 'clownfish', name: '小丑鱼', rarity: 0, weight: 20,
+    minCm: 6, maxCm: 14, baseValue: 8, perCm: 1.3,
+    body: '#ff7a1a', belly: '#fff0e0', fin: '#e05500',
   },
   {
-    id: 'koi', name: '锦鲤', rarity: 2, weight: 8,
-    minCm: 30, maxCm: 72, baseValue: 40, perCm: 3,
-    body: '#ff6f61', belly: '#fff0e8', fin: '#d94a40',
+    id: 'seahorse', name: '海马', rarity: 0, weight: 16,
+    minCm: 5, maxCm: 12, baseValue: 12, perCm: 1.6,
+    body: '#ffc04d', belly: '#ffe9b0', fin: '#e08a00',
   },
   {
-    id: 'moonfish', name: '月光鱼', rarity: 2, weight: 6,
-    minCm: 16, maxCm: 38, baseValue: 60, perCm: 4,
-    body: '#8fd3ff', belly: '#e6f9ff', fin: '#5fb8e8', glow: 'rgba(120, 220, 255, .55)',
+    id: 'flounder', name: '比目鱼', rarity: 0, weight: 14,
+    minCm: 15, maxCm: 38, baseValue: 18, perCm: 1.8,
+    body: '#b99a63', belly: '#e6d3ae', fin: '#8f6f3e',
+  },
+  // ---- rarity 1 少见 ----
+  {
+    id: 'seabass', name: '鲈鱼', rarity: 1, weight: 12,
+    minCm: 20, maxCm: 46, baseValue: 22, perCm: 1.8,
+    body: '#8fa6b8', belly: '#dfe9f2', fin: '#5f7688',
   },
   {
-    id: 'golden_koi', name: '黄金锦鲤', rarity: 3, weight: 3,
-    minCm: 35, maxCm: 82, baseValue: 100, perCm: 6,
-    body: '#ffd23a', belly: '#fff6c2', fin: '#e0a800', glow: 'rgba(255, 220, 90, .55)',
+    id: 'bluetang', name: '蓝倒吊', rarity: 1, weight: 10,
+    minCm: 10, maxCm: 24, baseValue: 26, perCm: 2.2,
+    body: '#2f6bff', belly: '#8fb4ff', fin: '#ffd400',
   },
   {
-    id: 'catfish_king', name: '猫鲶王', rarity: 3, weight: 1.5,
-    minCm: 60, maxCm: 122, baseValue: 150, perCm: 8,
-    body: '#4b5d6e', belly: '#a9c5d6', fin: '#2f3c48',
+    id: 'puffer', name: '河豚', rarity: 1, weight: 9,
+    minCm: 12, maxCm: 28, baseValue: 30, perCm: 2.4,
+    body: '#d8c48a', belly: '#f5ecd0', fin: '#a08a4a',
   },
   {
-    id: 'dreamfish', name: '梦境猫鱼', rarity: 4, weight: 0.7,
-    minCm: 40, maxCm: 100, baseValue: 250, perCm: 10,
-    body: '#c08bff', belly: '#f0e3ff', fin: '#8d5ed6', glow: 'rgba(190, 130, 255, .6)',
+    id: 'grouper', name: '石斑鱼', rarity: 1, weight: 8,
+    minCm: 25, maxCm: 60, baseValue: 40, perCm: 2.2,
+    body: '#7d94b8', belly: '#cfdcee', fin: '#4a5f7e',
   },
   {
-    id: 'star_whale', name: '星海小鲸', rarity: 4, weight: 0.3,
-    minCm: 80, maxCm: 180, baseValue: 500, perCm: 15,
-    body: '#5f8cff', belly: '#d6e2ff', fin: '#3f62c8', glow: 'rgba(110, 160, 255, .6)',
+    id: 'trout', name: '虹鳟', rarity: 1, weight: 7.5,
+    minCm: 20, maxCm: 48, baseValue: 34, perCm: 2,
+    body: '#a8c4d0', belly: '#e6f2f7', fin: '#d98a9a',
+  },
+  // ---- rarity 2 稀有 ----
+  {
+    id: 'snapper', name: '红鲷', rarity: 2, weight: 5,
+    minCm: 20, maxCm: 45, baseValue: 55, perCm: 3.2,
+    body: '#ff6f61', belly: '#ffd8cc', fin: '#d94a40',
+  },
+  {
+    id: 'yellowcat', name: '黄颡鱼', rarity: 2, weight: 4.5,
+    minCm: 22, maxCm: 56, baseValue: 65, perCm: 3.6,
+    body: '#e8b53a', belly: '#ffe9a0', fin: '#c88a10',
+  },
+  {
+    id: 'lionfish', name: '狮子鱼', rarity: 2, weight: 3.5,
+    minCm: 15, maxCm: 35, baseValue: 80, perCm: 4.2,
+    body: '#e8a08a', belly: '#ffe0d0', fin: '#c05040',
+  },
+  {
+    id: 'hammerhead', name: '锤头鲨', rarity: 2, weight: 3,
+    minCm: 40, maxCm: 110, baseValue: 110, perCm: 3.5,
+    body: '#8a9aa8', belly: '#d8e0e8', fin: '#5a6a78',
+  },
+  // ---- rarity 3 史诗 ----
+  {
+    id: 'sunfish', name: '翻车鱼', rarity: 3, weight: 1.6,
+    minCm: 40, maxCm: 110, baseValue: 150, perCm: 5,
+    body: '#a8b8c8', belly: '#dfe8f0', fin: '#7a8a9a',
+  },
+  {
+    id: 'sailfish', name: '旗鱼', rarity: 3, weight: 1.2,
+    minCm: 80, maxCm: 200, baseValue: 180, perCm: 5.5,
+    body: '#3a6fd8', belly: '#a8c8ff', fin: '#1a4aa8', glow: 'rgba(110, 160, 255, .5)',
+  },
+  {
+    id: 'arowana', name: '红龙鱼', rarity: 3, weight: 0.9,
+    minCm: 30, maxCm: 80, baseValue: 200, perCm: 6,
+    body: '#e85a3a', belly: '#ffc0a8', fin: '#b02a10', glow: 'rgba(255, 110, 80, .45)',
+  },
+  // ---- rarity 4 传说 ----
+  {
+    id: 'anglerfish', name: '鮟鱇鱼', rarity: 4, weight: 0.35,
+    minCm: 25, maxCm: 60, baseValue: 320, perCm: 10,
+    body: '#8a5a3a', belly: '#d8b090', fin: '#5a3a20', glow: 'rgba(255, 200, 90, .5)',
+  },
+  {
+    id: 'betta', name: '斗鱼', rarity: 4, weight: 0.25,
+    minCm: 6, maxCm: 14, baseValue: 380, perCm: 26,
+    body: '#9a6bff', belly: '#d8c0ff', fin: '#5a2fd6', glow: 'rgba(190, 130, 255, .6)',
   },
 ];
 

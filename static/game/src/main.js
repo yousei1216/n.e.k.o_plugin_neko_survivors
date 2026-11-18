@@ -422,6 +422,8 @@ export class Game {
       fishing: null, farm: null, figures: null, gachaUrRate: 1, lifeSeq: 0,
       // 第二百三十一轮：每日签到（跨局持久化）
       checkinLastDate: '', checkinStreak: 0, checkinTotal: 0, checkinBest: 0,
+      // 第二百三十三轮：主菜单"隐藏其他界面"（永久记忆）
+      hideSidePanels: false,
     };
     let out = { ...DEFAULTS };
     try {
@@ -457,6 +459,7 @@ export class Game {
             checkinTotal: Math.max(0, Math.floor(Number(parsed.checkinTotal) || 0)),
             checkinBest: Math.max(0, Math.min(CHECKIN_MAX_DAYS,
               Math.floor(Number(parsed.checkinBest) || 0))),
+            hideSidePanels: parsed.hideSidePanels === true,
           };
         }
       }
@@ -705,13 +708,36 @@ export class Game {
     const preview = this._checkinPreview();
     if (preview.already) return;
     const result = this._doDailyCheckin();
-    if (result) this.ui?.showCheckin?.(result);
+    if (!result) return;
+    // 隐藏其他界面时：照常发奖，但不弹签到卡打断主菜单
+    if (this.meta.hideSidePanels) {
+      const g = result.grant;
+      if (g) {
+        this.ui?.toast?.(
+          `今日签到已自动领取：${g.kind === 'coins' ? `金币 +${g.amount}` : `抽奖券 +${g.amount}`}`,
+          'good', 3200,
+        );
+      }
+      return;
+    }
+    this.ui?.showCheckin?.(result);
   }
 
   /** 生活区独立随机流（不污染本局战斗种子）。 */
   _lifeRng() {
     this.lifeRng ??= new RNG(randomSeed());
     return this.lifeRng;
+  }
+
+  /**
+   * 第二百三十三轮：主菜单一键隐藏/显示所有侧边面板（抽卡/捞金鱼/农场/
+   * 手办柜/钓场/签到入口）。状态存 meta，永久记忆，重进游戏保持。
+   */
+  _toggleSidePanels() {
+    this.meta.hideSidePanels = this.meta.hideSidePanels !== true;
+    this._saveMeta();
+    this.showTitle();
+    this.ui?.toast?.(this.meta.hideSidePanels ? '已隐藏其他界面，只留主菜单' : '已显示全部界面', 'info', 2000);
   }
 
   /**
@@ -996,6 +1022,9 @@ export class Game {
         const result = this._doDailyCheckin();
         if (result) this.ui?.showCheckin?.(result);
       },
+      // 第二百三十三轮：主菜单"隐藏其他界面"（永久记忆）
+      hideSidePanels: this.meta.hideSidePanels === true,
+      onToggleSidePanels: () => this._toggleSidePanels(),
       audioEnabled: audio.enabled,
     });
     // 自动签到放在标题页渲染之后：弹出签到卡覆盖在标题之上，

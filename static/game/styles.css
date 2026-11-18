@@ -3708,3 +3708,26 @@ input[type="range"].fx-slider::-moz-range-thumb {
   letter-spacing: .5px;
   text-shadow: 0 0 10px rgba(255, 140, 210, .35);
 }
+
+/* =========================================================
+   第二百三十三轮：主菜单「隐藏其他界面」——只留主菜单
+   抽卡 / 捞金鱼 / 农场 / 手办柜 / 钓场 / 签到入口 全部隐藏，
+   小屏折叠用的「生活区」按钮也一起收起。
+   ========================================================= */
+.title-scene.side-hidden .title-gacha,
+.title-scene.side-hidden .title-minigame,
+.title-scene.side-hidden .title-farm,
+.title-scene.side-hidden .title-fishing,
+.title-scene.side-hidden .title-figures,
+.title-scene.side-hidden .life-hub-btn {
+  display: none !important;
+}
+#overlay .btn[data-act="toggle-side"] {
+  border-color: rgba(150, 120, 210, .55);
+  color: #7a5fb0;
+}
+#overlay .btn[data-act="toggle-side"]:hover {
+  border-color: #9a7bd8;
+  background: #f6f1ff;
+  box-shadow: 0 0 12px rgba(150, 120, 210, .25);
+}

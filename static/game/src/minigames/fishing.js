@@ -43,6 +43,9 @@ const ASSET = {
   rod: 'assets/fishing/rod.png',
 };
 
+// 背景游鱼只用稀有度 <= 2 的鱼，避免传说鱼影子频繁晃来晃去稀释稀有感
+const SHADOW_FISH = FISH.filter((f) => f.rarity <= 2);
+
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -96,9 +99,24 @@ export class FishingGame {
     this.bait = getBait('dough');
     this.ambientT = 0;
     this.waterT = 0;
-    this.fishShadows = Array.from({ length: 5 }, (_, i) => ({
-      x: rand(360, 930), y: rand(98, 152), sp: rand(8, 20) * (i % 2 ? 1 : -1), phase: rand(0, TAU),
-    }));
+    // 第二百三十三轮：背景游鱼改成真实鱼剪影（多鱼种 / 双向 / 远近大小 / 摆尾）
+    this.fishShadows = Array.from({ length: 7 }, (_, i) => {
+      const f = SHADOW_FISH[(i * 7 + 3) % SHADOW_FISH.length];
+      const dir = i % 2 === 0 ? 1 : -1;
+      const depth = (i % 3) / 2;            // 0 远 / 0.5 中 / 1 近
+      return {
+        x: rand(330, 990),
+        y: 96 + depth * 46 + rand(-5, 5),
+        sp: rand(9, 22) * dir * (0.7 + depth * 0.6),
+        id: f.id,
+        scale: 0.5 + depth * 0.55,          // 近处更大
+        alpha: 0.16 + depth * 0.2,
+        phase: rand(0, TAU),
+      };
+    });
+    // 咬钩前游向浮漂的预告鱼（用预抽的鱼种，保证预告与实际一致）
+    this.pendingFish = null;
+    this.approach = null;
     this.ripples = [];
     this.particles = [];
     this._raf = 0;
@@ -117,6 +135,14 @@ export class FishingGame {
     canvas.height = Math.round(H * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.imageSmoothingEnabled = true;
+    // canvas 是否支持 filter（用于把鱼压成剪影）；不支持时降级成椭圆影子
+    this._filterOk = (() => {
+      try {
+        const c = document.createElement('canvas').getContext('2d');
+        c.filter = 'brightness(0)';
+        return c.filter === 'brightness(0)';
+      } catch { return false; }
+    })();
 
     this._onMove = (e) => { this._setPointer(e); };
     this._onDown = (e) => {
@@ -214,7 +240,9 @@ export class FishingGame {
       return;
     }
     if (this.state === 'bite') {
-      this.hookedFish = this.onHook?.() || null;
+      this.hookedFish = this.pendingFish || this.onHook?.() || null;
+      this.pendingFish = null;
+      this.approach = null;
       this._initReelQte();
       this.state = 'reel';
       this.progress = 0.12;
@@ -291,11 +319,24 @@ export class FishingGame {
         const base = this.bait || getBait('dough');
         this.waitT = rand(base.biteMin, base.biteMax);
         this.bobberX = 700 + this.castPower * 240;
+        this.pendingFish = null;
+        this.approach = null;
         this.message = '等待鱼咬钩……';
         this._emitHud(true);
       }
     } else if (this.state === 'wait') {
       this.waitT -= dt;
+      // 咬钩前 1.5 秒：预抽一条鱼让剪影游向浮漂（onHook 不写存档，可安全预抽）
+      if (!this.pendingFish && this.waitT < 1.5) {
+        this.pendingFish = this.onHook?.() || null;
+        if (this.pendingFish) {
+          this.approach = {
+            t: 0, dur: 1.5, id: this.pendingFish.id,
+            rarity: clamp(this.pendingFish.rarity | 0, 0, 4),
+            y: 120, fromX: this.bobberX + 300,
+          };
+        }
+      }
       if (this.waitT <= 0) {
         this.state = 'bite';
         this.biteT = 0.85;
@@ -393,6 +434,8 @@ export class FishingGame {
     this.result = { miss: true, message: msg };
     this.reeling = false;
     this.hookedFish = null;
+    this.pendingFish = null;
+    this.approach = null;
     this.qteRarity = 0;
     this.progress = 0;
     this.tension = 0;
@@ -412,17 +455,32 @@ export class FishingGame {
     this.message = fish ? '上钩了！' : '空钩……';
     this._sound('pickupMat');
     if (fish) {
-      for (let i = 0; i < 16; i++) {
+      // 第二百三十三轮：收获粒子按稀有度升级 —— 越高越多、颜色越华丽
+      const rarity = clamp(fish.rarity | 0, 0, 4);
+      const palette = rarity >= 4
+        ? ['#fff3a0', '#ff8fd6', '#8fd3ff', '#b98bff', '#ffffff']
+        : rarity === 3
+          ? ['#ffe36e', '#ffb347', '#fff6c2']
+          : rarity === 2
+            ? ['#c08bff', '#ffe36e', '#dcc6ff']
+            : ['#ffe36e', '#bff6ff', '#dff8ff'];
+      const n = 16 + rarity * 7;
+      for (let i = 0; i < n; i++) {
         const a = rand(0, TAU);
-        const sp = rand(30, 110);
+        const sp = rand(30, 110 + rarity * 26);
         this.particles.push({
           x: this.bobberX, y: 112,
           vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 20,
-          life: rand(0.3, 0.8), max: 0.8, r: rand(1.2, 3),
-          color: i % 3 === 0 ? '#ffe36e' : '#bff6ff',
+          life: rand(0.3, 0.8 + rarity * 0.1), max: 0.8 + rarity * 0.1,
+          r: rand(1.2, 2.6 + rarity * 0.5),
+          color: palette[i % palette.length],
         });
       }
-      this.ripples.push({ x: this.bobberX, y: 114, r: 8, max: 90, a: 0.9 });
+      this.ripples.push({ x: this.bobberX, y: 114, r: 8, max: 90 + rarity * 14, a: 0.9 });
+      if (rarity >= 3) {
+        // 史诗以上：再来一圈向外扩散的光环
+        this.ripples.push({ x: this.bobberX, y: 114, r: 4, max: 150, a: 0.7 });
+      }
     }
     this._emitHud(true);
   }
@@ -431,8 +489,12 @@ export class FishingGame {
     for (const f of this.fishShadows) {
       f.x += f.sp * dt;
       if (f.x < 240) { f.x = 240; f.sp = Math.abs(f.sp); }
-      if (f.x > 930) { f.x = 930; f.sp = -Math.abs(f.sp); }
+      if (f.x > 980) { f.x = 980; f.sp = -Math.abs(f.sp); }
       f.y += Math.sin(this.ambientT * 0.8 + f.phase) * 2 * dt;
+    }
+    if (this.approach) {
+      this.approach.t += dt;
+      if (this.approach.t > this.approach.dur + 0.6) this.approach = null;
     }
   }
 
@@ -716,12 +778,31 @@ export class FishingGame {
     }
   }
 
+  /**
+   * 背景游鱼：把真实鱼图标压成剪影（filter: brightness(0)）画在水下。
+   * 不支持 filter 的环境自动降级成旧版椭圆影子。
+   */
   _drawFishShadows() {
     const ctx = this.ctx;
     for (const f of this.fishShadows) {
+      const img = this.fishSprites?.[f.id];
+      if (this._ready(img) && this._filterOk !== false) {
+        const w = 74 * f.scale;
+        ctx.save();
+        ctx.translate(f.x, f.y);
+        // 原图朝左；向右边游时水平翻转
+        ctx.scale(f.sp > 0 ? -1 : 1, 1);
+        ctx.rotate(Math.sin(this.ambientT * 2.4 + f.phase) * 0.05);
+        ctx.globalAlpha = f.alpha;
+        ctx.filter = 'brightness(0) saturate(0)';
+        ctx.drawImage(img, -w / 2, -w / 2, w, w);
+        ctx.restore();
+        continue;
+      }
+      // 降级：旧椭圆
       ctx.save();
       ctx.translate(f.x, f.y);
-      ctx.globalAlpha = 0.26;
+      ctx.globalAlpha = 0.24;
       ctx.fillStyle = '#0e4b66';
       ctx.beginPath();
       ctx.ellipse(0, 0, 14, 5.5, 0, 0, TAU);
@@ -734,6 +815,57 @@ export class FishingGame {
       ctx.fill();
       ctx.restore();
     }
+    this._drawApproach();
+  }
+
+  /** 咬钩前：目标鱼从右侧游向浮漂，给玩家"有大鱼过来了"的期待。 */
+  _drawApproach() {
+    const a = this.approach;
+    if (!a) return;
+    const img = this.fishSprites?.[a.id];
+    if (!this._ready(img)) return;
+    const ctx = this.ctx;
+    const p = Math.min(1, a.t / a.dur);
+    const ease = 1 - Math.pow(1 - p, 2.2);           // 先快后慢，靠拢浮漂
+    const x = a.fromX + (this.bobberX + 16 - a.fromX) * ease;
+    const y = a.y + Math.sin(a.t * 3.2) * 2.5;
+    const w = 92 + a.rarity * 13;
+    const alpha = 0.2 + p * 0.45;
+    const pulse = 0.75 + Math.sin(a.t * 5) * 0.25;
+
+    // 鱼影周围先铺一圈光晕，深色水面上才看得出来"有东西靠近"
+    if (p > 0.15) {
+      ctx.save();
+      ctx.globalAlpha = (0.12 + p * 0.3) * pulse;
+      const g = ctx.createRadialGradient(x, y, 2, x, y, w * 0.8);
+      const hot = a.rarity >= 4 ? 'rgba(255, 232, 150, .85)'
+        : a.rarity === 3 ? 'rgba(214, 160, 255, .8)'
+          : 'rgba(150, 230, 255, .65)';
+      g.addColorStop(0, hot);
+      g.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, w * 0.8, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.sin(a.t * 4.5) * 0.08);
+    ctx.globalAlpha = alpha;
+    if (this._filterOk !== false) ctx.filter = 'brightness(0) saturate(0)';
+    ctx.drawImage(img, -w / 2, -w / 2, w, w);
+    ctx.restore();
+
+    // 剪影外再叠一层很淡的青色描边光（提亮轮廓）
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.sin(a.t * 4.5) * 0.08);
+    ctx.globalAlpha = 0.1 + p * 0.12;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(img, -w / 2, -w / 2, w, w);
+    ctx.restore();
   }
 
   _drawCatgirl(t) {
@@ -872,7 +1004,16 @@ export class FishingGame {
       by = lineStart.y + (this.bobberY - lineStart.y) * e - Math.sin(p * Math.PI) * 42;
     } else if (this.state === 'wait' || this.state === 'bite') {
       by = 112 + Math.sin(t * 4) * 2;
-      if (this.state === 'bite') by += 5;
+      // 有大鱼靠近时浮漂开始轻轻发抖，给玩家"快来咬钩了"的预警
+      if (this.state === 'wait' && this.approach) {
+        const ap = Math.min(1, this.approach.t / this.approach.dur);
+        by += Math.sin(t * 19) * (0.8 + ap * 2.4);
+      }
+      if (this.state === 'bite') {
+        // 咬钩瞬间浮漂猛沉并快速抖动
+        const k = Math.min(1, (0.85 - this.biteT) / 0.12);
+        by += 5 + k * 8 + Math.sin(t * 32) * 1.6;
+      }
     } else if (this.state === 'reel') {
       // 收线收到鱼竿头部，不是收到角色身前：鱼线要沿着伸出去的鱼竿收短。
       const pull = clamp(this.progress, 0, 1);
@@ -916,10 +1057,26 @@ export class FishingGame {
     }
 
     if (this.state === 'bite') {
+      const bounce = Math.abs(Math.sin(t * 9)) * 4;
+      const cy = by - 30 - bounce;
+      ctx.save();
+      ctx.globalAlpha = 0.92;
       ctx.fillStyle = '#ff3b5c';
-      ctx.font = '900 28px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.beginPath();
+      ctx.arc(bx, cy, 12, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, .9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(bx, cy, 12, 0, TAU);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#fff';
+      ctx.font = '900 17px "Segoe UI", "Microsoft YaHei", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('!', bx, by - 26);
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', bx, cy + 1);
+      ctx.restore();
     }
   }
 

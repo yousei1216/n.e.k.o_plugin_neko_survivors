@@ -463,7 +463,8 @@ export class UI {
     goldfishEarned = 0, goldfishCap = GOLDFISH_DAILY_CAP, onGoldfishReward = null, onGoldfishSound = null,
     lifeMeta = null, onLifeAction = null, onOpenLifeShop = null, onOpenLifeBag = null,
     onLifeSound = null, onOpenLifeHub = null, onCoinExchange = null, gachaUrRate = 1,
-    checkinPreview = null, onCheckin = null }) {
+    checkinPreview = null, onCheckin = null,
+    hideSidePanels = false, onToggleSidePanels = null }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -480,7 +481,7 @@ export class UI {
              ├ title-stars      上升魔法光点（DOM 粒子，CSS 动画）
              └ title-panel      毛玻璃哥特面板（四角发光小猫爪 + 猫耳标题）
                （版本号 + 种子码沉到屏幕右下角 .title-meta）-->
-      <div class="title-scene">
+      <div class="title-scene${hideSidePanels ? ' side-hidden' : ''}">
         <div class="title-stars" aria-hidden="true"></div>
         <div class="title-vignette" aria-hidden="true"></div>
         <div class="screen narrow title-panel">
@@ -510,6 +511,9 @@ export class UI {
           <div class="btn-row">
             ${hasSave ? '<button class="btn" data-act="continue">继续游戏</button>' : ''}
             <button class="btn small" data-act="audio">${audioEnabled ? '🔊 音效开' : '🔇 音效关'}</button>
+            <button class="btn small" data-act="toggle-side" title="只保留主菜单，隐藏抽卡 / 捞金鱼 / 农场 / 手办 / 钓场 / 签到入口">
+              ${hideSidePanels ? '👁 显示其他界面' : '🙈 隐藏其他界面'}
+            </button>
             <!-- 第四十九轮补充：临时调试直通按钮（用户要求，方便人工测验芙兰战），正式版可删 -->
             ${onFlandreTest ? '<button class="btn small" data-act="flandre-test" style="border-color:#ff4060;color:#ff4060">🐱 直接挑战芙兰！</button>' : ''}
         ${onHalloweenTest ? '<button class="btn small" data-act="halloween-test" style="border-color:#ff9f43;color:#ff9f43">🎃 直接挑战万圣节双猫！</button>' : ''}
@@ -639,6 +643,9 @@ export class UI {
     // 第二百三十一轮：每日签到入口
     const checkinBtn = root.querySelector('[data-act="checkin"]');
     if (checkinBtn && onCheckin) checkinBtn.onclick = onCheckin;
+    // 第二百三十三轮：一键隐藏 / 显示其他侧边界面
+    const toggleSide = root.querySelector('[data-act="toggle-side"]');
+    if (toggleSide && onToggleSidePanels) toggleSide.onclick = onToggleSidePanels;
 
     // 第二百二十七轮：左侧小游戏《猫娘捞金鱼》。
     // 实例挂在 this._goldfish 上，_mount / clearOverlay 会先 destroy，
