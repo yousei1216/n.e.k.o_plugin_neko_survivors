@@ -41,7 +41,10 @@ const ASSET = {
   fishing: 'assets/fishing/char_fishing.png',
   raise: 'assets/fishing/char_raise.png',
   rod: 'assets/fishing/rod.png',
+  bobber: 'assets/fishing/bobber.png',
 };
+// 鱼漂图（941×1672 竖版插画）红白交界在 54.2% 高度，这条线对齐水面
+const BOBBER_SPLIT = 0.542;
 
 // 背景游鱼只用稀有度 <= 2 的鱼，避免传说鱼影子频繁晃来晃去稀释稀有感
 const SHADOW_FISH = FISH.filter((f) => f.rarity <= 2);
@@ -199,6 +202,7 @@ export class FishingGame {
     load('imgFishing', ASSET.fishing);
     load('imgRaise', ASSET.raise);
     load('imgRod', ASSET.rod);
+    load('imgBobber', ASSET.bobber);
     this.fishSprites = {};
     for (const f of FISH) {
       try {
@@ -420,10 +424,12 @@ export class FishingGame {
     if (this.state === 'landing') return;
     const pose = this._rodPose(0);
     const tip = this._rodTip(pose.anchorX, pose.anchorY, pose.angle);
-    const fromX = tip.x;
+    const pos = this._reelFishPos(this.ambientT);
+    const fromX = pos.x;
     this.state = 'landing';
     this.landT = 0.75;
-    this.landFrom = { x: fromX, y: tip.y + 5 };
+    // 从鱼当前（水面附近）的位置起，而不是从竿尖起
+    this.landFrom = { x: fromX, y: pos.y };
     this.reeling = false;
     this.message = '收线！鱼要上来了';
     this.ripples.push({ x: fromX, y: 114, r: 10, max: 74, a: 0.9 });
@@ -660,9 +666,13 @@ export class FishingGame {
     const { angle, anchorX, anchorY } = this._rodPose(t);
     const tip = this._rodTip(anchorX, anchorY, angle);
     const pull = clamp(this.progress, 0, 1);
+    // 第二百三十五轮：收线终点不再是竿尖（那样像鱼飞到竿上），
+    // 而是竿尖正下方、贴近水面的位置 —— 鱼是被拖到岸边，不是被吊到半空。
+    const targetX = tip.x - 14;
+    const targetY = Math.min(H - 36, tip.y + 58);
     return {
-      x: this.bobberX + (tip.x - this.bobberX) * pull,
-      y: 112 + (tip.y + 5 - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7),
+      x: this.bobberX + (targetX - this.bobberX) * pull,
+      y: 112 + (targetY - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7),
       tip,
     };
   }
@@ -1113,12 +1123,15 @@ export class FishingGame {
       // 最后只把鱼提到竿尖附近，线始终以竿尖为终点。
       const p = 1 - clamp(this.landT / 0.75, 0, 1);
       const e = 1 - (1 - p) * (1 - p);
-      const from = this.landFrom || { x: tip.x, y: tip.y + 5 };
-      const toX = tip.x;
-      const toY = tip.y - 8;
+      const from = this.landFrom || { x: tip.x - 14, y: 100 };
+      // 只提到竿尖下方一点，不飞到竿上
+      const toX = tip.x - 14;
+      const toY = tip.y + 64;
       bx = from.x + (toX - from.x) * e;
-      by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 8;
+      by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 10;
       showBobber = false;
+      // 鱼出水面：从水面拉出一道水花柱
+      this._drawLiftSplash(bx, by);
       this._drawStrugglingFish(bx, by, t, 0.95 * (1 + this.qteRarity * 0.1));
     }
 
@@ -1129,26 +1142,46 @@ export class FishingGame {
     if (showBobber) {
       ctx.save();
       ctx.translate(bx, by);
-      // 第二百三十四轮：浮漂更有实体感 —— 水面接触阴影 + 水痕圈 + 主体 + 高光 + 顶珠
+      // 水面接触阴影 + 水痕圈（两个状态都保留，让浮漂"踩"在水面上）
       ctx.fillStyle = 'rgba(16, 44, 64, .3)';
-      ctx.beginPath(); ctx.ellipse(0, 8, 9.5, 3.2, 0, 0, TAU); ctx.fill();
-      ctx.strokeStyle = 'rgba(220, 250, 255, .34)';
+      ctx.beginPath(); ctx.ellipse(0, 6, 8, 2.6, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(220, 250, 255, .32)';
       ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(0, 8, 11.5, 4, 0, 0, TAU); ctx.stroke();
-      // 主体：上红下白
-      ctx.fillStyle = '#f7fbff';
-      ctx.beginPath(); ctx.ellipse(0, 0, 6, 9, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#ff5f6d';
-      ctx.beginPath(); ctx.ellipse(0, -3, 6, 5, 0, 0, TAU); ctx.fill();
-      // 高光
-      ctx.fillStyle = 'rgba(255, 255, 255, .9)';
-      ctx.beginPath(); ctx.ellipse(-2.2, -1.2, 1.5, 2.6, -0.3, 0, TAU); ctx.fill();
-      // 顶杆 + 顶珠
-      ctx.strokeStyle = '#8a3a44';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -16); ctx.stroke();
-      ctx.fillStyle = '#ffd166';
-      ctx.beginPath(); ctx.arc(0, -16, 1.7, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0, 6, 10.5, 3.4, 0, 0, TAU); ctx.stroke();
+
+      // 第二百三十五轮：换成用户提供的鱼漂插画（细长竖版）
+      if (this._ready(this.imgBobber)) {
+        const bh = 42;
+        const bw = bh * (this.imgBobber.naturalWidth / this.imgBobber.naturalHeight);
+        // 水面在红白交界处；等待时轻微摆动，咬钩时被拽歪
+        const sway = this.state === 'idle' || this.state === 'wait'
+          ? Math.sin(t * 2.1) * 0.05 : 0;
+        const tilt = this.state === 'bite' ? 0.16 : sway;
+        ctx.save();
+        ctx.translate(0, 2);
+        ctx.rotate(tilt);
+        ctx.drawImage(this.imgBobber, -bw / 2, -bh * BOBBER_SPLIT, bw, bh);
+        // 水面以下那半截蒙一层水色，做出"浸在水里"的层次
+        const underTop = 0;
+        const underH = bh * (1 - BOBBER_SPLIT);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-bw / 2, underTop, bw, underH);
+        ctx.clip();
+        ctx.fillStyle = 'rgba(38, 108, 152, .34)';
+        ctx.fillRect(-bw / 2, underTop, bw, underH);
+        ctx.restore();
+        ctx.restore();
+      } else {
+        // 降级：旧几何鱼漂
+        ctx.fillStyle = '#f7fbff';
+        ctx.beginPath(); ctx.ellipse(0, 0, 6, 9, 0, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#ff5f6d';
+        ctx.beginPath(); ctx.ellipse(0, -3, 6, 5, 0, 0, TAU); ctx.fill();
+        ctx.strokeStyle = '#8a3a44';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -16); ctx.stroke();
+      }
       ctx.restore();
     }
 
@@ -1174,6 +1207,28 @@ export class FishingGame {
       ctx.fillText('!', bx, cy + 1);
       ctx.restore();
     }
+  }
+
+  /** 鱼被提出水面时，从水面拉起的一道水花柱（画在鱼后面）。 */
+  _drawLiftSplash(x, y) {
+    const waterY = 112;
+    const h = waterY - y;
+    if (h <= 6) return;
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0, waterY, 0, y);
+    g.addColorStop(0, 'rgba(238, 255, 255, .9)');
+    g.addColorStop(0.55, 'rgba(210, 246, 255, .44)');
+    g.addColorStop(1, 'rgba(206, 244, 255, 0)');
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x - 16, waterY);
+    ctx.quadraticCurveTo(x - 7, (waterY + y) / 2, x - 3.5, y + 5);
+    ctx.lineTo(x + 3.5, y + 5);
+    ctx.quadraticCurveTo(x + 7, (waterY + y) / 2, x + 16, waterY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   /** 收线/上鱼时的黑色鱼影：不暴露鱼种、大小和颜色。 */
@@ -1214,6 +1269,15 @@ export class FishingGame {
     const flash = clamp(this.qteFlash || 0, 0, 1);
     ctx.save();
     ctx.translate(x, y);
+
+    // 淡暗底：浅色水面上白色同心圆容易糊，垫一层再画
+    const bg = ctx.createRadialGradient(0, 0, 8, 0, 0, 52);
+    bg.addColorStop(0, 'rgba(8, 26, 42, .26)');
+    bg.addColorStop(1, 'rgba(8, 26, 42, 0)');
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.arc(0, 0, 52, 0, TAU);
+    ctx.fill();
 
     // 外圈：收线进度（绿色，从 12 点顺时针）
     const progR = 47;
