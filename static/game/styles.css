@@ -2255,13 +2255,20 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .gacha-card.ur::after {
   content: '';
   position: absolute;
-  inset: -14px;
+  inset: -18px;
   z-index: -1;
-  border-radius: 20px;
-  background: conic-gradient(from 0deg, #ff5f6d, #ffd93d, #7bffb2, #5fd3ff, #b06bff, #ff5f6d);
-  filter: blur(11px);
-  opacity: .62;
-  animation: gachaRainbowSpin 2.6s linear infinite;
+  /* 240轮：原来用 conic-gradient 做彩光，几个硬色标转起来有明显的
+     方块/扇形边；改成多团柔和径向光叠在一起，圆角容器 + 大模糊。 */
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 26% 24%, rgba(255, 95, 109, .85), transparent 58%),
+    radial-gradient(circle at 74% 28%, rgba(255, 217, 61, .85), transparent 58%),
+    radial-gradient(circle at 78% 76%, rgba(123, 255, 178, .8), transparent 58%),
+    radial-gradient(circle at 22% 78%, rgba(95, 211, 255, .8), transparent 58%),
+    radial-gradient(circle at 50% 52%, rgba(176, 107, 255, .85), transparent 62%);
+  filter: blur(24px) saturate(1.25);
+  opacity: .7;
+  animation: gachaAurora 3.4s ease-in-out infinite alternate;
 }
 @keyframes gachaCardIn {
   0% { opacity: 0; transform: translateY(70px) scale(.55) rotate(-26deg); }
@@ -2270,6 +2277,12 @@ input[type="range"].fx-slider::-moz-range-thumb {
 }
 @keyframes gachaGlow { from { opacity: .55; } to { opacity: 1; } }
 @keyframes gachaRainbowSpin { to { transform: rotate(360deg); } }
+/* 240轮：柔光呼吸，取代方块感明显的 conic 旋转 */
+@keyframes gachaAurora {
+  0%   { transform: scale(.96) rotate(-6deg); opacity: .58; }
+  50%  { transform: scale(1.04) rotate(4deg); opacity: .82; }
+  100% { transform: scale(1.02) rotate(8deg); opacity: .68; }
+}
 
 /* SSR / UR 的光爆（卡片后面 + 全屏闪一下） */
 .gacha-burst {
@@ -2290,10 +2303,15 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .gacha-burst.ur::after {
   content: '';
   position: absolute;
-  inset: 6%;
-  background: conic-gradient(from 0deg, transparent, rgba(255, 90, 140, .28), transparent 22%, rgba(255, 220, 80, .3), transparent 48%, rgba(90, 220, 255, .28), transparent 72%, rgba(190, 120, 255, .28), transparent);
-  filter: blur(18px);
-  animation: gachaRainbowSpin 4.2s linear infinite;
+  inset: 8%;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 30% 30%, rgba(255, 90, 140, .34), transparent 55%),
+    radial-gradient(ellipse at 72% 34%, rgba(255, 220, 80, .34), transparent 55%),
+    radial-gradient(ellipse at 70% 72%, rgba(90, 220, 255, .32), transparent 55%),
+    radial-gradient(ellipse at 28% 70%, rgba(190, 120, 255, .32), transparent 55%);
+  filter: blur(34px) saturate(1.2);
+  animation: gachaAurora 5.2s ease-in-out infinite alternate;
 }
 @keyframes gachaBurst {
   0% { opacity: 0; transform: scale(.35); }

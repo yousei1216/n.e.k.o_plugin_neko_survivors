@@ -531,7 +531,8 @@ export class Game {
     }
     this._saveMeta();
 
-    audio.play('levelUp');
+    // 第二百四十轮：十连成功改用自制"抽卡.ogg"（原来借用升级音）
+    audio.play('gacha');
     this.ui.showGachaPull({
       cards,
       pointsGained: gained,
@@ -969,6 +970,18 @@ export class Game {
     if (this.running) return;
     this.running = true;
     this._lastTime = performance.now();
+    // 第二百四十轮：全局按钮音（自制"点击.ogg"）。
+    // 排除"开始新游戏"：标题页 [data-act=start] 与选人页确认 [data-act=go]
+    // 仍走原来的 start00 专属音效，不被通用点击音覆盖。
+    document.addEventListener('click', (ev) => {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const btn = t.closest('button, [data-act], [data-diff], [data-buy], [data-lock], [data-combine], [data-up], [data-boon], [data-take-reward], [data-mg-begin], [data-mg-again], [data-mg-close]');
+      if (!btn) return;
+      const act = btn.dataset?.act;
+      if (act === 'start' || (act === 'go' && this.state === STATE.CHAR_SELECT)) return;
+      audio.play('click');
+    }, true);
     this.showTitle();
     this._loop(this._lastTime);
     // 第一百四十轮：?vergil=1 直达刀光实验室
@@ -3635,7 +3648,7 @@ export class Game {
       },
       onNext: () => {
         const next = this.waveIndex + 1;
-        audio.play('click');
+        // 按钮音由全局委托统一播（click.ogg），这里不再单独播合成 click
         this.ui.clearOverlay();
         // 第九十四轮：state 必须先于 _beginWave 切走 —— _beginWave 末尾
         // 拍波次快照，state 还挂在 SHOP 上会把 phase:'shop' 写进快照

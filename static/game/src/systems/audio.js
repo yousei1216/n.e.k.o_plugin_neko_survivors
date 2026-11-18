@@ -82,6 +82,9 @@ export const SE_LIB = {
   // 第一百八十一轮：天彗龙事件音（自家素材 70% 档；耳鸣特意给到 0.5
   // 让它在 BGM 前先"刺穿"耳朵 —— 用户实测"没听到耳鸣音效播放"）。
   comet_tinnitus: 0.5, comet_roar: 0.7, comet_takeoff: 0.7,
+  // 第二百四十轮：用户新素材（E:\猫娘姐妹\音效 → assets/sfx/click.ogg / gacha.ogg）。
+  // click = 除"开始新游戏"外的通用按钮音；gacha = 扭蛋机十连成功音。
+  click: 0.7, gacha: 0.7,
 };
 
 /**
@@ -978,7 +981,17 @@ export class AudioSystem {
 
       // ---- UI / 流程 ----
       case 'click':
+        // 第二百四十轮：用户自制"点击.ogg"（开始新游戏仍走 gameStart/start00）
+        if (this._playSeFile('click')) break;
         this._tone({ type: 'square', freq: 620, freqEnd: 820, dur: 0.04, gain: 0.05 });
+        break;
+
+      case 'gacha':
+        // 第二百四十轮：扭蛋机十连成功播"抽卡.ogg"（失败仍走 error）
+        if (this._playSeFile('gacha')) break;
+        for (let i = 0; i < 3; i++) {
+          this._tone({ type: 'triangle', freq: noteFreq('C', 6) * Math.pow(2, i / 3), dur: 0.18, gain: 0.08, delay: i * 0.08 });
+        }
         break;
 
       case 'buy':
