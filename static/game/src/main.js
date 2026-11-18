@@ -1527,6 +1527,12 @@ export class Game {
   };
 
   _update(dt) {
+    // 第二百四十一轮修复：音效的"同帧已响过"表原来只在各战斗状态里清零，
+    // 标题/选人/结算/商店等界面不进那些分支 → click 第一次点击就被永久
+    // 记进 _seFrame，之后每次点击都按"本帧已响过"吞掉（用户："点击音效
+    // 只生效了一次"）。统一放到每帧总入口，所有状态都清。
+    audio.beginFrame();
+
     // 第一百六十四轮：NekoAgent 事件钩子（hp<30% / lv≥10 → 全局事件，
     // 宿主插件监听 'neko-agent-event' 触发 TTS 等）。_tick 内部全吞错。
     window.NekoAgent?._tick?.(this);
@@ -1630,10 +1636,7 @@ export class Game {
     this.world.spawnPaused = !!cometFreeze;
     this.world.enemyFrozen = !!cometFreeze;
 
-    // 补充本帧的武器音配额（第十轮）。
-    // 必须在 p.update() **之前** —— 武器是在玩家更新里开火的，
-    // 配额要在这之前就位，否则本帧的武器音全被挡掉。
-    audio.beginFrame();
+    // 武器音配额已在 _update() 帧首统一补充（241轮），此处不再重复清零。
 
     // ---- 第一百四十一轮：阎魔刀 · 次元斩 ----
     // 生命低于 50% 时自动释放，每回合限一次；时间变慢只作用于怪物
@@ -2585,7 +2588,6 @@ export class Game {
     }
     // 大招全场慢动作：世界与玩家都吃 timeScale（用户硬性要求）
     const dt = dtReal * fight.timeScale;
-    audio.beginFrame();
     // 第一百四十二轮：HUD 刷新（含顶部 90 秒倒计时）—— 此前 VERGIL 分支
     // 不调 updateHud，计时器冻结在进战前的 30（用户反馈 1）
     this.ui.updateHud(this);
@@ -2848,7 +2850,6 @@ export class Game {
     const p = this.player;
     if (!fight || !p) return;
     if (this.input.pressed('Escape')) { this._pause(); return; }
-    audio.beginFrame();
     this.ui.updateHud(this);
     this.weather.update(dtReal, this.world, p);
     p.update(dtReal, this.input, this.camera, this.world);
@@ -3117,10 +3118,8 @@ export class Game {
     try {
       if (this.input.pressed('Escape')) { this._pause(); return; }
       const rf = this.remilia;
-      // 207 轮（用户："蕾米芙兰战音效只有开头的一颗弹幕有音效"）：
-      // 芙兰战每帧都调 audio.beginFrame()，它会清掉"同帧去重"表（_seFrame）。
-      // 不调的话 tan00 这颗弹幕音一辈子只会响一次 —— 这就是"只有开头有音效"的原因。
-      audio.beginFrame();
+      // 207 轮那个"弹幕只有开头响一次"的问题，根因就是 _seFrame 没清；
+      // 241 轮起已经在 _update() 帧首统一 beginFrame()，所有状态都覆盖。
       // 204 轮（用户："小小猫娘消弹技能可使用"）：与芙兰战同键位（Space / P2 小键盘 .）。
       if (this.input.pressed('Space')) rf?.tryManualPurge?.();
       if (this.input.p2SkillClear()) rf?.tryManualPurge?.();
@@ -3311,7 +3310,6 @@ export class Game {
     // 短路并强制散掉已有天气
     this.weather.update(dt, this.world, p);
     // 玩家照常更新（移动/开火——武器自动索敌到芙兰本尊）
-    audio.beginFrame();
     p.update(dt, this.input, this.camera, this.world);
     // ---- 第一百七十一轮：P2 也参战（芙兰战）
     // ---- 第一百八十四轮（1~4P）：P3/P4 同样参战
