@@ -31,7 +31,10 @@ import {
   fishingShopHtml, farmShopHtml, fishBagHtml, cropBagHtml,
   bindLifePanels, bindLifeShop,
 } from './life-ui.js';
-import { COINS_PER_TICKET, FIGURE_POINTS_COST, getFigure } from '../data/life.js';
+import { COINS_PER_TICKET, getFigure } from '../data/life.js';
+// 第二百四十轮修复：兑换价定义在 life-state.js（和 buyFigureWithPoints 同处），
+// 原来误从 life.js 导入，导致 UI 模块实例化时直接 SyntaxError、整个游戏起不来。
+import { FIGURE_POINTS_COST } from '../systems/life-state.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。

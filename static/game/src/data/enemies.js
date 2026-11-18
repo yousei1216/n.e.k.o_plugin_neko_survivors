@@ -639,9 +639,11 @@ export const ENEMIES = [
   // =========================================================
   {
     id: 'flandre', name: '芙兰朵露·斯卡蕾特',
-    // 第八十六轮：总血量 50万 → 80万（用户："把芙兰的总血量改到80万"；
-    // 配套每卡 20% 锁血分段见 flandre.js CARD_HP_FRAC）
-    hp: 800000, speed: 120, damage: 12, radius: 48,
+    // 第八十六轮：总血量 50万 → 80万；第二百三十九轮按用户要求 → 100 万。
+    // 这里必须和 flandre.js 的 FLANDRE_MAX_HP 保持一致：单人局 FlandreFight
+    // 不覆盖实例血量，Enemy 直接读这里的 def.hp，之前漏改导致"面板按 100 万
+    // 分段、实体只有 80 万血"的不一致。配套每卡 20% 见 CARD_HP_FRAC。
+    hp: 1000000, speed: 120, damage: 12, radius: 48,
     color: '#ff4060', shape: 'circle', behavior: 'boss', armor: 0,
     xp: 0, materials: 0,
     boss: true, bossName: '芙兰朵露·斯卡蕾特',

@@ -3720,7 +3720,7 @@ input[type="range"].fx-slider::-moz-range-thumb {
 .title-scene.side-hidden .title-fishing,
 .title-scene.side-hidden .title-figures,
 .title-scene.side-hidden .life-hub-btn {
-  display: none !important;
+  display: none;
 }
 #overlay .btn[data-act="toggle-side"] {
   border-color: rgba(150, 120, 210, .55);
@@ -3897,7 +3897,7 @@ input[type="range"].fx-slider::-moz-range-thumb {
 /* =========================================================
    第二百三十九轮
    ========================================================= */
-/* 1) 抽卡结果里的「UR 附赠手办」：色块单字 → 手办立绘 */
+/* 1. 抽卡结果里的「UR 附赠手办」：色块单字 → 手办立绘 */
 #overlay .gacha-figure-avatar {
   width: 56px;
   height: 72px;
@@ -3922,7 +3922,7 @@ input[type="range"].fx-slider::-moz-range-thumb {
 }
 #overlay .gacha-figure { min-width: 64px; }
 
-/* 10) 选角色页：组队入口文案 */
+/* 10. 选角色页：组队入口文案 */
 .party-label {
   display: inline-flex;
   align-items: center;
