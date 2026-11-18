@@ -584,6 +584,10 @@ export class FishingGame {
     if (this.state === 'reel') {
       const pos = this._reelFishPos(t);
       this._drawReelQte(pos.x, pos.y, t);
+      // 挣扎鱼画在 QTE 之上：QTE 有暗底和半透明扇区，画在下面会被糊掉
+      const pull = clamp(this.progress, 0, 1);
+      const sizeK = 1 + this.qteRarity * 0.1;
+      if (pull > 0.08) this._drawStrugglingFish(pos.x, pos.y + 4, t, (0.8 + pull * 0.35) * sizeK);
     }
     this._drawEffects();
     this._drawMessage();
@@ -666,10 +670,10 @@ export class FishingGame {
     const { angle, anchorX, anchorY } = this._rodPose(t);
     const tip = this._rodTip(anchorX, anchorY, angle);
     const pull = clamp(this.progress, 0, 1);
-    // 第二百三十五轮：收线终点不再是竿尖（那样像鱼飞到竿上），
-    // 而是竿尖正下方、贴近水面的位置 —— 鱼是被拖到岸边，不是被吊到半空。
-    const targetX = tip.x - 14;
-    const targetY = Math.min(H - 36, tip.y + 58);
+    // 第二百三十六轮：收线全程鱼都"贴在水面上"，只靠 x 往岸边挪，几乎不升高。
+    // 之前终点在竿尖下方 58px（y≈100），视觉上仍像被吊起来。
+    const targetX = tip.x - 60;
+    const targetY = 106;
     return {
       x: this.bobberX + (targetX - this.bobberX) * pull,
       y: 112 + (targetY - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7),
@@ -1117,16 +1121,15 @@ export class FishingGame {
       bx = this.bobberX + (toX - this.bobberX) * pull;
       by = 112 + (toY - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7);
       showBobber = false;
-      const sizeK = 1 + this.qteRarity * 0.1;
-      if (pull > 0.08) this._drawStrugglingFish(bx, by + 4, t, (0.8 + pull * 0.35) * sizeK);
+      // 鱼影改到 _draw() 里 QTE 之后画，避免被 QTE 暗底/扇区盖住
     } else if (this.state === 'landing') {
       // 最后只把鱼提到竿尖附近，线始终以竿尖为终点。
       const p = 1 - clamp(this.landT / 0.75, 0, 1);
       const e = 1 - (1 - p) * (1 - p);
-      const from = this.landFrom || { x: tip.x - 14, y: 100 };
-      // 只提到竿尖下方一点，不飞到竿上
-      const toX = tip.x - 14;
-      const toY = tip.y + 64;
+      const from = this.landFrom || { x: tip.x - 60, y: 106 };
+      // 跃出水面：落点比收线终点高，全程单调上升，不会出现"先上去再掉下来"
+      const toX = tip.x - 66;
+      const toY = 82;
       bx = from.x + (toX - from.x) * e;
       by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 10;
       showBobber = false;
@@ -1358,12 +1361,49 @@ export class FishingGame {
     ctx.fill();
     ctx.restore();
 
-    // 绿色弧：玩家要往反方向拖
-    ctx.strokeStyle = 'rgba(126, 255, 180, .85)';
-    ctx.lineWidth = 4;
+    // 第二百三十六轮：「正确拖动方向」原来是 4px 细绿线，在浅水面上不够醒目。
+    // 改成扇形高亮区 + 粗弧光晕 + 径向箭头，一眼就能看出该往哪拖。
+    const baseA = this.qteDir + Math.PI;
+    const halfA = 0.52;
+    const gBreath = 0.75 + Math.sin(t * 5.2) * 0.25;
+
+    // 扇形填充：像一块"把鼠标拖到这里"的区域
+    const sectorGrad = ctx.createRadialGradient(0, 0, 16, 0, 0, 48);
+    sectorGrad.addColorStop(0, `rgba(126, 255, 180, ${0.03 + gBreath * 0.06})`);
+    sectorGrad.addColorStop(0.66, `rgba(126, 255, 180, ${0.13 + gBreath * 0.17})`);
+    sectorGrad.addColorStop(1, 'rgba(126, 255, 180, 0)');
+    ctx.fillStyle = sectorGrad;
     ctx.beginPath();
-    ctx.arc(0, 0, 34, this.qteDir + Math.PI - 0.5, this.qteDir + Math.PI + 0.5);
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, 48, baseA - halfA, baseA + halfA);
+    ctx.closePath();
+    ctx.fill();
+
+    // 外缘：宽光晕 + 亮绿主弧（呼吸）
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(126, 255, 180, ${0.1 + gBreath * 0.17})`;
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.arc(0, 0, 40, baseA - halfA, baseA + halfA);
     ctx.stroke();
+    ctx.strokeStyle = `rgba(140, 255, 195, ${0.7 + gBreath * 0.3})`;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(0, 0, 40, baseA - halfA, baseA + halfA);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    // 径向箭头：明确"往这个方向拖"
+    ctx.save();
+    ctx.rotate(baseA);
+    ctx.fillStyle = `rgba(170, 255, 210, ${0.75 + gBreath * 0.25})`;
+    ctx.beginPath();
+    ctx.moveTo(57, 0);
+    ctx.lineTo(42, -8.5);
+    ctx.lineTo(42, 8.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
 
     // 当前鼠标拉扯方向
     const dx = this.pointer.x - x;
