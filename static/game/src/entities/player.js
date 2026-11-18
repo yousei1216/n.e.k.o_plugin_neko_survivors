@@ -67,17 +67,16 @@ export class Player extends Entity {
     // radius 保持 16：身体接触伤害/拾取磁铁/移动边界都还用它，
     // 只有**弹幕命中**（bullet.js）走 hitR。
     //
-    // 第二百零五轮：再缩 10%（0.8 → 0.72），并把判定圆心抬到"脸"上 ——
-    // 用户："你看一下我们的角色的判定点，缩小10%然后移动到角色的'脸部'，有些角色有双马尾，
-    //        导致判定点有些浮空。"
-    // 立绘锚点在脚底（renderer._drawPlayer 把脚底画在 y + r*0.85），所以判定要往上抬；
-    // 双马尾角色视觉重心更高，判定落在脸/上半身才不像飘在头发里。
+    // 第二百零五轮：弹幕判定圈缩到 0.72×radius；判定圆心走"脸"而不是脚底/头顶。
+    // 立绘锚点在脚底（renderer._drawPlayer 画在 y + r*0.85），全身高 4.2×radius，
+    // 脸的肤色区大致在全图 55%~82%（逐角色见 characters.js 的 hitOY 实测注释）。
+    // 第二百四十轮修正：上一版 hitOY 取到了 -25~-41，实际落在头发/猫耳上；
+    // 现在按八张立绘目视量到 -16.6~+1.5，判定圈正好盖住下巴/两颊。
     // hitOY 是判定圆心相对 p.y 的竖直偏移，凡是用玩家坐标判弹的地方都要带上它
     //（bullet.js 的弹幕、renderer 的判定点、neko-pilot 的躲避、万圣节战的激光）。
     this.hitR = this.radius * 0.72;
-    // 第二百三十九轮：判定圆心按角色立绘的脸部位置走（characters.js 的 hitOY），
-    // 只给兜底：没配的角色仍用 -1.35×radius。
-    this.hitOY = Number.isFinite(char?.hitOY) ? char.hitOY : -this.radius * 1.35;
+    // 没配的角色用"脸部高度"兜底（约 -0.25×radius），不再回到头顶的 -1.35×radius。
+    this.hitOY = Number.isFinite(char?.hitOY) ? char.hitOY : -this.radius * 0.25;
     // 缩骨功的基准值：hitR 会被金色奖励按 0.8^层数 缩小，读档时从基准重算。
     this._hitRBase = this.hitR;
 

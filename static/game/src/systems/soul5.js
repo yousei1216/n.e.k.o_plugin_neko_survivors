@@ -11,7 +11,7 @@
 //       偶尔切回小镰刀/直剑，但更快
 //   特殊：血量低于50%可能逃跑翻滚、切宠爱戒指（头顶闪烁 2~3 次/秒，一次回0.5%，持续3~5秒）
 //   翻滚：前半段无敌，角色图旋转一圈；击倒玩家会绕2圈下指嘲讽并丢屎块；被救起则中断嘲讽后跳
-//   伤害 5% 真伤 + 2 额外真伤；屎块毒 2% 真伤（至少1点）持续5秒；全程禁用玩家自身回血
+//   伤害 5% 真伤 + 4 额外真伤（240轮 2→3→4）；屎块毒 2% 真伤（至少1点）持续5秒；全程禁用玩家自身回血
 //
 // 骨架照抄维吉尔战：主循环 STATE.SOUL5 分支 + world.update 照推（noSpawn 停刷怪），
 // Boss 是 enemies 数组里的隐身实体（玩家武器正常索敌输出），演出层自绘。
@@ -23,7 +23,7 @@ import { audio } from './audio.js';
 // ---- 数值 ----
 export const SOUL5_MAX_HP = 88000;       // 比大排档椅子（66666）更厚
 export const HIT_FRAC = 0.05;            // 每击 5% 玩家最大生命真伤
-export const HIT_FLAT = 2;               // 额外 2 点真伤
+export const HIT_FLAT = 4;               // 额外 4 点真伤（240轮 2→3→4）
 export const HIT_CD = 0.2;               // 受击内置 CD
 export const POISON_FRAC = 0.02;         // 中毒每跳 2% 最大生命（至少 1 点）
 export const POISON_TIME = 5;            // 中毒持续 5 秒
@@ -338,7 +338,7 @@ export class Soul5Fight {
     return null;
   }
 
-  /** 单次命中：5% 最大生命 + 2 点固定真伤，无视无敌帧（与维吉尔同口径） */
+  /** 单次命中：5% 最大生命 + 4 点固定真伤，无视无敌帧（与维吉尔同口径） */
   _hitPlayer(p, mul = 1) {
     if (this.hitCd > 0 || !p || p.dead || p.downed) return false;
     p.takeDamage(0, this.bx, this.by, {
@@ -481,9 +481,11 @@ export class Soul5Fight {
     // 第二百一十二轮：直剑 5 连斩 5.4s / 法兰大风车 4s / 连发弩 3 组三连射 2s（对齐音效）
     this.act = {
       id, t: 0, spd,
+      // 第二百四十轮：灵魂结晶块 / 阳光之枪的"硬直"（出手后到收招）1.2 → 0.8 秒，
+      // 配合下面更短的收招 CD，让他出手更快；火焰/大剑/弩维持原节奏。
       dur: id === 'poke' ? 0.9 / spd : id === 'dung' ? 1.0 / spd
         : id === 'flame5' ? 5.7 : id === 'orbit' ? 4.6
-        : id === 'crystals' ? 1.2 : id === 'crossbow' ? 2.0 : 1.2,
+        : id === 'crystals' ? 0.8 : id === 'crossbow' ? 2.0 : id === 'sunlight' ? 0.8 : 1.2,
       fired: 0, hit: 0,
       plant: null, orbit: null, phaseT: 0,
     };
@@ -634,7 +636,9 @@ export class Soul5Fight {
       this.stateT = 0;
       this.act = null;
       this.orbit = null;
-      this.attackCd = (this.phase === 3 ? 0.22 : 0.45) / this.spdMul;
+      // 结晶块 / 阳光之枪收招 CD 0.45 → 0.15（240轮"减少硬直、出手更快"）
+      this.attackCd = (a.id === 'crystals' || a.id === 'sunlight'
+        ? 0.15 : (this.phase === 3 ? 0.22 : 0.45)) / this.spdMul;
     }
   }
 

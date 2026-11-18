@@ -94,11 +94,11 @@ export class VergilFight {
       main.world.rng ?? main.rng);
     this.boss.speed = 0;
     // 第二百零三轮：多人血量加成 —— 用户："新流派加入之后特殊boss更脆皮了，让她们也享受多人玩家血量加成吧。就是大排档椅子维吉尔和芙兰的血量享受人数加成。"
-    // 口径同普通 Boss（world.spawnEnemy）：每多一个玩家 +45%（2P ×1.45，4P ×2.35）。阶段门槛 / 符卡分段全部按实例 hpMax 算。
+    // 口径同普通 Boss（world.spawnEnemy）：每多一个玩家 +50%（2P ×1.5，4P ×2.5）；240 轮从 45% 上调。阶段门槛 / 符卡分段全部按实例 hpMax 算。
     this.hpMax = VERGIL_MAX_HP;
     {
       const k = (main.world.players?.().length ?? 1) - 1;
-      if (k > 0) { this.hpMax = Math.round(VERGIL_MAX_HP * (1 + 0.45 * k)); this.boss.maxHp = this.hpMax; this.boss.hp = this.hpMax; }
+      if (k > 0) { this.hpMax = Math.round(VERGIL_MAX_HP * (1 + 0.5 * k)); this.boss.maxHp = this.hpMax; this.boss.hp = this.hpMax; }
     }
     this.boss.flandreHidden = true;              // 渲染层隐身（演出层自绘椅子）
     // 焊死普通 Boss 的阶段推进机器 + 清掉登场无敌（同芙兰，见 flandre.js）——

@@ -18,9 +18,11 @@ export const CHARACTERS = [
     accent: '#ffd6e6',
     shape: 'cat',
     glyph: '悠',
-    // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_yui.png 实测，
-    // 脸部在世界坐标 p.y-31.6 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -31.6,
+    // 第二百四十轮修正：上一版把判定圆心放到了头发/耳朵上（"判定点在头顶"），
+    // 这次按八张立绘逐张目视量脸：立绘绘制高 4.2×radius=67.2px、脚底在 p.y+13.6，
+    // 悠怡的脸（肤色区，不含头发）中心在全图 74% 处 → p.y-3.9。
+    // 判定圈半径 hitR=0.72×radius≈11.5px，正好盖住下巴/两颊而不是头顶。
+    hitOY: -3.9,
     desc: '猫娘计划的主角。各项能力均衡，没有明显短板，适合任何流派。',
     // 基础值覆盖
     stats: {},
@@ -40,7 +42,7 @@ export const CHARACTERS = [
     glyph: '八',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_mimi.png 实测，
     // 脸部在世界坐标 p.y-33.3 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -33.3,
+    hitOY: -6.6,
     desc: '好战的小猫。伤害更高，但体质偏弱。适合近战莽夫打法。',
     stats: {},
     mods: { maxHp: -4 },
@@ -64,7 +66,7 @@ export const CHARACTERS = [
     glyph: 'N',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_luna.png 实测，
     // 脸部在世界坐标 p.y-33.9 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -33.9,
+    hitOY: -2.5,
     desc: '沉迷魔法的猫娘。元素伤害突出，射程更远，但身板很脆。',
     stats: {},
     mods: { maxHp: -6, pickupRange: 15 },
@@ -87,7 +89,7 @@ export const CHARACTERS = [
     glyph: '开',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_shiro.png 实测，
     // 脸部在世界坐标 p.y-25.5 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -25.5,
+    hitOY: 1.5,
     desc: '毛茸茸的护盾猫。血量厚、护甲高，但走得慢、伤害低。',
     stats: {},
     // 第二十四轮：基础生命回复 0.4 → 0.8（用户："再给他一点点小buff"）
@@ -106,7 +108,7 @@ export const CHARACTERS = [
     glyph: '萌',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_nana.png 实测，
     // 脸部在世界坐标 p.y-31.2 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -31.2,
+    hitOY: -2.5,
     desc: '被幸运女神眷顾的猫。掉落和商店品质极佳，收获更多材料。',
     stats: {},
     mods: { harvesting: 4, pickupRange: 30 },
@@ -129,7 +131,7 @@ export const CHARACTERS = [
     glyph: '库',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_kuro.png 实测，
     // 脸部在世界坐标 p.y-40.9 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -40.9,
+    hitOY: -16.6,
     desc: '影子里潜行的黑猫。暴击极高、攻速快，但血量很低。',
     stats: {},
     mods: { maxHp: -8 },
@@ -173,7 +175,7 @@ export const CHARACTERS = [
     glyph: '洛',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_youyi.png 实测，
     // 脸部在世界坐标 p.y-31.6 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -31.6,
+    hitOY: -3.9,
     desc: '温柔内向的猫娘妹妹。治疗与回复能力出众，护盾厚实，但输出偏低。',
     stats: {},
     // 生存向：血厚、回复快、拾取范围大（配合"照顾人"的人设）
@@ -216,7 +218,7 @@ export const CHARACTERS = [
     glyph: '宴',
     // 第二百三十九轮：弹幕判定圆心对齐立绘脸部（按 char_neon_party.png 实测，
     // 脸部在世界坐标 p.y-28.9 处）；默认 -radius*1.35 会落在胸口甚至头顶。
-    hitOY: -28.9,
+    hitOY: 1.5,
     desc: '把战场变成宴会厅的猫娘。炮台伤害、攻速、数量全面强化，但自己又脆又慢。',
     stats: {},
     // 炮台是"替身输出"，所以本体让出生存：血少、走得慢。

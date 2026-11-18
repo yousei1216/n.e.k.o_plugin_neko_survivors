@@ -290,7 +290,9 @@ export class CometDisaster {
     try {
       const el = new Ctor('assets/sfx/comet_bgm.ogg');
       el.loop = true;
-      el.volume = 0.6;   // 第一百八十一轮：降到 0.6 —— 耳鸣要先"刺穿"耳朵
+      // 音量沿革：181 轮从原值降到 0.6；240 轮一度按用户要求抬到 0.85，
+      // 试听后仍偏大，最终定 0.5（比历史最低 0.6 再低一档）。
+      el.volume = 0.5;
       this._bgm = el;
     } catch { this._bgm = null; }
     return this._bgm;

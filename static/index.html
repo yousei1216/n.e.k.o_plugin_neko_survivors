@@ -95,7 +95,9 @@
     <div class="foot">游戏完全本地运行 · 进度保存在浏览器里</div>
   </div>
   <div id="frame-wrap">
-    <iframe id="game-frame" src="game/index.html" title="猫娘姐妹：幸存者"
+    <!-- 第二百四十轮：初始不写 src —— 隐藏的 iframe 仍会加载游戏并播放标题 BGM。
+         用户："这个没进游戏的界面不播放bgm，点击开始游戏进入之后再播放启动的bgm。" -->
+    <iframe id="game-frame" title="猫娘姐妹：幸存者"
             allow="autoplay; fullscreen" allowfullscreen></iframe>
   </div>
   <script>

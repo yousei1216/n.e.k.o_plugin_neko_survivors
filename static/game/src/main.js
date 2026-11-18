@@ -734,6 +734,10 @@ export class Game {
    * 与 UR 附赠共用 grantFigure（重复升级、满级折金币）。
    */
   _buyFigureWithPoints() {
+    // 第二百四十轮修复：gachaRng 原先只在 _rollGachaTen() 里懒初始化，
+    // 玩家没抽过卡直接点"500 点 → 随机手办"时它是 undefined，
+    // grantFigure 里 rng.pick() 直接抛错、按钮看起来"没反应"。
+    this.gachaRng ??= new RNG(randomSeed());
     const r = Life.buyFigureWithPoints(this.meta, this.gachaRng);
     if (!r.ok) {
       audio.play('error');
@@ -747,6 +751,7 @@ export class Game {
       ? `${f.name} 已满级，折算 +${f.coins} 金币`
       : `${f.isNew ? '新获得手办' : '手办升级'}：${f.name} Lv.${f.level}/5`;
     this.ui?.toast?.(msg, 'good', 3200);
+    // 点数余额和手办数量都在标题页上，买完必须重绘（原来的这行就是干这个的）
     if (this.state !== 'playing') this.showTitle();
   }
 
