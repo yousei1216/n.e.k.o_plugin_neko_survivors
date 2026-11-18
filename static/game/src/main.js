@@ -730,6 +730,27 @@ export class Game {
   }
 
   /**
+   * 第二百三十九轮：能力点数 500 点换一个随机手办。
+   * 与 UR 附赠共用 grantFigure（重复升级、满级折金币）。
+   */
+  _buyFigureWithPoints() {
+    const r = Life.buyFigureWithPoints(this.meta, this.gachaRng);
+    if (!r.ok) {
+      audio.play('error');
+      this.ui?.toast?.(r.msg, 'bad', 3000);
+      return;
+    }
+    this._saveMeta();
+    audio.play('levelUp');
+    const f = r.figure;
+    const msg = f.duplicate
+      ? `${f.name} 已满级，折算 +${f.coins} 金币`
+      : `${f.isNew ? '新获得手办' : '手办升级'}：${f.name} Lv.${f.level}/5`;
+    this.ui?.toast?.(msg, 'good', 3200);
+    if (this.state !== 'playing') this.showTitle();
+  }
+
+  /**
    * 第二百三十三轮：主菜单一键隐藏/显示所有侧边面板（抽卡/捞金鱼/农场/
    * 手办柜/钓场/签到入口）。状态存 meta，永久记忆，重进游戏保持。
    */
@@ -1025,6 +1046,7 @@ export class Game {
       // 第二百三十三轮：主菜单"隐藏其他界面"（永久记忆）
       hideSidePanels: this.meta.hideSidePanels === true,
       onToggleSidePanels: () => this._toggleSidePanels(),
+      onBuyFigure: () => this._buyFigureWithPoints(),
       audioEnabled: audio.enabled,
     });
     // 自动签到放在标题页渲染之后：弹出签到卡覆盖在标题之上，
@@ -1392,9 +1414,11 @@ export class Game {
     // 这样仍然保持"同一波次永远给同一张图"的可复现性。
     if (this.renderer) {
       // 185 轮：Boss 波选图抽成 backgroundForBossWave（窗口放宽 + 确定性兜底，见 backgrounds.js）
+      // 第二百三十九轮：把本局种子传进去 —— 否则每局同一个波次都是同一张图
+      const runSeed = this.rng?.seed | 0;
       const bg = isBossWave
-        ? backgroundForBossWave(index, this._prevBackgroundId ?? null, BOSS_BANNED_BACKGROUNDS)
-        : backgroundForWave(index, this._prevBackgroundId ?? null);
+        ? backgroundForBossWave(index, this._prevBackgroundId ?? null, BOSS_BANNED_BACKGROUNDS, runSeed)
+        : backgroundForWave(index, this._prevBackgroundId ?? null, runSeed);
       if (bg) {
         this.renderer.backgroundId = bg;
         this._prevBackgroundId = bg;

@@ -51,8 +51,12 @@ const IMG_FILES = {
   farron_gs: 'assets/soul5/farron_gs.png',
   farron_ss: 'assets/soul5/farron_ss.png',
   crossbow: 'assets/soul5/crossbow.png',
-  crystal: 'assets/soul5/crystal.png',
-  sunlight: 'assets/soul5/sunlight.png',
+  crystal: 'assets/fx/soul_crystal.png',
+  sunlight: 'assets/fx/sunlight_spear_throw.png',
+  sunlight_burst: 'assets/fx/sunlight_spear_burst.png',
+  // 第二百三十九轮：环印骑士直剑的火焰弧（左小 = 前 4 刀，右大 = 第 5 刀）
+  ring_s: 'assets/fx/ring_slash_s.png',
+  ring_l: 'assets/fx/ring_slash_l.png',
   arena: 'assets/soul5/arena.png',
   backdrop: 'assets/soul5/backdrop.jpg',
 };
@@ -461,7 +465,8 @@ export class Soul5Fight {
     const pool = this.phase === 1
       ? ['poke', 'poke', 'poke', 'dung']
       : this.phase === 2
-        ? ['flame5', 'flame5', 'crystals', 'poke']
+        // 第二百三十九轮：用户要求"增加多用灵魂结晶块的频率" —— 1/4 → 1/2
+        ? ['flame5', 'crystals', 'crystals', 'poke']
         : ['orbit', 'flame5', 'crossbow', 'sunlight', 'poke', 'dung'];
     let id = pool[(rnd() * pool.length) | 0];
     if (id === this.lastAct && pool.length > 1 && rnd() < 0.5) id = pool[(rnd() * pool.length) | 0];
@@ -1078,22 +1083,28 @@ export class Soul5Fight {
       g.addColorStop(1, 'rgba(40,90,220,0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(0, 0, 42 * pulse, 0, TAU_); ctx.fill();
-      // 结晶本体：拉长的六棱
-      ctx.rotate(c.fired ? Math.atan2(c.vy, c.vx) + Math.PI / 2 : this.t * 1.4 + c.ang);
-      const cg = ctx.createLinearGradient(-12, -26, 12, 26);
-      cg.addColorStop(0, 'rgba(235,252,255,0.98)');
-      cg.addColorStop(0.45, 'rgba(110,205,255,0.95)');
-      cg.addColorStop(1, 'rgba(40,110,235,0.9)');
-      ctx.fillStyle = cg;
-      ctx.beginPath();
-      ctx.moveTo(0, -26); ctx.lineTo(10, -8); ctx.lineTo(7, 16); ctx.lineTo(0, 26);
-      ctx.lineTo(-7, 16); ctx.lineTo(-10, -8); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(190,240,255,0.95)'; ctx.lineWidth = 1.6; ctx.stroke();
-      // 内部棱面
-      ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(0, 20); ctx.moveTo(-8, -6); ctx.lineTo(0, 2); ctx.lineTo(8, -6); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(3.2, -2); ctx.lineTo(0, 12); ctx.lineTo(-3.2, -2); ctx.closePath(); ctx.fill();
+      // 第二百三十九轮：换成用户的蓝色结晶贴图 + 淡蓝辉光
+      const cImg = this.images.crystal;
+      const spin = c.fired ? Math.atan2(c.vy, c.vx) + Math.PI / 2 : this.t * 1.4 + c.ang;
+      ctx.rotate(spin);
+      if (cImg && cImg.complete && cImg.naturalWidth) {
+        const sz = 62 * (c.fired ? 1.12 : 1) * pulse;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = a * 0.42;
+        ctx.drawImage(cImg, -sz * 0.58, -sz * 0.58, sz * 1.16, sz * 1.16);
+        ctx.globalAlpha = a;
+        ctx.drawImage(cImg, -sz * 0.5, -sz * 0.5, sz, sz);
+        ctx.globalCompositeOperation = 'source-over';
+      } else {
+        const cg = ctx.createLinearGradient(-12, -26, 12, 26);
+        cg.addColorStop(0, 'rgba(235,252,255,0.98)');
+        cg.addColorStop(0.45, 'rgba(110,205,255,0.95)');
+        cg.addColorStop(1, 'rgba(40,110,235,0.9)');
+        ctx.fillStyle = cg;
+        ctx.beginPath();
+        ctx.moveTo(0, -26); ctx.lineTo(10, -8); ctx.lineTo(7, 16); ctx.lineTo(0, 26);
+        ctx.lineTo(-7, 16); ctx.lineTo(-10, -8); ctx.closePath(); ctx.fill();
+      }
       ctx.restore();
     }
     for (const b of this.bolts) {
@@ -1125,6 +1136,19 @@ export class Soul5Fight {
       ctx.rotate(s.ang);
       ctx.globalAlpha = a;
       ctx.globalCompositeOperation = 'lighter';
+      // 第二百三十九轮：换成用户的阳光之枪贴图（金色闪电枪）+ 淡金外发光
+      const spearImg = this.images.sunlight;
+      if (spearImg && spearImg.complete && spearImg.naturalWidth) {
+        const L = 236;
+        const Hh = L * (spearImg.naturalWidth / spearImg.naturalHeight);
+        ctx.globalAlpha = a * 0.42;
+        ctx.drawImage(spearImg, -L * 0.62, -Hh * 0.56, L * 1.1, Hh * 1.12);
+        ctx.globalAlpha = a;
+        ctx.drawImage(spearImg, -L * 0.58, -Hh * 0.5, L, Hh);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+        continue;
+      }
       // 拖尾光带
       const tg = ctx.createLinearGradient(-120, 0, 10, 0);
       tg.addColorStop(0, 'rgba(255,200,60,0)');
@@ -1247,15 +1271,33 @@ export class Soul5Fight {
       ctx.fillStyle = g2;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, -half, half); ctx.closePath(); ctx.fill();
 
-      // 刀光带
-      for (const [w, col] of [
-        [r * 0.34, 'rgba(255,60,8,0.2)'],
-        [r * 0.2, 'rgba(255,110,20,0.42)'],
-        [r * 0.09, 'rgba(255,175,60,0.68)'],
-        [r * 0.035, 'rgba(255,245,200,0.9)'],
-      ]) {
-        ctx.strokeStyle = col; ctx.lineWidth = w * (0.92 + 0.08 * Math.sin(this.t * 21));
-        ctx.beginPath(); ctx.arc(0, 0, r * 0.78, -half, half); ctx.stroke();
+      // 第二百三十九轮：刀光带换成用户提供的火焰弧贴图
+      //   前 4 刀用小弧、第 5 刀用大弧；先铺一层放大的橙红做外发光，再叠本体。
+      const ringImg = s.big ? this.images.ring_l : this.images.ring_s;
+      if (ringImg && ringImg.complete && ringImg.naturalWidth) {
+        const side = r * (s.big ? 1.9 : 1.35);
+        const gw = side, gh = side;
+        ctx.globalAlpha = 0.34 * fade;
+        ctx.drawImage(ringImg, -gw * 0.54, -gh * 0.54, gw * 1.12, gh * 1.12);
+        ctx.globalAlpha = 0.92 * fade;
+        ctx.drawImage(ringImg, -gw * 0.5, -gh * 0.5, gw, gh);
+        ctx.globalAlpha = 1;
+        // 红黄核心辉光（lighter 叠一层，让中心更"烧"）
+        const core = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r * 0.85);
+        core.addColorStop(0, `rgba(255,220,120,${0.3 * fade})`);
+        core.addColorStop(1, 'rgba(255,90,20,0)');
+        ctx.fillStyle = core;
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.85, 0, TAU_); ctx.fill();
+      } else {
+        for (const [w, col] of [
+          [r * 0.34, 'rgba(255,60,8,0.2)'],
+          [r * 0.2, 'rgba(255,110,20,0.42)'],
+          [r * 0.09, 'rgba(255,175,60,0.68)'],
+          [r * 0.035, 'rgba(255,245,200,0.9)'],
+        ]) {
+          ctx.strokeStyle = col; ctx.lineWidth = w * (0.92 + 0.08 * Math.sin(this.t * 21));
+          ctx.beginPath(); ctx.arc(0, 0, r * 0.78, -half, half); ctx.stroke();
+        }
       }
       ctx.strokeStyle = `rgba(255,252,225,${0.95 * fade})`; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(0, 0, r * 0.93, -half * 0.95, half * 0.95); ctx.stroke();
@@ -1331,6 +1373,16 @@ export class Soul5Fight {
       // 阳光之枪落点：金黄爆闪 + 放射状雷电
       ctx.translate(s.x, s.y);
       ctx.globalCompositeOperation = 'lighter';
+      // 第二百三十九轮：叠用户提供的"击中散开"贴图 + 淡金发光
+      const burstImg = this.images.sunlight_burst;
+      if (burstImg && burstImg.complete && burstImg.naturalWidth) {
+        const sz = s.r * (1.5 + k * 1.9);
+        ctx.globalAlpha = 0.4 * fade;
+        ctx.drawImage(burstImg, -sz * 0.58, -sz * 0.58, sz * 1.16, sz * 1.16);
+        ctx.globalAlpha = 0.92 * fade;
+        ctx.drawImage(burstImg, -sz * 0.5, -sz * 0.5, sz, sz);
+        ctx.globalAlpha = 1;
+      }
       // 爆闪：中心亮核 + 外环（不是一整块白饼）
       const gg = ctx.createRadialGradient(0, 0, 2, 0, 0, s.r * (0.32 + k * 0.5));
       gg.addColorStop(0, `rgba(255,255,240,${0.85 * fade})`);

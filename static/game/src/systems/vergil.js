@@ -35,6 +35,16 @@ export const VERGIL_MAX_HP = 66666;   // 第一百五十四轮再改：正式 Bo
 // 30秒左右了，本身大排档椅子伤害就低，总不能还没表演完就死了。"
 // 全程每累计受到 2000 伤害 → 无敌（P1/P2 0.5s、P3 0.8s）；154 轮的
 // P3 专属阶梯（_p3HpBase/_p3NextMilestone）退役。
+// 第二百三十九轮：五连次元斩（居合斩）的 6 帧冲击波动画
+const IAIDO_FRAMES = [];
+if (typeof Image !== 'undefined') {
+  for (let i = 0; i < 6; i++) {
+    const im = new Image();
+    im.src = `assets/fx/iaido_${i}.png`;
+    IAIDO_FRAMES.push(im);
+  }
+}
+
 const LOCK_DMG_STEP = 2000;           // 每累计受到 2000 伤害触发一次
 const LOCK_INVULN = 0.5;              // P1/P2 无敌 0.5 秒
 const P3_LOCK_INVULN = 0.8;           // P3 无敌 0.8 秒
@@ -1279,8 +1289,20 @@ export class VergilFight {
 
     // 球形裂缝 + 放射折线
     for (const rf of this.rifts) {
-      const prog = rf.st / rf.dur;
-      drawRift(ctx, rf.x, rf.y, 60 - 26 * Math.min(1, prog), 0.5 + prog * 0.5);
+      const prog = Math.min(1, rf.st / rf.dur);
+      drawRift(ctx, rf.x, rf.y, 60 - 26 * prog, 0.5 + prog * 0.5);
+      // 第二百三十九轮：叠加 6 帧居合斩冲击波（0→5 帧 = 扩散到消散）
+      const fi = Math.min(5, Math.floor(prog * 6));
+      const fimg = IAIDO_FRAMES[fi];
+      if (fimg && fimg.complete && fimg.naturalWidth) {
+        const sz = 160 + prog * 150;
+        ctx.save();
+        ctx.translate(rf.x, rf.y);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.4 + 0.5 * (1 - prog);
+        ctx.drawImage(fimg, -sz * 0.5, -sz * 0.5, sz, sz);
+        ctx.restore();
+      }
     }
     for (const rb of this.radials) {
       const k = 1 - rb.t / rb.life;

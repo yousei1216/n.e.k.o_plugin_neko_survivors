@@ -27,7 +27,10 @@ import { MOBILE } from '../core/mobile.js';
 // 进EP模式的70秒演出。防止玩家dps过高直接把芙兰秒了进不去EP。输出
 // 不够的话就正常30秒一张卡，累计触发4张卡之后还是正常进EP。然后
 // 80万血，最后16万全程锁血。相当于打芙兰64万血。"
-export const FLANDRE_MAX_HP = 800000;      // "血量为80万"（第八十六轮 50万 → 80万）
+// 第二百三十九轮：80万 → 100万（用户指定）。分卡与锁血都按总血比例算
+// （CARD_HP_FRAC 20%），所以只改这一个常量即可全链路跟随：
+// 每张卡 20 万、前 4 张共 80 万、最后 20 万进 EP 锁血。
+export const FLANDRE_MAX_HP = 1000000;     // "基础血量 100 万"（第二百三十九轮 80万 → 100万）
 export const PROLOGUE_CARD_TIME = 30;     // 秘弹生存 30 秒（原版 90 秒）
 export const CARD_TIME = 30;              // 每张 EX 符卡 30 秒
 export const CARD_HP_FRAC = 0.2;          // 第八十六轮：每张卡 20%（16 万）——

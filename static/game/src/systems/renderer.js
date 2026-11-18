@@ -436,7 +436,10 @@ export class Renderer {
     // 第三十九轮：玩家特效透明度 —— 玩家子弹套缩放 ctx，敌人子弹原样
     for (const b of world.bullets.items) {
       if (!camera.isVisible(b.x, b.y, 40)) continue;
-      this._drawBullet(b.isEnemyBullet ? ctx : this._scaledCtx(ctx), b);
+      // 第二百三十九轮：炮台弹不吃"玩家特效"透明度 —— 炮台是固定设施，
+      // 玩家要靠曳光弹判断它在打哪；把特效透明度拉低时不该连炮台射击一起看不见。
+      const bctx = (b.isEnemyBullet || b.kind === 'turret') ? ctx : this._scaledCtx(ctx);
+      this._drawBullet(bctx, b);
     }
 
     // ---- 第二百轮 C：判定点（东方式）----
@@ -2349,6 +2352,8 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(t.x, t.y);
+    // 第二百三十九轮：炮台本体永远不透明 —— 必须一眼能看清自己把炮台摆在哪
+    ctx.globalAlpha = 1;
 
     // 底座阴影
     ctx.globalAlpha = 0.28;

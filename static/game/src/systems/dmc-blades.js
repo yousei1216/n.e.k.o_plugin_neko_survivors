@@ -35,7 +35,32 @@ export function mulberry32(seed) {
  * @param {number} r      基准半径（L = r*2.2 ≈ 刀光长度，W = r*0.72 ≈ 宽度）
  * @param {number} k      生命 0→1（1 = 刚出生最亮）
  */
+// 第二百三十九轮：刀波换成用户提供的青色弧刃贴图（淡蓝发光）。
+let CRESCENT_IMG = null;
+function crescentImg() {
+  if (CRESCENT_IMG) return CRESCENT_IMG;
+  if (typeof Image === 'undefined') return null;
+  CRESCENT_IMG = new Image();
+  CRESCENT_IMG.src = 'assets/fx/vergil_wave.png';
+  return CRESCENT_IMG;
+}
+
 export function drawCrescent(ctx, x, y, angle, r, k, tint = '#59f2ff') {
+  // 有贴图就走贴图：先铺一层放大的做淡蓝外发光，再叠本体
+  const img = crescentImg();
+  if (img && img.complete && img.naturalWidth) {
+    const sz = r * 2.9;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, k * 1.4) * 0.34;
+    ctx.drawImage(img, -sz * 0.56, -sz * 0.56, sz * 1.12, sz * 1.12);
+    ctx.globalAlpha = Math.min(1, k * 1.6);
+    ctx.drawImage(img, -sz * 0.5, -sz * 0.5, sz, sz);
+    ctx.restore();
+    return;
+  }
   const L = r * 2.2;                 // 刀光基础长度（用户建议 ~100px）
   const W = r * 0.72;                // 基础宽度（~30px）
   const Hw = L * 0.5;                // 上下尖离弦中点的半距

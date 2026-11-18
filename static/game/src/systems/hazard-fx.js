@@ -406,27 +406,43 @@ function snowStatic(ctx, thin, thick, V, lite) {
 }
 
 function snowAnim(ctx, thin, thick, V, t) {
+  // 第二百三十九轮性能：原来每个雪点都 `ctx.fillStyle = 'rgba(...)'`（字符串拼接 +
+  // 样式切换），冰川图有 10 个雪区、每区几百个点，单这一项每帧就上千次。
+  // 现在把闪烁亮度量化成 3 档，同档的点聚到一个 path 里，每帧只剩 3 次 fill。
+  // 视觉上只是雪花闪烁从连续变成三档，肉眼几乎无差。
+  const ALPHA = [0.3, 0.55, 0.8];
   for (const [list, D, seed, col] of [[thin, 96, 200, '255,255,255'], [thick, 78, 300, '200,230,255']]) {
+    const bins = [[], [], []];
     for (const z of list) {
       if (z.x1 < V.x0 || z.x0 > V.x1 || z.y1 < V.y0 || z.y0 > V.y1) continue;
-      const B = { x0: Math.max(z.x0, V.x0), y0: Math.max(z.y0, V.y0), x1: Math.min(z.x1, V.x1), y1: Math.min(z.y1, V.y1) };
+      const bx0 = Math.max(z.x0, V.x0), by0 = Math.max(z.y0, V.y0);
+      const bx1 = Math.min(z.x1, V.x1), by1 = Math.min(z.y1, V.y1);
       const p = z.p;
-      for (let i = Math.floor(B.x0 / D); i <= Math.floor(B.x1 / D); i++) {
-        for (let j = Math.floor(B.y0 / D); j <= Math.floor(B.y1 / D); j++) {
+      for (let i = Math.floor(bx0 / D); i <= Math.floor(bx1 / D); i++) {
+        for (let j = Math.floor(by0 / D); j <= Math.floor(by1 / D); j++) {
           const h = hash(i + seed, j + 5);
           if (h < 0.62) continue;
           const px = i * D + hash(j, i) * D, py = j * D + hash(i, j + 3) * D;
           if (!polyInside(p, px, py)) continue;
           const tw = 0.5 + 0.5 * Math.sin(t * 2.2 + h * 30);
-          ctx.fillStyle = `rgba(${col},${0.85 * tw})`;
-          ctx.fillRect(px - 1, py - 1, 2, 2);
+          const bi = tw < 0.34 ? 0 : tw < 0.67 ? 1 : 2;
+          bins[bi].push(px, py);
         }
       }
+    }
+    for (let b = 0; b < 3; b++) {
+      const arr = bins[b];
+      if (!arr.length) continue;
+      ctx.fillStyle = `rgba(${col},${ALPHA[b]})`;
+      ctx.beginPath();
+      for (let k = 0; k < arr.length; k += 2) ctx.rect(arr[k] - 1, arr[k + 1] - 1, 2, 2);
+      ctx.fill();
     }
   }
 }
 
 // ---------------- 冰面 ----------------
+const ICE_GRAD = new Map();
 function iceStatic(ctx, list, V, lite) {
   for (const z of list) {
     const P = zonePath(z, false);
@@ -435,8 +451,14 @@ function iceStatic(ctx, list, V, lite) {
     ctx.strokeStyle = '#8fc4e6'; ctx.lineWidth = 3; ctx.stroke(P);
     if (lite) { ctx.fillStyle = 'rgba(176,226,250,0.85)'; ctx.fill(P); continue; }
     const w = z.x1 - z.x0, h = z.y1 - z.y0;
-    const g = ctx.createLinearGradient(z.x0, z.y0, z.x1, z.y1);
-    g.addColorStop(0, 'rgba(236,251,255,0.96)'); g.addColorStop(0.5, 'rgba(160,214,244,0.92)'); g.addColorStop(1, 'rgba(104,166,214,0.94)');
+    // 渐变按 zone 缓存：原来每帧给 3 个冰区各建一次线性渐变
+    const gk = `${z.x0}|${z.y0}|${z.x1}|${z.y1}`;
+    let g = ICE_GRAD.get(gk);
+    if (!g) {
+      g = ctx.createLinearGradient(z.x0, z.y0, z.x1, z.y1);
+      g.addColorStop(0, 'rgba(236,251,255,0.96)'); g.addColorStop(0.5, 'rgba(160,214,244,0.92)'); g.addColorStop(1, 'rgba(104,166,214,0.94)');
+      ICE_GRAD.set(gk, g);
+    }
     ctx.fillStyle = g; ctx.fill(P);
     ctx.save(); ctx.clip(P);
     const sd = z.cx * 0.009 + z.cy * 0.013;

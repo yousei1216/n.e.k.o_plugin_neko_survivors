@@ -75,7 +75,9 @@ export class Player extends Entity {
     // hitOY 是判定圆心相对 p.y 的竖直偏移，凡是用玩家坐标判弹的地方都要带上它
     //（bullet.js 的弹幕、renderer 的判定点、neko-pilot 的躲避、万圣节战的激光）。
     this.hitR = this.radius * 0.72;
-    this.hitOY = -this.radius * 1.35;
+    // 第二百三十九轮：判定圆心按角色立绘的脸部位置走（characters.js 的 hitOY），
+    // 只给兜底：没配的角色仍用 -1.35×radius。
+    this.hitOY = Number.isFinite(char?.hitOY) ? char.hitOY : -this.radius * 1.35;
     // 缩骨功的基准值：hitR 会被金色奖励按 0.8^层数 缩小，读档时从基准重算。
     this._hitRBase = this.hitR;
 

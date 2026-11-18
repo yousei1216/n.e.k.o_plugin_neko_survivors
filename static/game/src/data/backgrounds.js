@@ -136,16 +136,19 @@ function hash32(x) {
  * 这也让 backgroundForWave 完全由 waveIndex 决定 —— 不需要外部传历史状态。
  */
 let _permN = -1;
+let _permSeed = 0;
 let _perms = [];
 
-function ensurePerms(n, uptoCycle) {
-  if (_permN !== n) { _permN = n; _perms = []; }
+function ensurePerms(n, uptoCycle, seed = 0) {
+  // 第二百三十九轮：种子必须带"本局种子"，否则第 N 轮永远是同一个排列 ——
+  // 玩家会感觉"每局打某张地图的顺序完全固定"。缓存也要按 (n, seed) 失效。
+  if (_permN !== n || _permSeed !== seed) { _permN = n; _permSeed = seed; _perms = []; }
   while (_perms.length <= uptoCycle) {
     const c = _perms.length;
     const arr = [];
     for (let k = 0; k < n; k++) arr.push(k);
-    // 确定性 Fisher-Yates：种子只来自轮次号
-    let h = hash32(c * 0x9e3779b9 + 0x85ebca6b);
+    // 确定性 Fisher-Yates：种子 = 轮次号 + 本局种子（同一局内可复现，跨局不同）
+    let h = hash32((c * 0x9e3779b9 + 0x85ebca6b + (seed | 0)) >>> 0);
     for (let i = n - 1; i > 0; i--) {
       h = hash32(h + i * 0x27d4eb2f);
       const j = h % (i + 1);
@@ -184,14 +187,14 @@ function ensurePerms(n, uptoCycle) {
  * @param {string|null} [prevId] 上一波用的背景 id；传了就保证不会返回它
  * @returns {string|null}
  */
-export function backgroundForWave(waveIndex, prevId = null) {
+export function backgroundForWave(waveIndex, prevId = null, seed = 0) {
   const n = BACKGROUNDS.length;
   if (!n) return null;
 
   const i = Math.max(0, waveIndex | 0);
   const cycle = Math.floor(i / n);
   const pos = i % n;
-  ensurePerms(n, cycle);
+  ensurePerms(n, cycle, seed);
   const perm = _perms[cycle];
 
   let pick = perm[pos];
@@ -219,11 +222,11 @@ export function backgroundForWave(waveIndex, prevId = null) {
  * @param {number} [startWave] 从第几波开始（0-based）
  * @returns {string[]}
  */
-export function backgroundSequence(count, startWave = 0) {
+export function backgroundSequence(count, startWave = 0, seed = 0) {
   const out = [];
   let prev = null;
   for (let k = 0; k < count; k++) {
-    const id = backgroundForWave(startWave + k, prev);
+    const id = backgroundForWave(startWave + k, prev, seed);
     out.push(id);
     prev = id;
   }
@@ -245,12 +248,12 @@ export function backgroundSequence(count, startWave = 0) {
  * @param {string|null} prevId 上一波用的背景
  * @param {string[]} banned 禁用 id 列表
  */
-export function backgroundForBossWave(waveIndex, prevId, banned) {
-  const bg = backgroundForWave(waveIndex, prevId);
+export function backgroundForBossWave(waveIndex, prevId, banned, seed = 0) {
+  const bg = backgroundForWave(waveIndex, prevId, seed);
   if (!bg || !banned.includes(bg)) return bg;
   const n = BACKGROUNDS.length;
   for (let k = 1; k <= n * 3; k++) {
-    const cand = backgroundForWave(waveIndex + k, prevId);
+    const cand = backgroundForWave(waveIndex + k, prevId, seed);
     if (cand && !banned.includes(cand)) return cand;
   }
   const ok = BACKGROUNDS.filter((b) => !banned.includes(b.id));

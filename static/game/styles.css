@@ -3893,3 +3893,50 @@ input[type="range"].fx-slider::-moz-range-thumb {
 @media (max-width: 780px) {
   .life-hub .figure-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 }
+
+/* =========================================================
+   第二百三十九轮
+   ========================================================= */
+/* 1) 抽卡结果里的「UR 附赠手办」：色块单字 → 手办立绘 */
+#overlay .gacha-figure-avatar {
+  width: 56px;
+  height: 72px;
+  margin: 0 auto 4px;
+  padding: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fc, #b794f6) 16%, rgba(24, 14, 34, .55));
+  border: 2px solid rgba(255, 255, 255, .58);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--fc, #b794f6) 45%, transparent);
+}
+#overlay .gacha-figure-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+#overlay .gacha-figure { min-width: 64px; }
+
+/* 10) 选角色页：组队入口文案 */
+.party-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #7d8aa3;
+  letter-spacing: .5px;
+  align-self: center;
+  padding-right: 2px;
+}
+.party-hint {
+  font-size: 11px;
+  color: #9aa5b8;
+  align-self: center;
+  margin-left: 2px;
+}

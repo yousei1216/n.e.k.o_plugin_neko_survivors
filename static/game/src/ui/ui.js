@@ -31,7 +31,7 @@ import {
   fishingShopHtml, farmShopHtml, fishBagHtml, cropBagHtml,
   bindLifePanels, bindLifeShop,
 } from './life-ui.js';
-import { COINS_PER_TICKET, getFigure } from '../data/life.js';
+import { COINS_PER_TICKET, FIGURE_POINTS_COST, getFigure } from '../data/life.js';
 
 /**
  * 转义要放进 HTML 属性里的文本。
@@ -464,7 +464,7 @@ export class UI {
     lifeMeta = null, onLifeAction = null, onOpenLifeShop = null, onOpenLifeBag = null,
     onLifeSound = null, onOpenLifeHub = null, onCoinExchange = null, gachaUrRate = 1,
     checkinPreview = null, onCheckin = null,
-    hideSidePanels = false, onToggleSidePanels = null }) {
+    hideSidePanels = false, onToggleSidePanels = null, onBuyFigure = null }) {
     const d = getDifficulty(difficulty);
     const diffBtns = difficultyList().map((x) => `
       <button class="diff-btn ${x.id === d.id ? 'active' : ''}" data-diff="${x.id}"
@@ -588,6 +588,8 @@ export class UI {
           <div class="coin-exchange-row">
             <button class="btn small" data-act="coin-exchange" data-count="1">${COINS_PER_TICKET} 金币 → 1 券</button>
             <button class="btn small" data-act="coin-exchange" data-count="10">${COINS_PER_TICKET * 10} → 10 券</button>
+            <!-- 第二百三十九轮：能力点数直换手办 -->
+            <button class="btn small" data-act="buy-figure" title="随机获得一个角色手办（重复则升级，满级折金币）">${FIGURE_POINTS_COST} 点 → 随机手办</button>
           </div>
           <button class="btn small gacha-upg-btn" data-act="meta-upgrades">${iconSvg('extraUpgrade', 'gacha-upg-ico')}升级能力</button>
           <!-- 第二百二十六轮：给作者视频三连的 50 抽一次性福利 -->
@@ -745,6 +747,8 @@ export class UI {
     }
 
     // 第二百二十八轮：金币兑换抽卡券（用户选择"不限量"，只受金币余额限制）
+    const buyFigureBtn = root.querySelector('[data-act="buy-figure"]');
+    if (buyFigureBtn && onBuyFigure) buyFigureBtn.onclick = onBuyFigure;
     root.querySelectorAll('[data-act="coin-exchange"]').forEach((b) => {
       b.onclick = () => {
         if (!onCoinExchange) return;
@@ -891,7 +895,7 @@ export class UI {
           <div class="gacha-figures-row">${figures.map((f) => {
             const def = getFigure(f.charId);
             return `<div class="gacha-figure" style="--fc:${def.color}">
-              <div class="gacha-figure-avatar">${def.glyph}</div>
+              <div class="gacha-figure-avatar"><img src="${def.sprite}" alt="${def.name}" draggable="false"></div>
               <div class="gacha-figure-name">${def.name}</div>
               <div class="gacha-figure-lv">${f.duplicate ? `已满级 · +${f.coins} 金币` : `Lv.${f.level}/5`}</div>
             </div>`;
@@ -1156,7 +1160,8 @@ export class UI {
     const root = this._mount(`
       <div class="screen">
         <h2>选择你的猫娘</h2>
-        <div class="sub">每个角色有不同的初始属性与起始武器，选一个开始这局。</div>
+        <div class="sub">每位猫娘都有自己的初始属性和起始武器。可以一个人出发，
+          也能喊上 1~3 位小伙伴一起上——人多怪也硬，但收益同享。</div>
         <div class="diff-block">
           <div class="diff-label">难度</div>
           <div class="diff-row">${diffBtns}</div>
@@ -1166,21 +1171,16 @@ export class UI {
         <div class="btn-row">
           <button class="btn primary" data-act="go">用这个角色开始</button>
           <button class="btn" data-act="back">返回</button>
-          <!-- 第一百六十六轮：「猫娘帮你玩」—— NekoPilot 代打入口 -->
-          ${onNekoPlay ? '<button class="btn" data-act="neko-play" style="border-color:#ff9ec7;color:#ff9ec7">🐾 猫娘帮你玩</button>' : ''}
-          <!-- 第一百七十轮：「双猫娘同游」—— 2P 实验（P1 手操 + P2 AI 猫娘队友） -->
-          ${onDuoPlay ? '<button class="btn" data-act="duo-play" style="border-color:#9ec7ff;color:#9ec7ff">🐱‍👤 和猫娘一起玩（实验）</button>' : ''}
-          <!-- 第一百七十一轮：双猫娘围观 —— 1P/2P 全 AI，纯看戏 -->
-          ${onDuoWatch ? '<button class="btn" data-act="duo-watch" style="border-color:#c79eff;color:#c79eff">👀 看2个猫娘手忙脚乱（实验）</button>' : ''}
         </div>
         <!-- 第一百八十四轮：1~4P 小队 —— P1 真人 + 1~3 个 AI 猫娘；
              AI 全走 agentMoveTarget 不抢键盘，敌血按人数 +20/40/60% 递增 -->
         ${onPartyPlay ? `
         <div class="btn-row" style="gap:6px">
-          <span style="font-size:12px;color:#8a93a6;align-self:center">猫娘小队：</span>
+          <span class="party-label">组队出发</span>
           <button class="btn" data-act="party-2" style="border-color:#9ec7ff;color:#9ec7ff;padding:4px 12px">2P（+1猫娘）</button>
           <button class="btn" data-act="party-3" style="border-color:#ffd166;color:#ffd166;padding:4px 12px">3P（+2猫娘）</button>
           <button class="btn" data-act="party-4" style="border-color:#4cc9f0;color:#4cc9f0;padding:4px 12px">4P（+3猫娘）</button>
+          <span class="party-hint">每多一位猫娘，敌人血量 +20%</span>
         </div>` : ''}
       </div>
     `);
@@ -1195,15 +1195,8 @@ export class UI {
 
     root.querySelector('[data-act="go"]').onclick = () => onConfirm(selected);
     root.querySelector('[data-act="back"]').onclick = onBack;
-    // 第一百六十六轮：猫娘代打入口
-    const nekoBtn = root.querySelector('[data-act="neko-play"]');
-    if (nekoBtn) nekoBtn.onclick = () => onNekoPlay(selected);
-    // 第一百七十轮：双猫娘同游（2P 实验）
-    const duoBtn = root.querySelector('[data-act="duo-play"]');
-    if (duoBtn) duoBtn.onclick = () => onDuoPlay(selected);
-    // 第一百七十一轮：双猫娘围观（全 AI）
-    const watchBtn = root.querySelector('[data-act="duo-watch"]');
-    if (watchBtn) watchBtn.onclick = () => onDuoWatch();
+    // 第二百三十九轮：删除「猫娘帮你玩 / 和猫娘一起玩 / 看2个猫娘手忙脚乱」三个入口，
+    // 只保留 1~4P 小队（它们分别被 2P 和观战模式覆盖，入口重复且让页面很挤）。
     // 第一百八十四轮：1~4P 小队
     for (const n of [2, 3, 4]) {
       const b = root.querySelector(`[data-act="party-${n}"]`);

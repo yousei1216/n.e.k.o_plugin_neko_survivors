@@ -651,6 +651,23 @@ export function grantFigure(meta, rng) {
   };
 }
 
+// 第二百三十九轮：能力点数直接兑换随机手办（不消耗抽卡券）
+export const FIGURE_POINTS_COST = 500;
+
+/**
+ * 用能力点数换一个随机手办。
+ * 与 UR 附赠走同一套 grantFigure：重复升 1 级，满级折金币。
+ */
+export function buyFigureWithPoints(meta, rng) {
+  const cost = FIGURE_POINTS_COST;
+  if ((meta.gachaPoints | 0) < cost) {
+    return { ok: false, msg: `能力点数不足：需要 ${cost}` };
+  }
+  meta.gachaPoints = (meta.gachaPoints | 0) - cost;
+  const figure = grantFigure(meta, rng);
+  return { ok: true, cost, figure, points: meta.gachaPoints | 0 };
+}
+
 /** 把手办等级加成叠到对应角色身上（P1 和队友都会调用）。 */
 export function applyFigureBonuses(player, meta) {
   if (!player?.stats || !player.characterId) return 0;
