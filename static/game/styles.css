@@ -3845,3 +3845,51 @@ input[type="range"].fx-slider::-moz-range-thumb {
 /* 手办柜：标题行压紧 + 底边距修正（实测 absolute 有 ~24px 额外偏移） */
 .title-figures { bottom: 44px; }
 .title-figures .life-head { min-height: 16px; }
+
+/* =========================================================
+   第二百三十八轮：生活区弹窗里的手办柜重做
+   弹窗里 title-figures 会撑满 100% 宽，原来沿用主菜单的 4 列 + 56px 定高，
+   每格被拉成 240×90 的宽扁格，立绘按高度缩到 43px 宽 —— 所以"几乎看不到"。
+   改成 8 列、立绘按比例吃满卡片宽度。
+   ========================================================= */
+.life-hub .figure-grid {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 7px;
+}
+.life-hub .figure-card {
+  padding: 5px 4px 6px;
+  border-radius: 10px;
+}
+.life-hub .figure-avatar {
+  height: auto;
+  aspect-ratio: 140 / 184;
+  margin-bottom: 4px;
+  border-radius: 9px;
+}
+.life-hub .figure-name {
+  font-size: 10px;
+  line-height: 13px;
+  height: 13px;
+  margin-top: 2px;
+}
+.life-hub .figure-meta {
+  height: 11px;
+  line-height: 11px;
+  font-size: 9px;
+  margin-top: 1px;
+}
+.life-hub .figure-meta .figure-lv { font-size: 9px; line-height: 11px; }
+.life-hub .figure-meta .figure-dots { font-size: 7px; line-height: 11px; }
+.life-hub .figure-lock { font-size: 30px; }
+/* 弹窗里未获得的剪影提亮一点，能看出是哪个角色的轮廓 */
+.life-hub .figure-card.locked .figure-avatar img {
+  filter: grayscale(1) brightness(.46) contrast(1.05);
+  opacity: .85;
+}
+.life-hub .figure-card.locked { opacity: .9; }
+.life-hub .title-figures .life-title { font-size: 15px; }
+.life-hub .title-figures .life-sub { font-size: 10.5px; }
+/* 窄屏退回 4 列，避免每格挤成一条 */
+@media (max-width: 780px) {
+  .life-hub .figure-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+}
