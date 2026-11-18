@@ -1496,11 +1496,11 @@ export class FlandreFight {
     // 实例归零，位置由 _pinBoss 每帧钉死，Boss AI 永远追不到人。
     e.speed = 0;
     // 第二百零三轮：多人血量加成 —— 用户："新流派加入之后特殊boss更脆皮了，让她们也享受多人玩家血量加成吧。就是大排档椅子维吉尔和芙兰的血量享受人数加成。"
-    // 口径同普通 Boss（world.spawnEnemy）：每多一个玩家 +50%（2P ×1.5，4P ×2.5）；240 轮从 45% 上调。阶段门槛 / 符卡分段全部按实例 hpMax 算。
+    // 口径同普通 Boss（world.spawnEnemy）：每多一个玩家 +53%（2P ×1.53，4P ×2.59）；242 轮从 50% 上调。阶段门槛 / 符卡分段全部按实例 hpMax 算。
     this.hpMax = FLANDRE_MAX_HP;
     {
       const k = (w.players?.().length ?? 1) - 1;
-      if (k > 0) { this.hpMax = Math.round(FLANDRE_MAX_HP * (1 + 0.5 * k)); e.maxHp = this.hpMax; e.hp = this.hpMax; }
+      if (k > 0) { this.hpMax = Math.round(FLANDRE_MAX_HP * (1 + 0.53 * k)); e.maxHp = this.hpMax; e.hp = this.hpMax; }
     }
     // 第五十轮：芙兰出现 → 立刻恢复玩家攻击
     //（用户："把不攻击的设置改成芙兰出现就恢复攻击"）

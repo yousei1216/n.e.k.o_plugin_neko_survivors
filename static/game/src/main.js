@@ -978,6 +978,10 @@ export class Game {
       if (!t || !t.closest) return;
       const btn = t.closest('button, [data-act], [data-diff], [data-buy], [data-lock], [data-combine], [data-up], [data-boon], [data-take-reward], [data-mg-begin], [data-mg-again], [data-mg-close]');
       if (!btn) return;
+      // 第二百四十二轮：商店购买/锁定/合成/刷新/出售的按钮本身已经有专属
+      // 音效（buy/lock/combine/reroll），再叠一声 click 就是重复；
+      // 钓鱼面板（含鱼竿鱼饵商店）按用户要求也不播通用点击音。
+      if (btn.closest('[data-buy], [data-lock], [data-combine], [data-take-reward], [data-act="reroll"], [data-act="confirm-sell"], [data-act="cancel-sell"], .title-fishing, .life-shop-screen')) return;
       const act = btn.dataset?.act;
       if (act === 'start' || (act === 'go' && this.state === STATE.CHAR_SELECT)) return;
       audio.play('click');
