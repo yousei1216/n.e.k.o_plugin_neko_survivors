@@ -249,6 +249,9 @@ export const ENEMIES = [
   // 轮换顺序（world._midBossIdFor）：露娜(3) → 哈基(6) → 霰(9) → 夜刃(12) → 循环。
   // 全部 elite:true + midboss:true：血量走普通怪曲线（≈精英 3 倍底血），伤害走精英乘区，
   // 抗性/真伤档/击退折算同精英；不掷变异/怪菌；脸画在立绘里（noCanvasEyes）。
+  // 掉落：xp 30 保留（≈精英 3 倍）；材料 30 → 12（第二百四十轮用户："中boss的金钱
+  // 收入几百块太多了"）——材料仍按 10 份掉落，噩梦第 3 波从 ~390 降到 ~160，
+  // 与精英同基数，不再是整波小怪收入的十倍。
   // =========================================================
   // 第二百零二轮：新小怪 6 种（补"蜂群 / 抛射 / 预警狙击 / 破盾 / 召唤 / 闪现"六个空缺）。
   // 全部是猫娘计划世界观里的猫/机械猫；脸画在立绘里（noCanvasEyes）。
@@ -294,14 +297,14 @@ export const ENEMIES = [
   },
   {
     id: 'mid_witch', name: '星屑魔女·露娜', hp: 520, speed: 120, damage: 9, radius: 36,
-    color: '#9a6df0', shape: 'star', behavior: 'midRanged', armor: 6, xp: 30, materials: 30,
+    color: '#9a6df0', shape: 'star', behavior: 'midRanged', armor: 6, xp: 30, materials: 12,
     elite: true, midboss: true, bossName: '星屑魔女·露娜', noCanvasEyes: true,
     attackRange: 340, signature: 'luna',
     desc: '中 Boss（远程）。九向扇形弹先压你的走位，血少了会追加星屑螺旋与留缺口的圆环。',
   },
   {
     id: 'mid_bear', name: '暴走锤熊·哈基', hp: 640, speed: 120, damage: 14, radius: 42,
-    color: '#c9854a', shape: 'circle', behavior: 'midMelee', armor: 10, xp: 30, materials: 30,
+    color: '#c9854a', shape: 'circle', behavior: 'midMelee', armor: 10, xp: 30, materials: 12,
     elite: true, midboss: true, bossName: '暴走锤熊·哈基', noCanvasEyes: true,
     chaseSpeedMul: 1.0, chargeSpeed: 400, chargeWindup: 0.95, chargeDuration: 0.5,
     chargeCooldown: 3.2, chargeTrigger: 420, landing: 'slam',
@@ -309,14 +312,14 @@ export const ENEMIES = [
   },
   {
     id: 'mid_mech', name: '机魂炮猫·霰', hp: 560, speed: 120, damage: 9, radius: 40,
-    color: '#8e9dbd', shape: 'hex', behavior: 'midRanged', armor: 14, xp: 30, materials: 30,
+    color: '#8e9dbd', shape: 'hex', behavior: 'midRanged', armor: 14, xp: 30, materials: 12,
     elite: true, midboss: true, bossName: '机魂炮猫·霰', noCanvasEyes: true,
     attackRange: 380, signature: 'barrage',
     desc: '中 Boss（远程）。从四面推来一整面弹墙，墙上只留一道缺口；二阶段起追加高速狙击弹。',
   },
   {
     id: 'mid_panther', name: '影爪豹·夜刃', hp: 480, speed: 150, damage: 12, radius: 36,
-    color: '#6a58d6', shape: 'circle', behavior: 'midMelee', armor: 8, xp: 30, materials: 30,
+    color: '#6a58d6', shape: 'circle', behavior: 'midMelee', armor: 8, xp: 30, materials: 12,
     elite: true, midboss: true, bossName: '影爪豹·夜刃', noCanvasEyes: true,
     chaseSpeedMul: 1.1, chargeSpeed: 470, chargeWindup: 0.6, chargeDuration: 0.36,
     chargeRepeats: 2, chargeCooldown: 2.8, chargeTrigger: 380, landing: 'fan',
