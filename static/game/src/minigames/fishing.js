@@ -270,6 +270,7 @@ export class FishingGame {
     this.qteTargetDir = this.qteDir;
     this.qteTurnT = this.qteTurnEvery;
     this.qteSplashT = 0.08;
+    this.qteFlash = 1;      // 转向脉冲（第二百三十四轮）
   }
 
   _pointerUp() {
@@ -359,9 +360,11 @@ export class FishingGame {
       if (this.qteTurnT <= 0) {
         this.qteTargetDir = (Math.random() < 0.5 ? 0 : Math.PI) + rand(-0.28, 0.28);
         this.qteTurnT = this.qteTurnEvery;
+        this.qteFlash = 1;
         this._qteSplashBurst();
       }
       this.qteDir = this._angleMove(this.qteDir, this.qteTargetDir, this.qteTurnSpeed * dt);
+      this.qteFlash = Math.max(0, (this.qteFlash || 0) - dt * 2.8);
       this.qteSplashT -= dt;
       if (this.qteSplashT <= 0) {
         this.qteSplashT = 0.22;
@@ -424,6 +427,17 @@ export class FishingGame {
     this.reeling = false;
     this.message = '收线！鱼要上来了';
     this.ripples.push({ x: fromX, y: 114, r: 10, max: 74, a: 0.9 });
+    // 鱼被拽出水面的水花
+    for (let i = 0; i < 14; i++) {
+      const ang = -Math.PI / 2 + rand(-1.1, 1.1);
+      const sp = rand(40, 130);
+      this.particles.push({
+        x: fromX, y: 112,
+        vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+        life: rand(0.25, 0.65), max: 0.65, r: rand(1.3, 2.8),
+        color: i % 3 === 0 ? '#ffe9a0' : '#d8f6ff',
+      });
+    }
     this._sound('pickupXp');
     this._emitHud(true);
   }
@@ -610,8 +624,10 @@ export class FishingGame {
     const pose = charging ? POSE_RAISE : POSE_FISH;
     let angle = pose.angle;
     if (this.state === 'cast') {
+      // 第二百三十四轮：抬杆角从 -0.55 收到 -0.28 —— 原角度会让竿尖冲出画布顶部，
+      // 鱼线起点被夹到 y=0，视觉上像从角色头顶/背后甩出来。
       const p = 1 - clamp(this.castT / 0.55, 0, 1);
-      angle = -0.55 + p * 0.43;
+      angle = -0.28 + p * 0.18;
     } else if (this.state === 'reel') {
       angle = pose.angle + this.tension * 0.18 + Math.sin(t * 12) * 0.008;
     } else if (this.state === 'bite') {
@@ -963,6 +979,75 @@ export class FishingGame {
     ctx.restore();
   }
 
+  /**
+   * 鱼线：一条主光 + 一条柔光描边，控制点按状态决定下垂量。
+   *   idle/wait 静止 → 明显下垂（重力）
+   *   cast 飞行     → 轻微下垂（被甩出去）
+   *   reel 收线     → 拉直略上凸，张力越大越粗越亮，快到断裂时发红抖动
+   *   bite/landing  → 绷直
+   */
+  _drawFishingLine(lineStart, bx, by, t) {
+    const ctx = this.ctx;
+    const len = Math.hypot(bx - lineStart.x, by - lineStart.y);
+    let sag = 0;
+    let alpha = 0.82;
+    let width = 1.2;
+    let danger = 0;
+
+    if (this.state === 'wait' || this.state === 'idle') {
+      sag = Math.min(24, len * 0.13);      // 向下垂
+      alpha = 0.7;
+      width = 1.1;
+    } else if (this.state === 'cast') {
+      sag = Math.min(10, len * 0.05);
+      alpha = 0.8;
+    } else if (this.state === 'reel') {
+      sag = -4;                            // 绷紧，略上凸
+      width = 1.25 + this.tension * 1.1;
+      alpha = 0.9;
+      danger = clamp((this.tension - 0.7) / 0.3, 0, 1);
+      // 张力过高：抖动
+      if (danger > 0) {
+        const jitter = danger * 2.4;
+        lineStart = { x: lineStart.x + Math.sin(t * 47) * jitter, y: lineStart.y + Math.cos(t * 53) * jitter };
+      }
+    } else if (this.state === 'bite') {
+      sag = -2;
+      alpha = 0.95;
+      width = 1.3;
+    } else if (this.state === 'landing') {
+      sag = -3;
+      alpha = 0.92;
+    }
+
+    const mx = (lineStart.x + bx) / 2;
+    const my = (lineStart.y + by) / 2 + sag;
+
+    // 柔光描边：远处也能看清细线
+    ctx.save();
+    ctx.strokeStyle = `rgba(226, 250, 255, ${alpha * 0.22})`;
+    ctx.lineWidth = width + 1.8;
+    ctx.beginPath();
+    ctx.moveTo(lineStart.x, lineStart.y);
+    ctx.quadraticCurveTo(mx, my, bx, by);
+    ctx.stroke();
+
+    // 主线：张力高时由白转红
+    if (danger > 0) {
+      const g = Math.round(236 - danger * 130);
+      const b = Math.round(240 - danger * 150);
+      ctx.strokeStyle = `rgba(255, ${g}, ${b}, ${alpha})`;
+    } else {
+      ctx.strokeStyle = `rgba(240, 255, 255, ${alpha})`;
+    }
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(lineStart.x, lineStart.y);
+    ctx.quadraticCurveTo(mx, my, bx, by);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   _drawRodAndBobber(t) {
     const ctx = this.ctx;
     const { angle, anchorX, anchorY } = this._rodPose(t);
@@ -1022,7 +1107,8 @@ export class FishingGame {
       bx = this.bobberX + (toX - this.bobberX) * pull;
       by = 112 + (toY - 112) * pull + Math.sin(t * 10) * 3 * (1 - pull * 0.7);
       showBobber = false;
-      if (pull > 0.08) this._drawStrugglingFish(bx, by + 4, t, 0.8 + pull * 0.35);
+      const sizeK = 1 + this.qteRarity * 0.1;
+      if (pull > 0.08) this._drawStrugglingFish(bx, by + 4, t, (0.8 + pull * 0.35) * sizeK);
     } else if (this.state === 'landing') {
       // 最后只把鱼提到竿尖附近，线始终以竿尖为终点。
       const p = 1 - clamp(this.landT / 0.75, 0, 1);
@@ -1033,32 +1119,42 @@ export class FishingGame {
       bx = from.x + (toX - from.x) * e;
       by = from.y + (toY - from.y) * e - Math.sin(p * Math.PI) * 8;
       showBobber = false;
-      this._drawStrugglingFish(bx, by, t, 0.95);
+      this._drawStrugglingFish(bx, by, t, 0.95 * (1 + this.qteRarity * 0.1));
     }
 
-    ctx.strokeStyle = 'rgba(240, 255, 255, .82)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(lineStart.x, lineStart.y);
-    ctx.quadraticCurveTo((lineStart.x + bx) / 2, Math.min(lineStart.y, by) - 6, bx, by);
-    ctx.stroke();
+    // ---- 第二百三十四轮：鱼线表现 ----
+    // 静止时受重力下垂；抛竿飞行时被甩直；收线时绷紧发亮，张力过高转红并抖动。
+    this._drawFishingLine(lineStart, bx, by, t);
 
     if (showBobber) {
       ctx.save();
       ctx.translate(bx, by);
-      ctx.fillStyle = '#fff';
+      // 第二百三十四轮：浮漂更有实体感 —— 水面接触阴影 + 水痕圈 + 主体 + 高光 + 顶珠
+      ctx.fillStyle = 'rgba(16, 44, 64, .3)';
+      ctx.beginPath(); ctx.ellipse(0, 8, 9.5, 3.2, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(220, 250, 255, .34)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, 8, 11.5, 4, 0, 0, TAU); ctx.stroke();
+      // 主体：上红下白
+      ctx.fillStyle = '#f7fbff';
       ctx.beginPath(); ctx.ellipse(0, 0, 6, 9, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = '#ff5f6d';
       ctx.beginPath(); ctx.ellipse(0, -3, 6, 5, 0, 0, TAU); ctx.fill();
+      // 高光
+      ctx.fillStyle = 'rgba(255, 255, 255, .9)';
+      ctx.beginPath(); ctx.ellipse(-2.2, -1.2, 1.5, 2.6, -0.3, 0, TAU); ctx.fill();
+      // 顶杆 + 顶珠
       ctx.strokeStyle = '#8a3a44';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(0, -16); ctx.stroke();
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath(); ctx.arc(0, -16, 1.7, 0, TAU); ctx.fill();
       ctx.restore();
     }
 
     if (this.state === 'bite') {
       const bounce = Math.abs(Math.sin(t * 9)) * 4;
-      const cy = by - 30 - bounce;
+      const cy = by - 38 - bounce;
       ctx.save();
       ctx.globalAlpha = 0.92;
       ctx.fillStyle = '#ff3b5c';
@@ -1115,8 +1211,52 @@ export class FishingGame {
   _drawReelQte(x, y, t) {
     const ctx = this.ctx;
     const pulse = Math.sin(t * 6) * 2;
+    const flash = clamp(this.qteFlash || 0, 0, 1);
     ctx.save();
     ctx.translate(x, y);
+
+    // 外圈：收线进度（绿色，从 12 点顺时针）
+    const progR = 47;
+    ctx.strokeStyle = 'rgba(255, 255, 255, .16)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, progR, 0, TAU);
+    ctx.stroke();
+    if (this.progress > 0) {
+      ctx.strokeStyle = 'rgba(255, 214, 120, .92)';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, progR, -Math.PI / 2, -Math.PI / 2 + TAU * this.progress);
+      ctx.stroke();
+      ctx.lineCap = 'butt';
+    }
+
+    // 内圈：张力环（绿→黄→红，越危险越红）
+    const tenR = 41;
+    const ten = clamp(this.tension, 0, 1);
+    let tenColor;
+    if (ten < 0.5) {
+      // 安全：从青色渐变到黄色
+      const k = ten / 0.5;
+      tenColor = `rgba(${Math.round(111 + k * 144)}, ${Math.round(224 + k * 31)}, ${Math.round(255 - k * 153)}, .8)`;
+    } else {
+      // 危险：从黄色渐变到红色
+      const k = (ten - 0.5) / 0.5;
+      tenColor = `rgba(255, ${Math.round(255 - k * 150)}, ${Math.round(102 - k * 80)}, .88)`;
+    }
+    ctx.strokeStyle = 'rgba(255, 255, 255, .12)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, tenR, 0, TAU);
+    ctx.stroke();
+    if (ten > 0.02) {
+      ctx.strokeStyle = tenColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, tenR, -Math.PI / 2, -Math.PI / 2 + TAU * ten);
+      ctx.stroke();
+    }
 
     // 多个同心圆
     for (const [r, a] of [[40 + pulse, .30], [31, .22], [23, .16]]) {
@@ -1124,6 +1264,15 @@ export class FishingGame {
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, TAU);
+      ctx.stroke();
+    }
+
+    // 转向脉冲：鱼突然换方向时闪一圈
+    if (flash > 0.01) {
+      ctx.strokeStyle = `rgba(255, 255, 255, ${flash * 0.55})`;
+      ctx.lineWidth = 2 + flash * 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 34 + (1 - flash) * 12, 0, TAU);
       ctx.stroke();
     }
 
@@ -1159,6 +1308,19 @@ export class FishingGame {
     if (dist > 3) {
       const a = Math.atan2(dy, dx);
       const good = Math.cos(a - (this.qteDir + Math.PI)) > 0.15;
+      // 拉住时圈内泛光：对了绿、反了红（呼吸式）
+      if (this.reeling) {
+        const breath = 0.5 + Math.sin(t * 9) * 0.5;
+        const rg = ctx.createRadialGradient(0, 0, 4, 0, 0, 32);
+        rg.addColorStop(0, good
+          ? `rgba(126, 255, 180, ${0.06 + breath * 0.11})`
+          : `rgba(255, 108, 108, ${0.06 + breath * 0.13})`);
+        rg.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = rg;
+        ctx.beginPath();
+        ctx.arc(0, 0, 32, 0, TAU);
+        ctx.fill();
+      }
       ctx.save();
       ctx.rotate(a);
       ctx.strokeStyle = this.reeling
