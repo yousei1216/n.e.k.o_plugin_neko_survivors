@@ -366,6 +366,8 @@ export const FIGURES = CHARACTERS.map((c) => ({
   pct: FIGURE_BUFFS[c.id]?.pct || {},
   flat: FIGURE_BUFFS[c.id]?.flat || {},
   desc: FIGURE_BUFFS[c.id]?.desc || '永久小幅加强。',
+  // 第二百三十七轮：手办柜显示真实手办立绘（tools/slice_figures.cjs 切图，140×184 透明底）
+  sprite: `assets/figures/${c.id}.png`,
 }));
 
 export const FISH_MAP = Object.fromEntries(FISH.map((f) => [f.id, f]));

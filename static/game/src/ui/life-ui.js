@@ -175,11 +175,12 @@ export function fishPanelHtml({ fishing, coins = 0 }) {
 }
 
 export function figuresPanelHtml({ figures }) {
+  const owned = FIGURES.filter((f) => (figures?.[f.charId] | 0) > 0).length;
   return `
     <div class="title-figures life-panel">
       <div class="life-head">
         <span class="life-title">🏆 手办柜</span>
-        <span class="life-sub">UR 附赠 · 对应角色永久加强</span>
+        <span class="life-sub">UR 附赠 · 对应角色永久加强 · 已收集 ${owned}/${FIGURES.length}</span>
       </div>
       <div class="figure-grid">
         ${FIGURES.map((f) => {
@@ -189,10 +190,15 @@ export function figuresPanelHtml({ figures }) {
               title="${lv > 0
                 ? `${f.figureName}\nLv.${lv}/5\n每级：${f.desc}\n当前：${figureBuffText(f, lv)}`
                 : `${f.figureName}\n尚未获得 · UR 抽卡随机附赠`}">
-            <div class="figure-avatar">${lv > 0 ? f.glyph : '?'}</div>
+            <div class="figure-avatar">
+              <img src="${f.sprite}" alt="${lv > 0 ? f.name : '未获得'}" draggable="false">
+              ${lv > 0 ? '' : '<span class="figure-lock">?</span>'}
+            </div>
             <div class="figure-name">${lv > 0 ? f.name : '???'}</div>
-            <div class="figure-lv">${lv > 0 ? `Lv.${lv}/5` : '未获得'}</div>
-            <div class="figure-dots">${'●'.repeat(lv)}${'○'.repeat(5 - lv)}</div>
+            <div class="figure-meta">
+              <span class="figure-lv">${lv > 0 ? `Lv.${lv}/5` : '未获得'}</span>
+              <span class="figure-dots">${'●'.repeat(lv)}${'○'.repeat(5 - lv)}</span>
+            </div>
           </div>`;
         }).join('')}
       </div>
